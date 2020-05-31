@@ -6,6 +6,7 @@ theory CHERI_Instantiation
     "Sail.Sail2_values_lemmas"
     "HOL-Library.Monad_Syntax"
     "Sail-T-CHERI.Word_Extra"
+    "Sail-T-CHERI.Recognising_Automata"
 begin
 
 no_notation Sail2_prompt_monad.bind (infixr "\<bind>" 54)
@@ -78,6 +79,17 @@ lemma CapSetTag_set_bit128[simp]:
 lemma CapIsTagSet_CapSetTag_iff[simp]:
   "CapIsTagSet (CapSetTag c t) \<longleftrightarrow> (t !! 0)"
   by (auto simp: test_bit_set)
+
+lemmas datatype_splits =
+  ArchVersion.splits Constraint.splits Unpredictable.splits Exception.splits InstrEnc.splits
+  BranchType.splits Fault.splits AccType.splits DeviceType.splits MemType.splits InstrSet.splits
+  GTEParamType.splits PrivilegeLevel.splits MBReqDomain.splits MBReqTypes.splits PrefetchHint.splits
+  FPExc.splits FPRounding.splits FPType.splits SysRegAccess.splits OpType.splits TimeStamp.splits
+  CountOp.splits ExtendType.splits FPMaxMinOp.splits FPUnaryOp.splits FPConvOp.splits
+  MoveWideOp.splits ShiftType.splits LogicalOp.splits MemOp.splits MemAtomicOp.splits
+  MemBarrierOp.splits SystemHintOp.splits PSTATEField.splits SystemOp.splits VBitOp.splits
+  CompareOp.splits ImmediateOp.splits ReduceOp.splits SRType.splits AsyncErrorType.splits
+  VBitOps.splits VCGEtype.splits VCGTtype.splits VFPNegMul.splits
 
 section \<open>Capabilities\<close>
 
@@ -204,36 +216,9 @@ fun is_mem_event :: "'regval event \<Rightarrow> bool" where
 | "is_mem_event (E_write_mem _ _ _ _ _) = True"
 | "is_mem_event _ = False"
 
-locale Morello_Address_Translation =
+locale Morello_ISA =
   fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
-    and translation_assms :: "register_value event \<Rightarrow> bool"
-  assumes translate_correct64:
-      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
-          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
-          FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
-          \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
-          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) t =
-            Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
-    and translate_correct32:
-      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
-          Run (AArch32_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
-          FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
-          \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
-          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) t =
-            Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
-    and is_translation_event_correct64:
-      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
-          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
-          \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
-          e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
-          is_translation_event e"
-    and is_translation_event_correct32:
-      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
-          Run (AArch32_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
-          \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
-          e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
-          is_translation_event e"
 begin
 
 definition "ISA \<equiv>
@@ -250,16 +235,94 @@ definition "ISA \<equiv>
    isa.exception_targets = exception_targets,
    privileged_regs = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''}, \<comment> \<open>TODO\<close>
    isa.is_translation_event = is_translation_event,
-   isa.translate_address = translate_address \<rparr>"
+   isa.translate_address = translate_address\<rparr>"
 
 sublocale Capability_ISA CC ISA ..
+
+lemma ISA_simps[simp]:
+  "PCC ISA = {''PCC''}"
+  "KCC ISA = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''}"
+  "IDC ISA = {''R29''}"
+  "privileged_regs ISA = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''}"
+  "isa.instr_sem ISA = instr_sem"
+  "isa.instr_fetch ISA = instr_fetch"
+  "isa.caps_of_regval ISA = caps_of_regval"
+  by (auto simp: ISA_def)
+
+lemma no_cap_regvals[simp]:
+  "\<And>v. GTEParamType_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. PCSample_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. ProcState_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. TLBLine_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. InstrEnc_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bit_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_11_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_128_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_16_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_1_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_29_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_2_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_32_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_4_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_52_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_63_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bitvector_64_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bool_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. int_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. signal_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>xs. vector_of_regval of_rv rv = Some xs \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>xs. caps_of_regval (regval_of_vector rv_of xs) = {}"
+  "\<And>v. option_of_regval of_rv rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. caps_of_regval (regval_of_option rv_of v) = {}"
+  by (cases rv; auto simp: vector_of_regval_def regval_of_vector_def option_of_regval_def regval_of_option_def)+
+
+end
+
+locale Morello_Fixed_Address_Translation =
+  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option"
+    and is_translation_event :: "register_value event \<Rightarrow> bool"
+    and translation_assms :: "register_value event \<Rightarrow> bool"
+  assumes translate_correct64:
+      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
+          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
+          \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
+          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) =
+            Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+    and translate_correct32:
+      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
+          Run (AArch32_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
+          \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
+          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) =
+            Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+    and is_translation_event_correct64:
+      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
+          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
+          e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
+          is_translation_event e"
+    and is_translation_event_correct32:
+      "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
+          Run (AArch32_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
+          e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
+          is_translation_event e"
+begin
+
+(* sublocale Capability_ISA CC ISA .. *)
+
+sublocale Morello_ISA where translate_address = "\<lambda>addr acctype _. translate_address addr acctype" .
+
+sublocale Capability_ISA_Fixed_Translation CC ISA "\<lambda>t. \<forall>e \<in> set t. translation_assms e"
+  by unfold_locales (auto simp: ISA_def)
 
 end
 
 text \<open>Instantiation of translate_address for version of spec with translation stubs\<close>
 
-definition translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option" where
-  "translate_address addr acctype t \<equiv> Some (addr mod 2^52)"
+definition translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" where
+  "translate_address addr acctype \<equiv> Some (addr mod 2^52)"
 
 lemmas TranslateAddress_defs =
   AArch64_TranslateAddress_def AArch64_TranslateAddressWithTag_def AArch64_FullTranslateWithTag_def
@@ -275,14 +338,104 @@ lemma unat32_and_mask52_eq: "unat (w :: 32 word) mod 4503599627370496 = unat w"
   using unat_lt2p[of w]
   by auto
 
-interpretation Morello_Address_Translation
+interpretation Morello_Fixed_Address_Translation
   where translate_address = translate_address
     and is_translation_event = "\<lambda>_. False"
     and translation_assms = "\<lambda>_. True"
   apply unfold_locales
-     apply (auto simp: TranslateAddress_defs return_def unat64_and_mask52_mod elim!: Run_bindE Run_ifE)[]
-  apply (auto simp: TranslateAddress_defs return_def unat32_and_mask52_eq elim!: Run_bindE Run_ifE)[]
+     (* apply (auto simp: TranslateAddress_defs return_def unat64_and_mask52_mod elim!: Run_bindE Run_ifE)[] *)
+  (* apply (auto simp: TranslateAddress_defs return_def unat32_and_mask52_eq elim!: Run_bindE Run_ifE)[] *)
   (* TODO: Show that translation stubs are non_mem_exp's *)
   oops
+
+section \<open>Verification framework\<close>
+
+locale Morello_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled
+  for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
+begin
+
+lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
+  "non_cap_exp (undefined_bitvector n)"
+  by (auto simp add: undefined_bitvector_def simp del: repeat.simps intro: non_cap_expI)
+
+lemma non_cap_exp_undefined_bits[non_cap_expI]:
+  "non_cap_exp (undefined_bits n)"
+  by (non_cap_expI simp: undefined_bits_def)
+
+lemma non_cap_exp_undefined_bit[non_cap_expI]:
+  "non_cap_exp (undefined_bit u)"
+  by (non_cap_expI simp: undefined_bit_def)
+
+lemma non_cap_exp_undefined_string[non_cap_expI]:
+  "non_cap_exp (undefined_string u)"
+  by (non_cap_expI simp: undefined_string_def)
+
+lemma non_cap_exp_undefined_unit[non_cap_expI]:
+  "non_cap_exp (undefined_unit u)"
+  by (non_cap_expI simp: undefined_unit_def)
+
+lemma non_cap_exp_undefined_vector[non_cap_expI]:
+  "non_cap_exp (undefined_vector len v)"
+  by (auto simp add: undefined_vector_def simp del: repeat.simps intro: non_cap_expI)
+
+lemma non_cap_exp_undefined_int[non_cap_expI]:
+  "non_cap_exp (undefined_int u)"
+  by (non_cap_expI simp: undefined_int_def)
+
+lemma non_cap_exp_undefined_nat[non_cap_expI]:
+  "non_cap_exp (undefined_nat u)"
+  by (non_cap_expI simp: undefined_nat_def)
+
+lemma non_cap_exp_undefined_real[non_cap_expI]:
+  "non_cap_exp (undefined_real u)"
+  by (non_cap_expI simp: undefined_real_def)
+
+lemma non_cap_exp_undefined_range[non_cap_expI]:
+  "non_cap_exp (undefined_range i j)"
+  by (non_cap_expI simp: undefined_range_def)
+
+lemma non_cap_exp_undefined_atom[non_cap_expI]:
+  "non_cap_exp (undefined_atom i)"
+  by (non_cap_expI simp: undefined_atom_def)
+
+declare datatype_splits[split]
+
+end
+
+locale Morello_Axiom_Assm_Automaton = Morello_Axiom_Automaton +
+  fixes ex_traces :: bool
+    and ev_assm :: "register_value event \<Rightarrow> bool"
+  assumes non_cap_event_enabled: "\<And>e. non_cap_event e \<Longrightarrow> enabled s e"
+    and read_non_special_regs_enabled: "\<And>r v. r \<notin> PCC ISA \<union> IDC ISA \<union> KCC ISA \<union> privileged_regs ISA \<Longrightarrow> enabled s (E_read_reg r v)"
+begin
+
+sublocale Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA
+  by unfold_locales (blast intro: non_cap_event_enabled read_non_special_regs_enabled)+
+
+end
+
+locale Morello_Write_Cap_Automaton = Morello_ISA +
+  fixes ex_traces :: bool and invoked_caps :: "Capability set"
+begin
+
+(* TODO *)
+fun ev_assms :: "register_value event \<Rightarrow> bool" where
+  "ev_assms (E_read_reg r v) = (r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c))"
+| "ev_assms _ = True"
+
+sublocale Write_Cap_Assm_Automaton where CC = CC and ISA = ISA ..
+
+end
+
+locale Morello_Mem_Assm_Automaton = Morello_Fixed_Address_Translation +
+  fixes is_fetch :: bool and ex_traces :: bool
+begin
+
+sublocale Mem_Assm_Automaton where CC = CC and ISA = ISA
+  and translation_assms = "\<lambda>t. \<forall>e \<in> set t. translation_assms e"
+  and ev_assms = "\<lambda>e. True" \<comment> \<open>TODO\<close>
+  ..
+
+end
 
 end
