@@ -1,0 +1,28 @@
+{
+  "name": "Morello",
+  "files": [
+    "prelude.sail",
+    "builtins.sail",
+    "decode_start.sail",
+    "v8_base.sail",
+    "v8post.sail",
+    "version.sail",
+    "config.sail",
+    "config_list.sail",
+    "events.sail",
+    "interrupts.sail",
+    "fetch.sail",
+    "mem.sail",
+    "reset.sail",
+    "semihost.sail",
+    "v8debug.sail",
+    "counters.sail",
+    "instrs.sail",
+    "map_clauses.sail",
+    "event_clauses.sail",
+    "decode_end.sail"
+  ],
+  "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
+  "cap_typs": ["Capability"],
+  "privileged_regs": ["CVBAR_EL1", "CVBAR_EL2", "CVBAR_EL3"]
+}
