@@ -360,19 +360,19 @@ lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
 
 lemma non_cap_exp_undefined_bits[non_cap_expI]:
   "non_cap_exp (undefined_bits n)"
-  by (non_cap_expI simp: undefined_bits_def)
+  by (unfold undefined_bits_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_bit[non_cap_expI]:
   "non_cap_exp (undefined_bit u)"
-  by (non_cap_expI simp: undefined_bit_def)
+  by (unfold undefined_bit_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_string[non_cap_expI]:
   "non_cap_exp (undefined_string u)"
-  by (non_cap_expI simp: undefined_string_def)
+  by (unfold undefined_string_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_unit[non_cap_expI]:
   "non_cap_exp (undefined_unit u)"
-  by (non_cap_expI simp: undefined_unit_def)
+  by (unfold undefined_unit_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_vector[non_cap_expI]:
   "non_cap_exp (undefined_vector len v)"
@@ -380,25 +380,27 @@ lemma non_cap_exp_undefined_vector[non_cap_expI]:
 
 lemma non_cap_exp_undefined_int[non_cap_expI]:
   "non_cap_exp (undefined_int u)"
-  by (non_cap_expI simp: undefined_int_def)
+  by (unfold undefined_int_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_nat[non_cap_expI]:
   "non_cap_exp (undefined_nat u)"
-  by (non_cap_expI simp: undefined_nat_def)
+  by (unfold undefined_nat_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_real[non_cap_expI]:
   "non_cap_exp (undefined_real u)"
-  by (non_cap_expI simp: undefined_real_def)
+  by (unfold undefined_real_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_range[non_cap_expI]:
   "non_cap_exp (undefined_range i j)"
-  by (non_cap_expI simp: undefined_range_def)
+  by (unfold undefined_range_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_atom[non_cap_expI]:
   "non_cap_exp (undefined_atom i)"
-  by (non_cap_expI simp: undefined_atom_def)
+  by (unfold undefined_atom_def, non_cap_expI)
 
 declare datatype_splits[split]
+declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
+declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
 
 end
 
@@ -427,7 +429,7 @@ sublocale Write_Cap_Assm_Automaton where CC = CC and ISA = ISA ..
 
 end
 
-locale Morello_Mem_Assm_Automaton = Morello_Fixed_Address_Translation +
+locale Morello_Mem_Automaton = Morello_Fixed_Address_Translation +
   fixes is_fetch :: bool and ex_traces :: bool
 begin
 

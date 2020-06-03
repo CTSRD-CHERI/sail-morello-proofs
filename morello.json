@@ -24,5 +24,27 @@
   ],
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
-  "privileged_regs": ["CVBAR_EL1", "CVBAR_EL2", "CVBAR_EL3"]
+  "privileged_regs": ["CVBAR_EL1", "CVBAR_EL2", "CVBAR_EL3"],
+  "overrides": {
+    "ConstrainUnpredictable": {
+      "non_cap_exp": {
+        "proof": "(cases arg0; simp; non_cap_expI)"
+      }
+    },
+    "execute_aarch64_instrs_system_register_cpsr": {
+      "non_cap_exp": {
+        "proof": "(cases arg0; simp; non_cap_expI)"
+      }
+    },
+    "ReduceCombine": {
+      "non_mem_exp": {
+        "proof": "(cases arg0; simp; non_mem_expI)"
+      }
+    },
+    "execute_aarch64_instrs_system_hints": {
+      "non_mem_exp": {
+        "proof": "(cases arg0; simp; non_mem_expI)"
+      }
+    }
+  }
 }
