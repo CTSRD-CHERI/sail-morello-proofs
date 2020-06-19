@@ -22,9 +22,12 @@
     "event_clauses.sail",
     "decode_end.sail"
   ],
+  "slice": { "roots": ["__TopLevel"] },
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
   "privileged_regs": ["CVBAR_EL1", "CVBAR_EL2", "CVBAR_EL3"],
+  "pcc": ["PCC"],
+  "idc": ["_R29"],
   "overrides": {
     "ConstrainUnpredictable": {
       "non_cap_exp": {
@@ -45,6 +48,29 @@
       "non_mem_exp": {
         "proof": "(cases arg0; simp; non_mem_expI)"
       }
+    },
+    "AArch64_MemSingle_read": {
+      "traces_enabled_mem": {
+        "assms": ["\<And>paddr v. translate_address (unat arg0) (acctype_of_AccType arg2 False) = Some paddr \<Longrightarrow> access_enabled s Load paddr (nat arg1) v B0"],
+        "unfolding": ["AArch64_MemSingle_read_def", "AArch64_TranslateAddress_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: if_no_Run_then_else IsFault_def translate_correct trace_assms_def ev_assms_def)"
+      }
+    },
+    "AArch64_MemSingle_set": {
+      "traces_enabled_mem": {
+        "assms": ["\<And>paddr. translate_address (unat arg0) (acctype_of_AccType arg2 True) = Some paddr \<Longrightarrow> access_enabled s Store paddr (nat arg1) (mem_bytes_of_word arg4) B0", "LENGTH('a) = 8 * nat arg1"],
+        "stmts": ["traces_enabled (AArch64_MemSingle_set arg0 arg1 arg2 arg3 (arg4 :: 'a::len word)) s"],
+        "unfolding": ["AArch64_MemSingle_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: if_no_Run_then_else IsFault_def translate_correct trace_assms_def ev_assms_def)"
+      }
     }
-  }
+  },
+  "skips": [
+    "__ReadRAM",
+    "__WriteRAM",
+    "_Mem_read",
+    "_Mem_set",
+    "_ReadTags",
+    "DC_ZVA"
+  ]
 }
