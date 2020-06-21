@@ -29,14 +29,27 @@
   "pcc": ["PCC"],
   "idc": ["_R29"],
   "overrides": {
+    "C_read": {
+      "derivable_caps": {
+        "proof": "(auto elim!: Run_bindE Run_ifE derivable_capsE)"
+      }
+    },
     "ConstrainUnpredictable": {
       "non_cap_exp": {
         "proof": "(cases arg0; simp; non_cap_expI)"
+      },
+      "no_reg_writes_to": {
+        "unfolding": [],
+        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
       }
     },
     "execute_aarch64_instrs_system_register_cpsr": {
       "non_cap_exp": {
         "proof": "(cases arg0; simp; non_cap_expI)"
+      },
+      "no_reg_writes_to": {
+        "unfolding": [],
+        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
       }
     },
     "ReduceCombine": {
@@ -136,6 +149,18 @@
       "traces_enabled_mem": {
         "assms": ["load_enabled s (unat arg0) arg3 16 True", "store_enabled s (unat arg0) arg4 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"]
       }
+    },
+    "AArch64_AutoGen_ArchitectureReset": {
+      "no_reg_writes_to": {
+        "unfolding": [],
+        "proof": "- (* TODO: takes very long *)"
+      }
+    },
+    "AArch64_IMPDEFResets": {
+      "no_reg_writes_to": {
+        "unfolding": [],
+        "proof": "- (* TODO: takes very long *)"
+      }
     }
   },
   "skips": [
@@ -143,7 +168,12 @@
     "__WriteRAM",
     "_Mem_read",
     "_Mem_set",
+    "_ReadMem",
+    "_ReadTaggedMem",
     "_ReadTags",
+    "_WriteMem",
+    "_WriteTaggedMem",
+    "_WriteTags",
     "DC_ZVA"
   ]
 }

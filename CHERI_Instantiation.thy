@@ -66,6 +66,9 @@ section \<open>Simplification rules\<close>
 declare zero_extend_def[simp]
 declare CAPABILITY_DBYTES_def[simp]
 
+lemma nat_of_bv_mword_unat[simp]: "nat_of_bv BC_mword w = Some (unat w)"
+  by (auto simp: nat_of_bv_def unat_def)
+
 lemma Bit_bitU_of_bool[simp]: "Morello.Bit w = bitU_of_bool (w !! 0)"
   by (auto simp: Morello.Bit_def)
 
@@ -110,11 +113,28 @@ lemma no_Run_AArch64_Abort[simp]:
   "Run (AArch64_Abort vaddress fault) t a \<longleftrightarrow> False"
   by (auto simp: AArch64_Abort_def elim!: Run_bindE Run_ifE)
 
+lemma no_Run_AArch64_SystemAccessTrap[simp]:
+  "Run (AArch64_SystemAccessTrap target_el ec) t a \<longleftrightarrow> False"
+  by (auto simp: AArch64_SystemAccessTrap_def elim!: Run_bindE Run_ifE)
+
+lemma no_Run_CapabilityAccessTrap[simp]:
+  "Run (CapabilityAccessTrap target_el) t a \<longleftrightarrow> False"
+  by (auto simp: CapabilityAccessTrap_def elim!: Run_bindE Run_ifE)
+
+lemma no_Run_Unreachable[simp]:
+  "Run (Unreachable u) t a \<longleftrightarrow> False"
+  by (auto simp: Unreachable_def elim!: Run_bindE)
+
 lemma if_no_Run_then_else:
   assumes "\<not>Run m1 t a"
   shows "Run (if c then m1 else m2) t a \<longleftrightarrow> \<not>c \<and> Run m2 t a"
   using assms
   by auto
+
+lemma EL_exhaust_disj:
+  fixes el :: "2 word"
+  shows "el = EL0 \<or> el = EL1 \<or> el = EL2 \<or> el = EL3"
+  by (cases el rule: exhaustive_2_word) (auto simp: EL0_def EL1_def EL2_def EL3_def)
 
 lemma unat_paddress_plus_16[simp]:
   "unat (ucast (FullAddress_address (AddressDescriptor_paddress desc)) + (16 :: 64 word))
@@ -209,6 +229,10 @@ next
     by (cases tag)
        (auto simp: CC_def cap_of_mem_bytes_def bind_eq_Some_conv nth_ucast test_bit_cat test_128_128)
 qed
+
+lemma CC_simps[simp]:
+  "is_tagged_method CC c = CapIsTagSet c"
+  by (auto simp: CC_def)
 
 section \<open>Architecture abstraction\<close>
 
@@ -317,6 +341,10 @@ lemma no_cap_regvals[simp]:
   "\<And>v. caps_of_regval (regval_of_option rv_of v) = {}"
   by (cases rv; auto simp: vector_of_regval_def regval_of_vector_def option_of_regval_def regval_of_option_def)+
 
+lemma caps_of_bitvector_129_regval[simp]:
+  "bitvector_129_dec_of_regval rv = Some c \<Longrightarrow> caps_of_regval rv = {c}"
+  by (cases rv) (auto)
+
 end
 
 locale Morello_Fixed_Address_Translation =
@@ -423,9 +451,66 @@ lemma non_cap_exp_undefined_atom[non_cap_expI]:
   "non_cap_exp (undefined_atom i)"
   by (unfold undefined_atom_def, non_cap_expI)
 
+lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bitvector n)"
+  by (unfold undefined_bitvector_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bits n)"
+  by (unfold undefined_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bit u)"
+  by (unfold undefined_bit_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_string u)"
+  by (unfold undefined_string_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_unit u)"
+  by (unfold undefined_unit_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_vector len v)"
+  by (unfold undefined_vector_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_int u)"
+  by (unfold undefined_int_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_nat u)"
+  by (unfold undefined_nat_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_real u)"
+  by (unfold undefined_real_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_range i j)"
+  by (unfold undefined_range_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_atom n)"
+  by (unfold undefined_atom_def, no_reg_writes_toI)
+
 declare datatype_splits[split]
 declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
+
+lemma CapNull_derivable[simp, intro]: "CapNull u \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def CapNull_def Zeros_def zeros_def)
+
+lemma if_ELs_derivable[derivable_capsE]:
+  assumes "Run (if el = EL0 then m0 else if el = EL1 then m1 else if el = EL2 then m2 else if el = EL3 then m3 else mu) t a"
+    and "el = EL0 \<longrightarrow> Run m0 t a \<longrightarrow> c \<in> derivable_caps (run s t)"
+    and "el = EL1 \<longrightarrow> Run m1 t a \<longrightarrow> c \<in> derivable_caps (run s t)"
+    and "el = EL2 \<longrightarrow> Run m2 t a \<longrightarrow> c \<in> derivable_caps (run s t)"
+    and "el = EL3 \<longrightarrow> Run m3 t a \<longrightarrow> c \<in> derivable_caps (run s t)"
+  shows "c \<in> derivable_caps (run s t)"
+  using assms
+  by (cases el rule: exhaustive_2_word; auto simp: EL0_def EL1_def EL2_def EL3_def)
 
 end
 
@@ -477,279 +562,6 @@ sublocale Morello_Axiom_Automaton
     and enabled = enabled
     and is_translation_event = "\<lambda>_. False"
   ..
-
-term ReadMemory
-term access_enabled
-
-lemma nat_of_bv_mword_unat[simp]: "nat_of_bv BC_mword w = Some (unat w)"
-  by (auto simp: nat_of_bv_def unat_def)
-
-lemma access_enabled_runI[derivable_caps_runI]:
-  assumes "access_enabled s acctype addr sz v tag"
-  shows "access_enabled (run s t) acctype addr sz v tag"
-  using assms derivable_mono[OF accessed_caps_run_mono]
-  by (auto simp: access_enabled_def)
-
-lemma traces_enabled_ReadMemory:
-  assumes "\<And>v. access_enabled s Load (unat paddr) sz v B0"
-  shows "traces_enabled (ReadMemory sz paddr) s"
-  using assms
-  unfolding ReadMemory_def
-  by (intro traces_enabled_read_mem) (auto)
-
-lemma traces_enabled_Mem_read[traces_enabledI]:
-  assumes "\<And>v. access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
-  shows "traces_enabled (Mem_read desc sz accdesc) s"
-  unfolding Mem_read_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
-
-lemma traces_enabled_ReadMem[traces_enabledI]:
-  assumes "\<And>v. access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
-  shows "traces_enabled (ReadMem desc sz accdesc) s"
-  unfolding ReadMem_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
-
-lemma traces_enabled_ReadTaggedMem[traces_enabledI]:
-  assumes "\<And>v tag. access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 v tag"
-    and "\<And>v tag. sz = 32 \<Longrightarrow> access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 v tag"
-    and "sz = 16 \<or> sz = 32"
-  shows "traces_enabled (ReadTaggedMem desc sz accdesc) s"
-  unfolding ReadTaggedMem_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] access_enabled_runI assms: assms)
-
-lemma traces_enabled_ReadTags[traces_enabledI]:
-  assumes "\<And>i v tag. i < nat sz \<Longrightarrow> access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc)) + (i * 16)) 16 v tag"
-  shows "traces_enabled (ReadTags desc sz accdesc) s"
-  unfolding ReadTags_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] access_enabled_runI
-                      assms: assms)
-
-lemma traces_enabled_Write_mem:
-  assumes "\<And>r. traces_enabled (m r) (axiom_step s (E_write_mem wk paddr sz v r))"
-    and "\<And>r. enabled s (E_write_mem wk paddr sz v r)"
-  shows "traces_enabled (Write_mem wk paddr sz v m) s"
-  using assms
-  by (fastforce simp: traces_enabled_def elim!: Traces_cases[where m = "Write_mem wk paddr sz v m"])
-
-lemma length_take_chunks:
-  assumes "n > 0" and "n dvd length xs"
-  shows "length (take_chunks n xs) = length xs div n"
-proof (use assms in \<open>induction n xs rule: take_chunks.induct[case_names Nil Zero Take]\<close>)
-  case (Take n xs)
-  then show ?case
-    by (cases "length xs < n") (auto simp: div_geq)
-qed auto
-
-lemma length_mem_bytes_of_word:
-  fixes w :: "'a::len word"
-  assumes "8 dvd LENGTH('a)"
-  shows "length (mem_bytes_of_word w) = LENGTH('a) div 8"
-  using assms
-  by (auto simp add: mem_bytes_of_word_def length_take_chunks simp del: take_chunks.simps)
-
-lemma traces_enabled_write_mem:
-  fixes data :: "'a::len word"
-  assumes "access_enabled s Store (unat paddr) (nat sz) (mem_bytes_of_word data) B0"
-    and "LENGTH('a) = nat sz * 8" and "sz > 0"
-  shows "traces_enabled (write_mem BC_mword BC_mword wk addr_sz paddr sz data) s"
-  using assms
-  unfolding write_mem_def
-  by (auto intro!: traces_enabled_Write_mem non_cap_expI[THEN non_cap_exp_traces_enabledI]
-           split: option.splits simp: legal_store_def length_mem_bytes_of_word)
-
-lemma traces_enabled_Mem_set[traces_enabledI]:
-  fixes data :: "'a::len word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) (mem_bytes_of_word data) B0"
-    and "LENGTH('a) = nat sz * 8" and "sz > 0"
-  shows "traces_enabled (Mem_set desc sz accdesc data) s"
-  using assms
-  unfolding Mem_set_def
-  by (auto intro!: traces_enabled_bind traces_enabled_write_mem non_cap_expI[THEN non_cap_exp_traces_enabledI])
-
-lemma traces_enabled_Write_memt:
-  assumes "\<And>r. traces_enabled (m r) (axiom_step s (E_write_memt wk paddr sz v tag r))"
-    and "\<And>r. enabled s (E_write_memt wk paddr sz v tag r)"
-  shows "traces_enabled (Write_memt wk paddr sz v tag m) s"
-  using assms
-  by (fastforce simp: traces_enabled_def elim!: Traces_cases[where m = "Write_memt wk paddr sz v tag m"])
-
-fun bitU_nonzero :: "bitU \<Rightarrow> bool" where
-  "bitU_nonzero B0 = False"
-| "bitU_nonzero _ = True"
-
-definition Capability_of_tag_word :: "bool \<Rightarrow> 128 word \<Rightarrow> Capability" where
-  "Capability_of_tag_word tag word =
-     (let tag = (of_bl [tag] :: 1 word) in
-      word_cat tag word)"
-
-lemma traces_enabled_write_memt:
-  fixes data :: "128 word"
-  assumes "access_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) tag"
-    and "tag = B0 \<or> tag = B1"
-    and "tag \<noteq> B0 \<Longrightarrow> Capability_of_tag_word (bitU_nonzero tag) data \<in> derivable_caps s"
-  shows "traces_enabled (write_memt BC_mword BC_mword wk paddr 16 data tag) s"
-  using assms
-  unfolding write_memt_def
-  by (auto intro!: traces_enabled_Write_memt non_cap_expI[THEN non_cap_exp_traces_enabledI]
-           split: option.splits simp: legal_store_def length_mem_bytes_of_word)
-
-lemma traces_enabled_WriteTaggedMem_single[traces_enabledI]:
-  fixes tag :: "1 word" and data :: "128 word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word data) (bitU_of_bool (tag !! 0))"
-    and "Capability_of_tag_word (tag !! 0) data \<in> derivable_caps s"
-  shows "traces_enabled (WriteTaggedMem desc 16 accdesc tag data) s"
-  using assms
-  unfolding WriteTaggedMem_def
-  by (cases "tag !! 0")
-     (auto intro!: traces_enabled_write_memt traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI])
-
-lemma run_write_memt:
-  assumes "Run (write_memt BC_a BC_b wk paddr sz v tag) t a"
-  shows "run s t = s"
-  using assms
-  by (auto simp add: write_memt_def split: option.splits elim!: Write_memt_TracesE)
-
-lemma traces_enabled_WriteTaggedMem_pair[traces_enabledI]:
-  fixes tags :: "2 word" and data :: "256 word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
-    and "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
-    and "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
-    and "Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
-  shows "traces_enabled (WriteTaggedMem desc 32 accdesc tags data) s"
-  using assms
-  unfolding WriteTaggedMem_def
-  by (cases "tags !! 0"; cases "tags !! 1")
-     (auto intro!: traces_enabled_write_memt traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI]
-           simp: run_write_memt)
-
-lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
-  fixes tags :: "'t::len word" and data :: "'d::len word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
-    and "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
-    and "sz = 32 \<Longrightarrow> access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
-    and "sz = 32 \<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
-    and "sz = 16 \<or> sz = 32"
-    and "LENGTH('t) = nat sz div 16" and "LENGTH('d) = 8 * nat sz"
-  shows "traces_enabled (WriteTaggedMem desc sz accdesc tags data) s"
-  using assms
-  unfolding WriteTaggedMem_def
-  by (cases "tags !! 0"; cases "tags !! 1")
-     (auto intro!: traces_enabled_write_memt traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI]
-           simp: run_write_memt nth_ucast)
-
-definition store_enabled where
-  "store_enabled s vaddr acctype sz data tag \<equiv>
-     \<forall>paddr.
-        translate_address vaddr (acctype_of_AccType acctype True) = Some paddr \<longrightarrow>
-        access_enabled s Store paddr (nat sz) (mem_bytes_of_word data) (bitU_of_bool tag)"
-
-definition load_enabled where
-  "load_enabled s vaddr acctype sz tagged \<equiv>
-     \<forall>paddr data tag.
-        translate_address vaddr (acctype_of_AccType acctype False) = Some paddr \<longrightarrow>
-        access_enabled s Load paddr (nat sz) data (if tagged then tag else B0)"
-
-lemma store_enabled_runI[derivable_caps_runI]:
-  assumes "store_enabled s vaddr acctype sz data tag"
-  shows "store_enabled (run s t) vaddr acctype sz data tag"
-  using assms
-  by (auto simp: store_enabled_def intro: access_enabled_runI)
-
-lemma load_enabled_runI[derivable_caps_runI]:
-  assumes "load_enabled s vaddr acctype sz tagged"
-  shows "load_enabled (run s t) vaddr acctype sz tagged"
-  using assms
-  by (auto simp: load_enabled_def intro: access_enabled_runI)
-
-(* TODO *)
-lemma
-  assumes "load_enabled s (vaddr + offset) acctype sz tagged"
-    and "translate_address vaddr (acctype_of_AccType acctype False) = Some paddr"
-    and "tagged \<or> tag = B0"
-  shows "access_enabled s Load (paddr + offset) (nat sz) data tag"
-  using assms
-  apply (cases tagged)
-  apply (auto simp: load_enabled_def translate_address_def dvd_def)
-  oops
-
-text \<open>The VirtualAddress type in the ASL\<close>
-
-abbreviation "perm_bits_included perms1 perms2 \<equiv> (perms1 AND perms2) = perms1"
-
-definition VA_derivable :: "VirtualAddress \<Rightarrow> (129 word, register_value) axiom_state \<Rightarrow> bool" where
-  "VA_derivable va s \<equiv>
-     (case VirtualAddress_vatype va of
-        VA_Capability \<Rightarrow> VirtualAddress_base va \<in> derivable_caps s
-      | VA_Bits64 \<Rightarrow> True)"
-
-lemma VA_derivable_run_imp[derivable_caps_runI]:
-  assumes "VA_derivable va s"
-  shows "VA_derivable va (run s t)"
-  using assms
-  by (auto simp: VA_derivable_def split: VirtualAddressType.splits intro: derivable_caps_runI)
-
-lemma BaseReg_read_VA_derivable[derivable_capsE]:
-  assumes "Run (BaseReg_read n is_prefetch) t va"
-    and "{''_R29''} \<subseteq> accessible_regs s"
-  shows "VA_derivable va (run s t)"
-  sorry
-
-declare BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def, derivable_capsE]
-
-lemma AltBaseReg_read_VA_derivable[derivable_capsE]:
-  assumes "Run (AltBaseReg_read n is_prefetch) t va"
-    and "{''_R29''} \<subseteq> accessible_regs s"
-  shows "VA_derivable va (run s t)"
-proof (cases "VirtualAddress_vatype va")
-  case VA_Bits64
-  then show ?thesis
-    by (auto simp: VA_derivable_def)
-next
-  case VA_Capability
-  then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
-    using assms
-    unfolding AltBaseReg_read_def
-    apply (auto elim!: Run_bindE Run_ifE)
-    sorry
-  then show ?thesis
-    using VA_Capability
-    by (auto simp: VA_derivable_def)
-qed
-
-declare AltBaseReg_read_VA_derivable[where is_prefetch = False, folded AltBaseReg_read__1_def, derivable_capsE]
-
-lemma VADeref_load_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr"
-    and "perm_bits_included CAP_PERM_LOAD perms"
-    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP perms"
-    and "VA_derivable va s"
-    and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "load_enabled (run s t) (unat vaddr) acctype sz tagged"
-  sorry
-
-lemma VADeref_store_data_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr"
-    and "perm_bits_included CAP_PERM_STORE perms"
-    and "VA_derivable va s"
-    and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "store_enabled (run s t) (unat vaddr) acctype sz data False"
-  sorry
-
-lemma VADeref_store_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr"
-    and "perm_bits_included CAP_PERM_STORE perms"
-    and "tag \<longrightarrow> perm_bits_included CAP_PERM_STORE_CAP perms"
-    and "tag \<and> CapIsLocal (Capability_of_tag_word tag data) \<longrightarrow> perm_bits_included CAP_PERM_STORE_LOCAL perms"
-    and "VA_derivable va s"
-    and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "store_enabled (run s t) (unat vaddr) acctype sz data tag"
-  sorry
-
-text \<open>Functions/instructions that need fixing in the ASL\<close>
-
-lemma traces_enabled_DC_ZVA[traces_enabledI]:
-  "traces_enabled (DC_ZVA v) s"
-  sorry
 
 end
 
