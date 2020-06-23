@@ -259,39 +259,19 @@ lemma perm_bits_included_OR[intro]:
   using assms
   by (auto simp: perm_bits_included_def word_ao_nth)
 
-definition VA_derivable :: "VirtualAddress \<Rightarrow> (129 word, register_value) axiom_state \<Rightarrow> bool" where
-  "VA_derivable va s \<equiv>
-     (case VirtualAddress_vatype va of
-        VA_Capability \<Rightarrow> VirtualAddress_base va \<in> derivable_caps s
-      | VA_Bits64 \<Rightarrow> True)"
-
-lemma VAFromCapability_base[simp]:
-  "Run (VAFromCapability c) t va \<Longrightarrow> VirtualAddress_base va = c"
-  by (auto simp: VAFromCapability_def elim!: Run_bindE)
-
-lemma VAFromBits64_vatype[simp]:
-  "Run (VAFromBits64 w) t va \<Longrightarrow> VirtualAddress_vatype va = VA_Bits64"
-  by (auto simp: VAFromBits64_def elim!: Run_bindE)
-
-lemma VA_derivable_run_imp[derivable_caps_runI]:
-  assumes "VA_derivable va s"
-  shows "VA_derivable va (run s t)"
-  using assms
-  by (auto simp: VA_derivable_def split: VirtualAddressType.splits intro: derivable_caps_runI)
-
 lemma VAAdd_derivable[derivable_capsE]:
-  assumes "Run (VAAdd va offset) t va'"
+  assumes t: "Run (VAAdd va offset) t va'"
     and "VA_derivable va s"
   shows "VA_derivable va' s"
-  sorry
-
-lemma BaseReg_read_VA_derivable[derivable_capsE]:
-  assumes "Run (BaseReg_read n is_prefetch) t va"
-    and "{''_R29''} \<subseteq> accessible_regs s"
-  shows "VA_derivable va (run s t)"
-  sorry
-
-declare BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def, derivable_capsE]
+proof -
+  have "VA_derivable va' (run s t)"
+    using assms
+    by (cases "VirtualAddress_vatype va"; auto simp: VAAdd_def elim!: Run_bindE Run_ifE)
+       (derivable_capsI)+
+  then show ?thesis
+    using non_cap_exp_Run_run_invI[OF non_cap_exp_VAAdd t]
+    by simp
+qed
 
 lemma CSP_read_derivable_caps[derivable_capsE]:
   "Run (CSP_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
@@ -299,14 +279,26 @@ lemma CSP_read_derivable_caps[derivable_capsE]:
   by (fastforce simp: CSP_read_def Let_def register_defs derivable_caps_def accessible_regs_def
                 elim!: Run_bindE Run_ifE Run_read_regE intro!: derivable.Copy)
 
-lemma R_read_derivable_caps[derivable_capsE]:
-  "Run (R_read n) t c \<Longrightarrow> {''_R29''} \<subseteq> accessible_regs s \<Longrightarrow> c \<in> derivable_caps (run s t)"
-  by (auto simp: R_read_def register_defs derivable_caps_def accessible_regs_def
-           elim!: Run_bindE Run_ifE Run_read_regE intro!: derivable.Copy)
+lemma BaseReg_read_VA_derivable[derivable_capsE]:
+  assumes "Run (BaseReg_read n is_prefetch) t va"
+    and "{''_R29''} \<subseteq> accessible_regs s"
+  shows "VA_derivable va (run s t)"
+proof (cases "VirtualAddress_vatype va")
+  case VA_Bits64
+  then show ?thesis
+    by (auto simp: VA_derivable_def)
+next
+  case VA_Capability
+  then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
+    using assms
+    unfolding BaseReg_read_def
+    by - (derivable_capsI elim: CSP_read_derivable_caps)
+  then show ?thesis
+    using VA_Capability
+    by (auto simp: VA_derivable_def)
+qed
 
-lemma C_read_derivable_caps[derivable_capsE]:
-  "Run (C_read n) t c \<Longrightarrow> {''_R29''} \<subseteq> accessible_regs s \<Longrightarrow> c \<in> derivable_caps (run s t)"
-  by (auto simp: C_read_def elim!: Run_bindE Run_ifE derivable_capsE)
+declare BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def, derivable_capsE]
 
 lemma AltBaseReg_read_VA_derivable[derivable_capsE]:
   assumes "Run (AltBaseReg_read n is_prefetch) t va"
@@ -321,12 +313,7 @@ next
   then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
     using assms
     unfolding AltBaseReg_read_def
-    apply (auto elim!: Run_bindE Run_ifE derivable_capsE intro: derivable_caps_runI)
-    apply (rule derivable_caps_runI)
-    apply (erule derivable_capsE)
-    find_theorems accessible_regs run
-    thm IsInC64_def IsAccessToCapabilitiesEnabledAtEL_def
-    sorry
+    by - (derivable_capsI elim: CSP_read_derivable_caps)
   then show ?thesis
     using VA_Capability
     by (auto simp: VA_derivable_def)
@@ -341,7 +328,7 @@ lemma VADeref_load_enabled[derivable_capsE]:
     and "sz' \<le> sz"
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "load_enabled (run s t) (unat vaddr) acctype sz' tagged"
+  shows "load_enabled (run s t) (unat vaddr) acctype' sz' tagged"
   sorry
 
 lemma VADeref_store_data_enabled[derivable_capsE]:
@@ -350,7 +337,7 @@ lemma VADeref_store_data_enabled[derivable_capsE]:
     and "sz' \<le> sz"
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "store_enabled (run s t) (unat vaddr) acctype sz' data False"
+  shows "store_enabled (run s t) (unat vaddr) acctype' sz' data False"
   sorry
 
 lemma VADeref_store_enabled[derivable_capsE]:
@@ -361,13 +348,7 @@ lemma VADeref_store_enabled[derivable_capsE]:
     and "sz' \<le> sz"
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "store_enabled (run s t) (unat vaddr) acctype sz' data tag"
-  sorry
-
-text \<open>Functions/instructions that need fixing in the ASL\<close>
-
-lemma traces_enabled_DC_ZVA[traces_enabledI]:
-  "traces_enabled (DC_ZVA v) s"
+  shows "store_enabled (run s t) (unat vaddr) acctype' sz' data tag"
   sorry
 
 end

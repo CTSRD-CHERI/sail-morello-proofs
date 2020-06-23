@@ -84,7 +84,7 @@ lemma CapIsTagSet_CapSetTag_iff[simp]:
   "CapIsTagSet (CapSetTag c t) \<longleftrightarrow> (t !! 0)"
   by (auto simp: test_bit_set)
 
-lemma no_Run_EndOfInstruction[simp]:
+(*lemma no_Run_EndOfInstruction[simp]:
   "Run (EndOfInstruction u) t a \<longleftrightarrow> False"
   by (auto simp: EndOfInstruction_def)
 
@@ -123,13 +123,7 @@ lemma no_Run_CapabilityAccessTrap[simp]:
 
 lemma no_Run_Unreachable[simp]:
   "Run (Unreachable u) t a \<longleftrightarrow> False"
-  by (auto simp: Unreachable_def elim!: Run_bindE)
-
-lemma if_no_Run_then_else:
-  assumes "\<not>Run m1 t a"
-  shows "Run (if c then m1 else m2) t a \<longleftrightarrow> \<not>c \<and> Run m2 t a"
-  using assms
-  by auto
+  by (auto simp: Unreachable_def elim!: Run_bindE)*)
 
 lemma EL_exhaust_disj:
   fixes el :: "2 word"
@@ -502,6 +496,7 @@ declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
 lemma CapNull_derivable[simp, intro]: "CapNull u \<in> derivable_caps s"
   by (auto simp: derivable_caps_def CapNull_def Zeros_def zeros_def)
 
+(* Pattern common in auto-generated register accessors *)
 lemma if_ELs_derivable[derivable_capsE]:
   assumes "Run (if el = EL0 then m0 else if el = EL1 then m1 else if el = EL2 then m2 else if el = EL3 then m3 else mu) t a"
     and "el = EL0 \<longrightarrow> Run m0 t a \<longrightarrow> c \<in> derivable_caps (run s t)"
@@ -511,6 +506,85 @@ lemma if_ELs_derivable[derivable_capsE]:
   shows "c \<in> derivable_caps (run s t)"
   using assms
   by (cases el rule: exhaustive_2_word; auto simp: EL0_def EL1_def EL2_def EL3_def)
+
+lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
+  by (unfold Mem_read_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_Mem_set[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Mem_set x0 x1 x2 x3)"
+  by (unfold Mem_set_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadMem x0 x1 x2)"
+  by (unfold ReadMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadTaggedMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadTaggedMem x0 x1 x2)"
+  by (unfold ReadTaggedMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadTags[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadTags x0 x1 x2)"
+  by (unfold ReadTags_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteMem x0 x1 x2 x3)"
+  by (unfold WriteMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
+  by (unfold WriteTaggedMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
+  by (unfold WriteTags_def, no_reg_writes_toI)
+
+definition VA_derivable :: "VirtualAddress \<Rightarrow> (129 word, register_value) axiom_state \<Rightarrow> bool" where
+  "VA_derivable va s \<equiv>
+     (case VirtualAddress_vatype va of
+        VA_Capability \<Rightarrow> VirtualAddress_base va \<in> derivable_caps s
+      | VA_Bits64 \<Rightarrow> True)"
+
+lemma VAFromCapability_base[simp]:
+  "Run (VAFromCapability c) t va \<Longrightarrow> VirtualAddress_base va = c"
+  by (auto simp: VAFromCapability_def elim!: Run_bindE)
+
+lemma VAFromCapability_vatype[simp]:
+  "Run (VAFromCapability c) t va \<Longrightarrow> VirtualAddress_vatype va = VA_Capability"
+  by (auto simp: VAFromCapability_def elim!: Run_bindE)
+
+lemma VAFromCapability_base_derivable[derivable_capsE]:
+  assumes "Run (VAFromCapability c) t va"
+    and "c \<in> derivable_caps s"
+  shows "VirtualAddress_base va \<in> derivable_caps s"
+  using assms
+  by auto
+
+lemma VAFromCapability_derivable[derivable_capsE]:
+  "Run (VAFromCapability c) t va \<Longrightarrow> c \<in> derivable_caps s \<Longrightarrow> VA_derivable va s"
+  by (auto simp: VA_derivable_def)
+
+lemma VAToCapability_vatype[simp]:
+  "Run (VAToCapability va) t c \<Longrightarrow> VirtualAddress_vatype va = VA_Capability"
+  by (auto simp: VAToCapability_def VAIsCapability_def elim!: Run_bindE)
+
+lemma VAToCapability_base[simp]:
+  "Run (VAToCapability va) t c \<Longrightarrow> VirtualAddress_base va = c"
+  by (auto simp: VAToCapability_def VAIsCapability_def elim!: Run_bindE)
+
+lemma VAFromBits64_vatype[simp]:
+  "Run (VAFromBits64 w) t va \<Longrightarrow> VirtualAddress_vatype va = VA_Bits64"
+  by (auto simp: VAFromBits64_def elim!: Run_bindE)
+
+lemma VAFromBits64_derivable[derivable_capsE]:
+  "Run (VAFromBits64 addr) t va \<Longrightarrow> VA_derivable va s"
+  by (auto simp: VA_derivable_def)
+
+lemma VA_derivable_run_imp[derivable_caps_runI]:
+  assumes "VA_derivable va s"
+  shows "VA_derivable va (run s t)"
+  using assms
+  by (auto simp: VA_derivable_def split: VirtualAddressType.splits intro: derivable_caps_runI)
 
 end
 
