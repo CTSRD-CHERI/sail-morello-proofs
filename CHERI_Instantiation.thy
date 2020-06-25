@@ -268,6 +268,13 @@ fun acctype_of_AccType :: "AccType \<Rightarrow> bool \<Rightarrow> acctype" whe
 | "acctype_of_AccType _ True = Store"
 | "acctype_of_AccType _ False = Load"
 
+fun atomic_AccType :: "AccType \<Rightarrow> bool" where
+  "atomic_AccType AccType_ATOMIC = True"
+| "atomic_AccType AccType_ATOMICRW = True"
+| "atomic_AccType AccType_ORDEREDATOMIC = True"
+| "atomic_AccType AccType_ORDEREDATOMICRW = True"
+| "atomic_AccType _ = False"
+
 fun is_mem_event :: "'regval event \<Rightarrow> bool" where
   "is_mem_event (E_read_memt _ _ _ _) = True"
 | "is_mem_event (E_read_mem _ _ _ _) = True"
@@ -586,6 +593,19 @@ lemma VA_derivable_run_imp[derivable_caps_runI]:
   using assms
   by (auto simp: VA_derivable_def split: VirtualAddressType.splits intro: derivable_caps_runI)
 
+declare Run_ifE[where thesis = "VA_derivable va s" and a = va for va s, derivable_caps_combinators]
+declare Run_letE[where thesis = "VA_derivable va s" and a = va for va s, derivable_caps_combinators]
+
+thm derivable_caps_combinators
+
+lemma Run_return_VA_derivable[derivable_caps_combinators]:
+  "Run (return va') t va \<Longrightarrow> VA_derivable va' s \<Longrightarrow> VA_derivable va s"
+  by auto
+
+lemma VAFromPCC_derivable[derivable_capsE]:
+  "Run (VAFromPCC offset) t va \<Longrightarrow> VA_derivable va s"
+  by (auto simp: VAFromPCC_def VA_derivable_def elim: Run_bindE)
+
 end
 
 (*locale Morello_Axiom_Assm_Automaton = Morello_Axiom_Automaton +
@@ -636,6 +656,8 @@ sublocale Morello_Axiom_Automaton
     and enabled = enabled
     and is_translation_event = "\<lambda>_. False"
   ..
+
+declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
 end
 

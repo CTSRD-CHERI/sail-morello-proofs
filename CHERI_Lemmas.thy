@@ -240,6 +240,7 @@ lemma
     and "tagged \<or> tag = B0"
   shows "access_enabled s Load (paddr + offset) (nat sz) data tag"
   using assms
+  unfolding access_enabled_def
   apply (cases tagged)
   apply (auto simp: load_enabled_def translate_address_def dvd_def)
   oops
@@ -321,6 +322,69 @@ qed
 
 declare AltBaseReg_read_VA_derivable[where is_prefetch = False, folded AltBaseReg_read__1_def, derivable_capsE]
 
+lemma tag_granule_16[simp]: "tag_granule ISA = 16"
+  by (auto simp: ISA_def)
+
+definition aligned :: "nat \<Rightarrow> nat \<Rightarrow> bool" where
+  "aligned addr sz \<equiv> sz dvd addr"
+
+lemma address_tag_aligned_iff_aligned_16[simp]:
+  "address_tag_aligned ISA addr \<longleftrightarrow> aligned addr 16"
+  by (auto simp: address_tag_aligned_def aligned_def)
+
+lemma translate_address_alidnged_iff[simp]:
+  assumes "translate_address vaddr acctype = Some paddr"
+    and "sz dvd 2^48"
+  shows "aligned paddr sz \<longleftrightarrow> aligned vaddr sz"
+  using assms
+  by (auto simp: translate_address_def dvd_mod_iff aligned_def)
+
+lemma Align__1_iff_aligned[simp]:
+  assumes "addr \<ge> 0" and "sz > 0"
+  shows "addr = Align__1 addr sz \<longleftrightarrow> aligned (nat addr) (nat sz)"
+  using assms
+  by (auto simp: Align__1_def aligned_def dvd_def nat_mult_distrib nat_eq_iff;
+      metis int_nat_eq pos_imp_zdiv_nonneg_iff)
+
+lemma Align__1_leq:
+  assumes "addr \<ge> 0" and "sz > 0"
+  shows "Align__1 addr sz \<le> addr"
+  using assms
+  by (auto simp: Align__1_def)
+     (metis Euclidean_Division.pos_mod_sign add_le_cancel_left cancel_div_mod_rules(2) group_cancel.rule0)
+
+lemma Align_woi_Align__1:
+  fixes addr :: "'a::len word"
+  shows "Align addr sz = word_of_int (Align__1 (uint addr) sz)"
+  by (auto simp: Align_def integer_subrange_def of_bl_bin_word_of_int)
+
+lemma Align_eq_iff_aligned[simp]:
+  fixes addr :: "'a::len word"
+  assumes "sz > 0"
+  shows "addr = Align addr sz \<longleftrightarrow> aligned (unat addr) (nat sz)"
+  using assms
+  unfolding word_uint_eq_iff Align_woi_Align__1 uint_word_of_int
+  apply (auto simp add:  unat_def Align__1_leq
+              simp flip: Align__1_iff_aligned)
+  sorry
+
+lemma CheckCapabilityAlignment_address_tag_aligned[intro, simp]:
+  assumes "Run (CheckCapabilityAlignment vaddr acctype iswrite) t u"
+  shows "aligned (unat vaddr) 16"
+  using assms
+  by (auto simp add: CheckCapabilityAlignment_def elim!: Run_bindE Run_ifE)
+
+thm CheckCapability_def
+thm authorises_access_def paddr_in_mem_region_def has_access_permission_def
+
+lemma
+  assumes "Run (CheckCapability c addr sz req_perms acctype) t vaddr"
+    and "tagged \<longrightarrow> sz' = 16 \<and> address_tag_aligned ISA (unat vaddr)"
+  shows "load_enabled (run s t) (unat vaddr) acctype' sz' tagged"
+  using assms
+  apply (auto simp: CheckCapability_def load_enabled_def access_enabled_def elim!: Run_bindE split: if_splits)
+  oops
+
 lemma VADeref_load_enabled[derivable_capsE]:
   assumes "Run (VADeref va sz perms acctype) t vaddr"
     and "perm_bits_included CAP_PERM_LOAD perms"
@@ -329,6 +393,10 @@ lemma VADeref_load_enabled[derivable_capsE]:
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "load_enabled (run s t) (unat vaddr) acctype' sz' tagged"
+  using assms
+  unfolding VADeref_def
+  (* apply (auto elim!: Run_bindE Run_ifE) *)
+  thm VADeref_def load_enabled_def
   sorry
 
 lemma VADeref_store_data_enabled[derivable_capsE]:

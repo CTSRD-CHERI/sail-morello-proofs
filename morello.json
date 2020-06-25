@@ -103,14 +103,14 @@
     },
     "AArch64_CapabilityTag": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg1 16 True"],
+        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> load_enabled s (unat arg0) arg1 16 True"],
         "unfolding": ["AArch64_CapabilityTag_def", "AArch64_TranslateAddress_def", "bind_assoc"],
         "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def load_enabled_def)"
       }
     },
     "AArch64_CapabilityTag_set": {
       "traces_enabled_mem": {
-        "assms": ["\\<And>data :: 128 word. store_enabled s (unat vaddr) acctype 16 data False", "tag = 0"],
+        "assms": ["\\<And>data :: 128 word. address_tag_aligned ISA (unat vaddr) \\<longrightarrow> store_enabled s (unat vaddr) acctype 16 data False", "tag = 0"],
         "stmts": ["traces_enabled (AArch64_CapabilityTag_set vaddr acctype tag) s"],
         "unfolding": ["AArch64_CapabilityTag_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
         "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def store_enabled_def)"
@@ -125,38 +125,44 @@
     },
     "Mem_read": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg2 arg1 False"]
+        "assms": ["load_enabled s (unat arg0) arg2 arg1 False"],
+        "proof": "(traces_enabledI assms: assms)"
       }
     },
     "Mem_set": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat arg0) arg2 arg1 arg3 False"]
+        "assms": ["store_enabled s (unat arg0) arg2 arg1 arg3 False"],
+        "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemC_read": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg1 16 True"]
+        "assms": ["load_enabled s (unat arg0) arg1 16 True"],
+        "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemC_set": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat arg0) arg1 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
+        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> store_enabled s (unat arg0) arg1 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def)"
       }
     },
     "MemCP": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg1 16 True", "load_enabled s (unat arg0 + 16) arg1 16 True", "load_enabled s (unat arg0) arg1 32 False"]
+        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> load_enabled s (unat arg0) arg1 16 True", "address_tag_aligned ISA (unat arg0) \\<longrightarrow> load_enabled s (unat arg0 + 16) arg1 16 True", "address_tag_aligned ISA (unat arg0) \\<longrightarrow> load_enabled s (unat arg0) arg1 32 False"],
+        "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemCP__1": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat arg0) arg1 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "store_enabled s (unat arg0 + 16) arg1 16 (ucast arg3 :: 128 word) (CapIsTagSet arg3)", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"]
+        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> store_enabled s (unat arg0) arg1 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "address_tag_aligned ISA (unat arg0) \\<longrightarrow> store_enabled s (unat arg0 + 16) arg1 16 (ucast arg3 :: 128 word) (CapIsTagSet arg3)", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
+        "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemAtomicC": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg3 16 True", "store_enabled s (unat arg0) arg4 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"]
+        "assms": ["load_enabled s (unat arg0) arg3 16 True", "store_enabled s (unat arg0) arg4 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
+        "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemAtomic": {
