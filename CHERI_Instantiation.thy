@@ -20,6 +20,12 @@ lemma bitU_of_bool_simps[simp]:
   "bitU_of_bool False = B0"
   by (auto simp: bitU_of_bool_def)
 
+lemma uint_leq2pm1[intro]:
+  fixes w :: "'a::len word"
+  assumes "n \<ge> 2^LENGTH('a) - 1"
+  shows "uint w \<le> n"
+  using assms dual_order.trans zle_diff1_eq by blast
+
 lemma test_bit_of_bl_append:
   fixes x y :: "bool list"
   defines "w \<equiv> of_bl (x @ y) :: 'a::len word"
@@ -60,6 +66,38 @@ proof -
       by (auto simp: test_bit_of_bl_append nth_rev test_bit_bl[of w n])
   qed
 qed
+
+definition aligned :: "nat \<Rightarrow> nat \<Rightarrow> bool" where
+  "aligned addr sz \<equiv> sz dvd addr"
+
+lemma aligned_unat_plus_distrib:
+  fixes addr offset :: "'a::len word"
+  assumes "aligned (unat addr) sz" and "unat offset < sz" and "sz dvd 2^LENGTH('a)"
+  shows "unat (addr + offset) = unat addr + unat offset"
+proof -
+  obtain k k' where k: "unat addr = sz * k" and k': "2^LENGTH('a) = sz * k'"
+    using assms
+    by (auto simp: dvd_def aligned_def)
+  then have "k < k'" and "k' > 0"
+    using unat_lt2p[of addr]
+    by auto
+  have "sz * k + unat offset < sz * (Suc k)"
+    using \<open>unat offset < sz\<close>
+    by auto
+  also have "\<dots> \<le> sz * k'"
+    using \<open>k < k'\<close>
+    unfolding less_eq_Suc_le
+    by (intro mult_le_mono2)
+  finally show ?thesis
+    unfolding unat_plus_if' k k'
+    by auto
+qed
+
+lemma integer_subrange_word_of_int[simp]:
+  assumes "sz \<ge> 0" and "LENGTH('a) = Suc (nat sz)"
+  shows "(integer_subrange i sz 0 :: 'a::len word) = word_of_int i"
+  using assms
+  by (auto simp: integer_subrange_def of_bl_bin_word_of_int)
 
 section \<open>Simplification rules\<close>
 
@@ -130,11 +168,17 @@ lemma EL_exhaust_disj:
   shows "el = EL0 \<or> el = EL1 \<or> el = EL2 \<or> el = EL3"
   by (cases el rule: exhaustive_2_word) (auto simp: EL0_def EL1_def EL2_def EL3_def)
 
-lemma unat_paddress_plus_16[simp]:
-  "unat (ucast (FullAddress_address (AddressDescriptor_paddress desc)) + (16 :: 64 word))
-   = unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16"
-  sorry
-
+lemma unat_paddress_plus_distrib[simp]:
+  fixes w :: "48 word"
+  assumes offset: "unat offset < 2^63"
+  shows "unat (ucast w + offset :: 64 word) = unat w + unat offset"
+proof -
+  have "unat w + unat offset < 2^64"
+    using add_strict_mono[OF unat_lt2p[of w] offset]
+    by auto
+  then show ?thesis
+    by (auto simp: unat_plus_if_size)
+qed
 
 lemmas datatype_splits =
   ArchVersion.splits Constraint.splits Unpredictable.splits Exception.splits InstrEnc.splits
@@ -656,6 +700,10 @@ sublocale Morello_Axiom_Automaton
     and enabled = enabled
     and is_translation_event = "\<lambda>_. False"
   ..
+
+lemma translate_address_ISA[simp]:
+  "isa.translate_address ISA addr acctype t = translate_address addr acctype"
+  by (auto simp: ISA_def)
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
