@@ -199,10 +199,10 @@ definition get_base :: "Capability \<Rightarrow> nat" where
   "get_base c \<equiv> unat (THE b. \<exists>t. Run (CapGetBase c) t b)"
 
 definition get_limit :: "Capability \<Rightarrow> nat" where
-  "get_limit c \<equiv> unat (THE b. \<exists>t. Run (CapGetLimit c) t b)"
+  "get_limit c \<equiv> unat (THE l. \<exists>t b v. Run (CapGetBounds c) t (l, b, v))"
 
 definition get_perms :: "Capability \<Rightarrow> perms" where
-  "get_perms c = to_bl (CapGetPerms c)"
+  "get_perms c = to_bl (CapGetPermissions c)"
 
 definition set_tag :: "Capability \<Rightarrow> bool \<Rightarrow> Capability" where
   "set_tag c tag = CapSetTag c (if tag then 1 else 0)"
@@ -239,7 +239,7 @@ definition "CC \<equiv>
    clear_global_method = (clear_perm CAP_PERM_GLOBAL),
    cap_of_mem_bytes_method = cap_of_mem_bytes,
    permits_execute_method = CapIsExecutePermitted,
-   permits_ccall_method = (cap_permits CAP_PERM_BRANCH_SEALED),
+   permits_ccall_method = (cap_permits CAP_PERM_BRANCH_SEALED_PAIR),
    permits_load_method = (cap_permits CAP_PERM_LOAD),
    permits_load_cap_method = (cap_permits CAP_PERM_LOAD_CAP),
    permits_seal_method = (cap_permits CAP_PERM_SEAL),
