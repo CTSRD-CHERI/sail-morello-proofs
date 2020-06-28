@@ -46,43 +46,53 @@ context Morello_Mem_Automaton
 begin
 
 lemma access_enabled_runI[derivable_caps_runI]:
-  assumes "access_enabled s acctype addr sz v tag"
-  shows "access_enabled (run s t) acctype addr sz v tag"
+  assumes "access_enabled s acctype vaddr paddr sz v tag"
+  shows "access_enabled (run s t) acctype vaddr paddr sz v tag"
   using assms derivable_mono[OF accessed_caps_run_mono]
   by (auto simp: access_enabled_def)
 
+abbreviation paccess_enabled where
+  "paccess_enabled s acctype paddr sz v tag
+   \<equiv> \<exists>vaddr. access_enabled s acctype vaddr paddr sz v tag"
+
+lemma paccess_enabled_runI[derivable_caps_runI]:
+  assumes "paccess_enabled s acctype paddr sz v tag"
+  shows "paccess_enabled (run s t) acctype paddr sz v tag"
+  using assms
+  by (auto intro: derivable_caps_runI)
+
 lemma traces_enabled_ReadMemory:
-  assumes "\<And>v. access_enabled s Load (unat paddr) sz v B0"
+  assumes "\<And>v. paccess_enabled s Load (unat paddr) sz v B0"
   shows "traces_enabled (ReadMemory sz paddr) s"
   using assms
   unfolding ReadMemory_def
   by (intro traces_enabled_read_mem) (auto)
 
 lemma traces_enabled_Mem_read[traces_enabledI]:
-  assumes "\<And>v. access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
+  assumes "\<And>v. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
   shows "traces_enabled (Mem_read desc sz accdesc) s"
   unfolding Mem_read_def bind_assoc
   by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
 
 lemma traces_enabled_ReadMem[traces_enabledI]:
-  assumes "\<And>v. access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
+  assumes "\<And>v. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
   shows "traces_enabled (ReadMem desc sz accdesc) s"
   unfolding ReadMem_def bind_assoc
   by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
 
 lemma traces_enabled_ReadTaggedMem[traces_enabledI]:
-  assumes "\<And>v tag. access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 v tag"
-    and "\<And>v tag. sz = 32 \<Longrightarrow> access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 v tag"
+  assumes "\<And>v tag. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 v tag"
+    and "\<And>v tag. sz = 32 \<Longrightarrow> paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 v tag"
     and "sz = 16 \<or> sz = 32"
   shows "traces_enabled (ReadTaggedMem desc sz accdesc) s"
   unfolding ReadTaggedMem_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] access_enabled_runI assms: assms)
+  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] paccess_enabled_runI assms: assms)
 
 lemma traces_enabled_ReadTags[traces_enabledI]:
-  assumes "\<And>i v tag. i < nat sz \<Longrightarrow> access_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc)) + (i * 16)) 16 v tag"
-  shows "traces_enabled (ReadTags desc sz accdesc) s"
+  assumes "\<And>v tag. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 v tag"
+  shows "traces_enabled (ReadTags desc 1 accdesc) s"
   unfolding ReadTags_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] access_enabled_runI
+  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] paccess_enabled_runI
                       assms: assms)
 
 lemma traces_enabled_Write_mem:
@@ -110,7 +120,7 @@ lemma length_mem_bytes_of_word:
 
 lemma traces_enabled_write_mem:
   fixes data :: "'a::len word"
-  assumes "access_enabled s Store (unat paddr) (nat sz) (mem_bytes_of_word data) B0"
+  assumes "paccess_enabled s Store (unat paddr) (nat sz) (mem_bytes_of_word data) B0"
     and "LENGTH('a) = nat sz * 8" and "sz > 0"
   shows "traces_enabled (write_mem BC_mword BC_mword wk addr_sz paddr sz data) s"
   using assms
@@ -120,7 +130,7 @@ lemma traces_enabled_write_mem:
 
 lemma traces_enabled_Mem_set[traces_enabledI]:
   fixes data :: "'a::len word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) (mem_bytes_of_word data) B0"
+  assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) (mem_bytes_of_word data) B0"
     and "LENGTH('a) = nat sz * 8" and "sz > 0"
   shows "traces_enabled (Mem_set desc sz accdesc data) s"
   using assms
@@ -156,7 +166,7 @@ qed
 
 lemma traces_enabled_write_memt:
   fixes data :: "128 word"
-  assumes "access_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) tag"
+  assumes "paccess_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) tag"
     and "tag = B0 \<or> tag = B1"
     and "tag \<noteq> B0 \<Longrightarrow> Capability_of_tag_word (bitU_nonzero tag) data \<in> derivable_caps s"
   shows "traces_enabled (write_memt BC_mword BC_mword wk paddr 16 data tag) s"
@@ -167,7 +177,7 @@ lemma traces_enabled_write_memt:
 
 lemma traces_enabled_WriteTaggedMem_single[traces_enabledI]:
   fixes tag :: "1 word" and data :: "128 word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word data) (bitU_of_bool (tag !! 0))"
+  assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word data) (bitU_of_bool (tag !! 0))"
     and "Capability_of_tag_word (tag !! 0) data \<in> derivable_caps s"
   shows "traces_enabled (WriteTaggedMem desc 16 accdesc tag data) s"
   using assms
@@ -183,8 +193,8 @@ lemma run_write_memt:
 
 lemma traces_enabled_WriteTaggedMem_pair[traces_enabledI]:
   fixes tags :: "2 word" and data :: "256 word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
-    and "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
+  assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
+    and "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
     and "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
     and "Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
   shows "traces_enabled (WriteTaggedMem desc 32 accdesc tags data) s"
@@ -196,9 +206,9 @@ lemma traces_enabled_WriteTaggedMem_pair[traces_enabledI]:
 
 lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
   fixes tags :: "'t::len word" and data :: "'d::len word"
-  assumes "access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
+  assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
     and "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
-    and "sz = 32 \<Longrightarrow> access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
+    and "sz = 32 \<Longrightarrow> paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
     and "sz = 32 \<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
     and "sz = 16 \<or> sz = 32"
     and "LENGTH('t) = nat sz div 16" and "LENGTH('d) = 8 * nat sz"
@@ -212,14 +222,14 @@ lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
 definition store_enabled where
   "store_enabled s vaddr acctype sz data tag \<equiv>
      \<forall>paddr.
-        translate_address vaddr (acctype_of_AccType acctype True) = Some paddr \<longrightarrow>
-        access_enabled s Store paddr (nat sz) (mem_bytes_of_word data) (bitU_of_bool tag)"
+        translate_address vaddr = Some paddr \<longrightarrow>
+        access_enabled s Store vaddr paddr (nat sz) (mem_bytes_of_word data) (bitU_of_bool tag)"
 
 definition load_enabled where
   "load_enabled s vaddr acctype sz tagged \<equiv>
      \<forall>paddr data tag.
-        translate_address vaddr (acctype_of_AccType acctype False) = Some paddr \<longrightarrow>
-        access_enabled s Load paddr (nat sz) data (if tagged then tag else B0)"
+        translate_address vaddr = Some paddr \<longrightarrow>
+        access_enabled s Load vaddr paddr (nat sz) data (if tagged then tag else B0)"
 
 lemma store_enabled_runI[derivable_caps_runI]:
   assumes "store_enabled s vaddr acctype sz data tag"
@@ -232,6 +242,34 @@ lemma load_enabled_runI[derivable_caps_runI]:
   shows "load_enabled (run s t) vaddr acctype sz tagged"
   using assms
   by (auto simp: load_enabled_def intro: access_enabled_runI)
+
+thm access_enabled_def authorises_access_def addrs_in_mem_region_def
+
+lemma addrs_in_mem_region_subset:
+  assumes "addrs_in_mem_region c acctype vaddr paddr sz"
+    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
+    and "translate_address vaddr' = Some paddr'"
+  shows "addrs_in_mem_region c acctype vaddr' paddr' sz'"
+  using assms
+  unfolding addrs_in_mem_region_def
+  by (auto simp: get_mem_region_def)
+
+lemma access_enabled_data_load_subset:
+  assumes "access_enabled s Load vaddr paddr sz data B0"
+    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
+    and "translate_address vaddr' = Some paddr'"
+  shows "access_enabled s Load vaddr' paddr' sz' data' B0"
+  using assms
+  unfolding access_enabled_def authorises_access_def
+  by (auto intro: addrs_in_mem_region_subset)
+
+lemma load_enabled_data_subset[intro]:
+  assumes "load_enabled s vaddr acctype sz False"
+    and "vaddr \<le> vaddr'" and "vaddr' + nat sz' \<le> vaddr + nat sz"
+    and "translate_address vaddr = Some paddr"
+  shows "load_enabled s vaddr' acctype sz' False"
+  using assms
+  by (auto simp: load_enabled_def intro: access_enabled_data_load_subset)
 
 (* TODO *)
 lemma

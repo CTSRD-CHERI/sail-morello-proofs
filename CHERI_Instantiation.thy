@@ -393,7 +393,7 @@ lemma caps_of_bitvector_129_regval[simp]:
 end
 
 locale Morello_Fixed_Address_Translation =
-  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option"
+  fixes translate_address :: "nat \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     and translation_assms :: "register_value event \<Rightarrow> bool"
   assumes translate_correct:
@@ -401,7 +401,7 @@ locale Morello_Fixed_Address_Translation =
           Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
           FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
           \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
-          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) =
+          translate_address (unat vaddress) =
             Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
     and is_translation_event_correct:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
@@ -411,7 +411,7 @@ locale Morello_Fixed_Address_Translation =
           is_translation_event e"
 begin
 
-sublocale Morello_ISA where translate_address = "\<lambda>addr acctype _. translate_address addr acctype" .
+sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr" .
 
 sublocale Capability_ISA_Fixed_Translation CC ISA translation_assms
   by unfold_locales (auto simp: ISA_def)
@@ -420,8 +420,8 @@ end
 
 text \<open>Instantiation of translate_address for version of spec with translation stubs\<close>
 
-definition translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" where
-  "translate_address addr acctype \<equiv> Some (addr mod 2^48)"
+definition translate_address :: "nat \<Rightarrow> nat option" where
+  "translate_address addr \<equiv> Some (addr mod 2^48)"
 
 lemmas TranslateAddress_defs =
   AArch64_TranslateAddress_def AArch64_TranslateAddressWithTag_def AArch64_FullTranslateWithTag_def
@@ -696,13 +696,13 @@ sublocale Mem_Assm_Automaton
   ..
 
 sublocale Morello_Axiom_Automaton
-  where translate_address = "\<lambda>addr acctype _. translate_address addr acctype"
+  where translate_address = "\<lambda>addr _ _. translate_address addr"
     and enabled = enabled
     and is_translation_event = "\<lambda>_. False"
   ..
 
 lemma translate_address_ISA[simp]:
-  "isa.translate_address ISA addr acctype t = translate_address addr acctype"
+  "isa.translate_address ISA addr acctype t = translate_address addr"
   by (auto simp: ISA_def)
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
