@@ -73,47 +73,47 @@
     },
     "AArch64_MemSingle_read": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg2 arg1 False"],
+        "assms": ["load_enabled s (unat arg0) arg1 False"],
         "unfolding": ["AArch64_MemSingle_read_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def load_enabled_def)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
       }
     },
     "AArch64_MemSingle_set": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat arg0) arg2 arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
+        "assms": ["store_enabled s (unat arg0) arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
         "stmts": ["traces_enabled (AArch64_MemSingle_set arg0 arg1 arg2 arg3 (arg4 :: 'a::len word)) s"],
         "unfolding": ["AArch64_MemSingle_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def store_enabled_def)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
       }
     },
     "AArch64_TaggedMemSingle": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg2 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0 + 16) arg2 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0) arg2 32 False"],
+        "assms": ["aligned (unat arg0) (nat arg1)", "load_enabled s (unat arg0) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0 + 16) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0) 32 False"],
         "unfolding": ["AArch64_TaggedMemSingle_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def load_enabled_def)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
       }
     },
     "AArch64_TaggedMemSingle__1": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat addr) acctype 16 (ucast data :: 128 word) (tags !! 0)", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> store_enabled s (unat addr + 16) acctype 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
+        "assms": ["aligned (unat arg0) (nat arg1)", "store_enabled s (unat addr) 16 (ucast data :: 128 word) (tags !! 0)", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> store_enabled s (unat addr + 16) 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
         "unfolding": ["AArch64_TaggedMemSingle__1_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def store_enabled_def)"
+        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
       }
     },
     "AArch64_CapabilityTag": {
       "traces_enabled_mem": {
-        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> load_enabled s (unat arg0) arg1 16 True"],
+        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True"],
         "unfolding": ["AArch64_CapabilityTag_def", "AArch64_TranslateAddress_def", "bind_assoc"],
         "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def load_enabled_def)"
       }
     },
     "AArch64_CapabilityTag_set": {
       "traces_enabled_mem": {
-        "assms": ["\\<And>data :: 128 word. address_tag_aligned ISA (unat vaddr) \\<longrightarrow> store_enabled s (unat vaddr) acctype 16 data False", "tag = 0"],
+        "assms": ["\\<And>data :: 128 word. aligned (unat vaddr) 16 \\<longrightarrow> store_enabled s (unat vaddr) 16 data False", "tag = 0"],
         "stmts": ["traces_enabled (AArch64_CapabilityTag_set vaddr acctype tag) s"],
         "unfolding": ["AArch64_CapabilityTag_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def store_enabled_def)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
       }
     },
     "_WriteTags": {
@@ -125,26 +125,26 @@
     },
     "Mem_read": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg2 arg1 False"],
+        "assms": ["load_enabled s (unat arg0) arg1 False"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
     "Mem_set": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat arg0) arg2 arg1 arg3 False"],
+        "assms": ["store_enabled s (unat arg0) arg1 arg3 False"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemC_read": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg1 16 True"],
+        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
     "MemC_set": {
       "traces_enabled_mem": {
-        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> store_enabled s (unat arg0) arg1 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
-        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def)"
+        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def update_subrange_vec_dec_test_bit test_bit_of_bl)"
       }
     },
     "MemCP": {
@@ -155,14 +155,15 @@
     },
     "MemCP__1": {
       "traces_enabled_mem": {
-        "assms": ["address_tag_aligned ISA (unat arg0) \\<longrightarrow> store_enabled s (unat arg0) arg1 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "address_tag_aligned ISA (unat arg0) \\<longrightarrow> store_enabled s (unat arg0 + 16) arg1 16 (ucast arg3 :: 128 word) (CapIsTagSet arg3)", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
-        "proof": "(traces_enabledI assms: assms)"
+        "assms": ["aligned (unat arg0) 32", "store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "store_enabled s (unat arg0 + 16) 16 (ucast arg3 :: 128 word) (CapIsTagSet arg3)", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def CAPABILITY_DBITS_def update_subrange_vec_dec_test_bit test_bit_of_bl)"
       }
     },
     "MemAtomicC": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat arg0) arg3 16 True", "store_enabled s (unat arg0) arg4 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
-        "proof": "(traces_enabledI assms: assms)"
+        "assms": ["load_enabled s (unat arg0) 16 True", "store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
+        "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else IsFault_def translate_correct)"
       }
     },
     "MemAtomic": {

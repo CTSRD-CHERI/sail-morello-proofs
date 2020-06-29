@@ -164,6 +164,14 @@ proof (intro word_eqI impI)
     by (cases "n = 128") (auto simp: nth_word_cat nth_ucast test_bit_of_bl)
 qed
 
+lemma Capability_of_tag_word_128th[simp]:
+  "Capability_of_tag_word tag data !! 128 = tag"
+  by (auto simp: Capability_of_tag_word_def nth_word_cat test_bit_of_bl)
+
+lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
+  "Capability_of_tag_word False data \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def)
+
 lemma traces_enabled_write_memt:
   fixes data :: "128 word"
   assumes "paccess_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) tag"
@@ -220,26 +228,26 @@ lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
            simp: run_write_memt nth_ucast)
 
 definition store_enabled where
-  "store_enabled s vaddr acctype sz data tag \<equiv>
+  "store_enabled s vaddr sz data tag \<equiv>
      \<forall>paddr.
         translate_address vaddr = Some paddr \<longrightarrow>
         access_enabled s Store vaddr paddr (nat sz) (mem_bytes_of_word data) (bitU_of_bool tag)"
 
 definition load_enabled where
-  "load_enabled s vaddr acctype sz tagged \<equiv>
+  "load_enabled s vaddr sz tagged \<equiv>
      \<forall>paddr data tag.
         translate_address vaddr = Some paddr \<longrightarrow>
         access_enabled s Load vaddr paddr (nat sz) data (if tagged then tag else B0)"
 
 lemma store_enabled_runI[derivable_caps_runI]:
-  assumes "store_enabled s vaddr acctype sz data tag"
-  shows "store_enabled (run s t) vaddr acctype sz data tag"
+  assumes "store_enabled s vaddr sz data tag"
+  shows "store_enabled (run s t) vaddr sz data tag"
   using assms
   by (auto simp: store_enabled_def intro: access_enabled_runI)
 
 lemma load_enabled_runI[derivable_caps_runI]:
-  assumes "load_enabled s vaddr acctype sz tagged"
-  shows "load_enabled (run s t) vaddr acctype sz tagged"
+  assumes "load_enabled s vaddr sz tagged"
+  shows "load_enabled (run s t) vaddr sz tagged"
   using assms
   by (auto simp: load_enabled_def intro: access_enabled_runI)
 
@@ -255,24 +263,73 @@ lemma addrs_in_mem_region_subset:
   by (auto simp: get_mem_region_def)
 
 lemma access_enabled_data_load_subset:
-  assumes "access_enabled s Load vaddr paddr sz data B0"
+  assumes "access_enabled s Load vaddr paddr sz data tag"
     and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
     and "translate_address vaddr' = Some paddr'"
   shows "access_enabled s Load vaddr' paddr' sz' data' B0"
   using assms
-  unfolding access_enabled_def authorises_access_def
+  unfolding access_enabled_def authorises_access_def has_access_permission_def
   by (auto intro: addrs_in_mem_region_subset)
 
 lemma load_enabled_data_subset[intro]:
-  assumes "load_enabled s vaddr acctype sz False"
+  assumes "load_enabled s vaddr sz False"
     and "vaddr \<le> vaddr'" and "vaddr' + nat sz' \<le> vaddr + nat sz"
-    and "translate_address vaddr = Some paddr"
-  shows "load_enabled s vaddr' acctype sz' False"
+    and "translate_address vaddr \<noteq> None"
+  shows "load_enabled s vaddr' sz' False"
   using assms
   by (auto simp: load_enabled_def intro: access_enabled_data_load_subset)
 
+lemma load_enabled_access_enabled[intro]:
+  assumes "load_enabled s vaddr sz tagged"
+    and "sz' = nat sz"
+    and "translate_address vaddr = Some paddr"
+    and "tagged \<or> tag = B0"
+  shows "\<exists>vaddr. access_enabled s Load vaddr paddr sz' data tag"
+  using assms
+  unfolding load_enabled_def
+  by (cases tagged) auto
+
+lemma access_enabled_data_store_subset:
+  assumes "access_enabled s Store vaddr paddr sz data tag"
+    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
+    and "translate_address vaddr' = Some paddr'"
+  shows "access_enabled s Store vaddr' paddr' sz' data' B0"
+  using assms
+  unfolding access_enabled_def authorises_access_def has_access_permission_def
+  by (auto intro: addrs_in_mem_region_subset)
+
+lemma store_enabled_data_subset[intro]:
+  assumes "store_enabled s vaddr sz data tag"
+    and "vaddr \<le> vaddr'" and "vaddr' + nat sz' \<le> vaddr + nat sz"
+    and "translate_address vaddr \<noteq> None"
+  shows "store_enabled s vaddr' sz' data' False"
+  using assms
+  by (auto simp: store_enabled_def intro: access_enabled_data_store_subset)
+
+lemma store_enabled_access_enabled[intro]:
+  assumes "store_enabled s vaddr sz data tag"
+    and "sz' = nat sz" and "data' = mem_bytes_of_word data" and "tag' = bitU_of_bool tag"
+    and "translate_address vaddr = Some paddr"
+  shows "\<exists>vaddr. access_enabled s Store vaddr paddr sz' data' tag'"
+  using assms
+  unfolding store_enabled_def
+  by auto
+
+lemma trace_assms_translation_trace_assms[intro, simp]:
+  "trace_assms t \<Longrightarrow> translation_assms_trace t"
+  by auto
+
+lemma translate_address_aligned32_plus16:
+  assumes "translate_address vaddr = Some paddr"
+    and "aligned vaddr 32"
+  shows "translate_address (vaddr + 16) = Some (paddr + 16)"
+  using assms
+  apply (auto simp: translate_address_def aligned_def dvd_def)
+  find_theorems (70) "(_ + _) mod _"
+  sorry
+
 (* TODO *)
-lemma
+(*lemma
   assumes "load_enabled s (vaddr + offset) acctype sz tagged"
     and "translate_address vaddr (acctype_of_AccType acctype False) = Some paddr"
     and "tagged \<or> tag = B0"
@@ -281,7 +338,7 @@ lemma
   unfolding access_enabled_def
   apply (cases tagged)
   apply (auto simp: load_enabled_def translate_address_def dvd_def)
-  oops
+  oops*)
 
 text \<open>The VirtualAddress type in the ASL\<close>
 
@@ -368,7 +425,7 @@ lemma address_tag_aligned_iff_aligned_16[simp]:
   by (auto simp: address_tag_aligned_def aligned_def)
 
 lemma translate_address_aligned_iff[simp]:
-  assumes "translate_address vaddr acctype = Some paddr"
+  assumes "translate_address vaddr = Some paddr"
     and "sz dvd 2^48"
   shows "aligned paddr sz \<longleftrightarrow> aligned vaddr sz"
   using assms
@@ -419,7 +476,7 @@ lemma TranslateAddress_aligned_vaddr_aligned_paddr:
   shows "aligned (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) sz"
     (is "aligned ?paddr sz")
 proof -
-  have *: "translate_address (unat vaddr) (acctype_of_AccType acctype iswrite) = Some ?paddr"
+  have *: "translate_address (unat vaddr) = Some ?paddr"
     using assms
     by (auto simp: translate_correct trace_assms_def ev_assms_def)
   show ?thesis
@@ -508,12 +565,10 @@ lemma CheckCapability_load_enabled:
     and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP req_perms"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "c \<in> derivable_caps (run s t)"
-  shows "load_enabled (run s t) vaddr' acctype' sz' tagged"
+  shows "load_enabled (run s t) vaddr' sz' tagged"
 proof (unfold load_enabled_def, intro allI impI)
   fix paddr data tag
-  assume "translate_address vaddr' (acctype_of_AccType acctype' False) = Some paddr"
-  then have paddr: "translate_address vaddr' Load = Some paddr"
-    by (auto simp: translate_address_def)
+  assume paddr: "translate_address vaddr' = Some paddr"
   let ?tag = "if tagged then tag else B0"
   let ?is_cap = "?tag \<noteq> B0"
   let ?is_local_cap = "mem_val_is_local_cap CC ISA data ?tag \<and> tag = B1"
@@ -530,10 +585,10 @@ proof (unfold load_enabled_def, intro allI impI)
     using t
     by (auto elim!: Run_bindE simp: CheckCapability_def split: if_splits)
   from CapIsRangeInBounds_in_get_mem_region[OF this]
-  have "paddr_in_mem_region c Load paddr (nat sz')"
+  have "addrs_in_mem_region c Load vaddr' paddr (nat sz')"
     using paddr sz
-    unfolding paddr_in_mem_region_def
-    by (intro exI[where x = vaddr']) (auto simp: unat_def uint_word_of_int subset_eq)
+    unfolding addrs_in_mem_region_def
+    by (auto simp: unat_def uint_word_of_int subset_eq)
   moreover have "\<forall>is_local_cap. has_access_permission c Load ?is_cap is_local_cap"
   proof -
     have "cap_permits req_perms c"
@@ -545,10 +600,10 @@ proof (unfold load_enabled_def, intro allI impI)
       unfolding has_access_permission_def
       by (auto simp: CC_def)
   qed
-  ultimately have "\<forall>is_local_cap. authorises_access c Load ?is_cap is_local_cap paddr (nat sz')"
+  ultimately have "\<forall>is_local_cap. authorises_access c Load ?is_cap is_local_cap vaddr' paddr (nat sz')"
     using assms tagged not_sealed
     by (auto simp: authorises_access_def)
-  then show "access_enabled (run s t) Load paddr (nat sz') data ?tag"
+  then show "access_enabled (run s t) Load vaddr' paddr (nat sz') data ?tag"
     using c aligned
     by (fastforce simp: access_enabled_def)
 qed
@@ -578,12 +633,10 @@ lemma CheckCapability_store_enabled:
     and local_perm: "tag \<and> CapIsLocal (Capability_of_tag_word tag (ucast data)) \<longrightarrow> perm_bits_included CAP_PERM_STORE_LOCAL req_perms"
     and aligned: "tag \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> LENGTH('a) = 128"
     and "c \<in> derivable_caps (run s t)"
-  shows "store_enabled (run s t) vaddr' acctype' sz' data tag"
+  shows "store_enabled (run s t) vaddr' sz' data tag"
 proof (unfold store_enabled_def, intro allI impI)
   fix paddr
-  assume "translate_address vaddr' (acctype_of_AccType acctype' True) = Some paddr"
-  then have paddr: "translate_address vaddr' Store = Some paddr"
-    by (auto simp: translate_address_def)
+  assume paddr: "translate_address vaddr' = Some paddr"
   let ?tagbit = "bitU_of_bool tag"
   let ?bytes = "mem_bytes_of_word data"
   let ?is_local_cap = "mem_val_is_local_cap CC ISA ?bytes ?tagbit \<and> ?tagbit = B1"
@@ -604,10 +657,10 @@ proof (unfold store_enabled_def, intro allI impI)
     using t
     by (auto elim!: Run_bindE simp: CheckCapability_def split: if_splits)
   from CapIsRangeInBounds_in_get_mem_region[OF this]
-  have "paddr_in_mem_region c Store paddr (nat sz')"
+  have "addrs_in_mem_region c Store vaddr' paddr (nat sz')"
     using paddr sz
-    unfolding paddr_in_mem_region_def
-    by (intro exI[where x = vaddr']) (auto simp: unat_def uint_word_of_int subset_eq)
+    unfolding addrs_in_mem_region_def
+    by (auto simp: unat_def uint_word_of_int subset_eq)
   thm store_enabled_def access_enabled_def
   moreover have "has_access_permission c Store tag ?is_local_cap"
   proof -
@@ -620,10 +673,10 @@ proof (unfold store_enabled_def, intro allI impI)
       unfolding has_access_permission_def is_local_cap
       by (auto simp: CC_def)
   qed
-  ultimately have "authorises_access c Store tag ?is_local_cap paddr (nat sz')"
+  ultimately have "authorises_access c Store tag ?is_local_cap vaddr' paddr (nat sz')"
     using tagged not_sealed
     by (auto simp: authorises_access_def)
-  then show "access_enabled (run s t) Store paddr (nat sz') ?bytes ?tagbit"
+  then show "access_enabled (run s t) Store vaddr' paddr (nat sz') ?bytes ?tagbit"
     using aligned' c
     by (cases tag) (auto simp: access_enabled_def)
 qed
@@ -647,16 +700,16 @@ lemmas VA_derivable_combinators[derivable_caps_combinators] =
   Run_case_prodE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
 
 lemmas load_enabled_combinators[derivable_caps_combinators] =
-  Run_bindE'[where P = "\<lambda>t. load_enabled (run s t) addr acctype sz tagged" for s addr acctype sz tagged, simplified]
-  Run_ifE[where thesis = "load_enabled (run s t) addr acctype sz tagged" and t = t for s addr acctype sz tagged t]
-  Run_letE[where thesis = "load_enabled (run s t) addr acctype sz tagged" and t = t for s addr acctype sz tagged t]
-  Run_case_prodE[where thesis = "load_enabled (run s t) addr acctype sz tagged" and t = t for s addr acctype sz tagged t]
+  Run_bindE'[where P = "\<lambda>t. load_enabled (run s t) addr sz tagged" for s addr sz tagged, simplified]
+  Run_ifE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
+  Run_letE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
+  Run_case_prodE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
 
 lemmas store_enabled_combinators[derivable_caps_combinators] =
-  Run_bindE'[where P = "\<lambda>t. store_enabled (run s t) addr acctype sz data tag" for s addr acctype sz data tag, simplified]
-  Run_ifE[where thesis = "store_enabled (run s t) addr acctype sz data tag" and t = t for s addr acctype sz data tag t]
-  Run_letE[where thesis = "store_enabled (run s t) addr acctype sz data tag" and t = t for s addr acctype sz data tag t]
-  Run_case_prodE[where thesis = "store_enabled (run s t) addr acctype sz data tag" and t = t for s addr acctype sz data tag t]
+  Run_bindE'[where P = "\<lambda>t. store_enabled (run s t) addr sz data tag" for s addr sz data tag, simplified]
+  Run_ifE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
+  Run_letE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
+  Run_case_prodE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
 
 lemma prod_snd_derivable_caps[derivable_capsE]:
   assumes "a = (x, y)"
@@ -680,7 +733,7 @@ lemma VADeref_load_enabled[derivable_capsE]:
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "load_enabled (run s t) vaddr' acctype' sz' tagged"
+  shows "load_enabled (run s t) vaddr' sz' tagged"
   using assms(1,2)
   unfolding VADeref_def
   by - (derivable_capsI assms: assms(3-) elim: CheckCapability_load_enabled)
@@ -691,7 +744,7 @@ lemma VADeref_store_data_enabled[derivable_capsE]:
     and "perm_bits_included CAP_PERM_STORE perms"
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "store_enabled (run s t) vaddr' acctype' sz' (data :: 'a::len word) False"
+  shows "store_enabled (run s t) vaddr' sz' (data :: 'a::len word) False"
   using assms(1,2)
   unfolding VADeref_def
   by - (derivable_capsI assms: assms(3-) elim: CheckCapability_store_enabled)
@@ -705,7 +758,7 @@ lemma VADeref_store_enabled[derivable_capsE]:
     and "tag \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
-  shows "store_enabled (run s t) vaddr' acctype' sz' data tag"
+  shows "store_enabled (run s t) vaddr' sz' data tag"
   using assms(1,2)
   unfolding VADeref_def
   by - (derivable_capsI assms: assms(3-) elim: CheckCapability_store_enabled)

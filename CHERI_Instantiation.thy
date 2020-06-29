@@ -99,6 +99,17 @@ lemma integer_subrange_word_of_int[simp]:
   using assms
   by (auto simp: integer_subrange_def of_bl_bin_word_of_int)
 
+lemma unat_plus_word_of_int_distrib:
+  fixes w :: "'a::len word"
+  assumes "uint w + i < 2^LENGTH('a)" and "i \<ge> 0"
+  shows "unat (w + word_of_int i) = unat w + nat i"
+  using assms
+  by (metis add_increasing nat_add_distrib uint_ge_0 unat_def wi_hom_add word_of_int_inverse word_uint.Rep_inverse)
+
+lemma Zeros_0[simp]:
+  "Zeros n = 0"
+  by (auto simp: Zeros_def zeros_def)
+
 section \<open>Simplification rules\<close>
 
 declare zero_extend_def[simp]
