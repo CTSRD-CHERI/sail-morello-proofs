@@ -20,6 +20,9 @@ lemma bitU_of_bool_simps[simp]:
   "bitU_of_bool False = B0"
   by (auto simp: bitU_of_bool_def)
 
+lemma or_boolM_return_True[simp]: "or_boolM (return True) m = return True"
+  by (auto simp: or_boolM_def)
+
 lemma uint_leq2pm1[intro]:
   fixes w :: "'a::len word"
   assumes "n \<ge> 2^LENGTH('a) - 1"
@@ -67,8 +70,20 @@ proof -
   qed
 qed
 
+lemma update_subrange_vec_dec_word_cat_cap_pair:
+  fixes tmp :: "256 word" and c1 c2 :: "128 word"
+  shows "update_subrange_vec_dec (update_subrange_vec_dec tmp 127 0 c2) 255 128 c1 = (word_cat c1 c2 :: 256 word)"
+  by (intro word_eqI) (auto simp: test_bit_cat update_subrange_vec_dec_test_bit)
+
+lemmas slice_128_cat_cap_pair = slice_cat1[where a = c1 and b = c2 for c1 c2 :: "128 word", simplified]
+
+lemma of_bl_0th[simp]: "(of_bl [b] :: 1 word) !! 0 = b"
+  by (auto simp: test_bit_of_bl)
+
 definition aligned :: "nat \<Rightarrow> nat \<Rightarrow> bool" where
   "aligned addr sz \<equiv> sz dvd addr"
+
+declare unat_add_lem[THEN iffD1, simp]
 
 lemma aligned_unat_plus_distrib:
   fixes addr offset :: "'a::len word"
@@ -99,18 +114,33 @@ lemma integer_subrange_word_of_int[simp]:
   using assms
   by (auto simp: integer_subrange_def of_bl_bin_word_of_int)
 
-lemma unat_plus_word_of_int_distrib:
+lemma unat_add_word_of_int_l2p_distrib:
   fixes w :: "'a::len word"
   assumes "uint w + i < 2^LENGTH('a)" and "i \<ge> 0"
   shows "unat (w + word_of_int i) = unat w + nat i"
   using assms
   by (metis add_increasing nat_add_distrib uint_ge_0 unat_def wi_hom_add word_of_int_inverse word_uint.Rep_inverse)
 
+lemma unat_add_l2p_distrib:
+  fixes w :: "'a::len word"
+  assumes "uint w + uint i < 2^LENGTH('a)"
+  shows "unat (w + i) = unat w + unat i"
+  using assms
+  using no_olen_add unat_plus_simple
+  by auto
+
+section \<open>Simplification rules\<close>
+
 lemma Zeros_0[simp]:
   "Zeros n = 0"
   by (auto simp: Zeros_def zeros_def)
 
-section \<open>Simplification rules\<close>
+declare CAPABILITY_DBITS_def[simp]
+declare CAP_TAG_BIT_def[simp]
+
+lemma DataFromCapability_tag_ucast[simp]:
+  "DataFromCapability 128 c = (of_bl [c !! 128], ucast c)"
+  by (auto simp: DataFromCapability_def)
 
 declare zero_extend_def[simp]
 declare CAPABILITY_DBYTES_def[simp]
@@ -123,11 +153,11 @@ lemma Bit_bitU_of_bool[simp]: "Morello.Bit w = bitU_of_bool (w !! 0)"
 
 lemma CapIsTagSet_bit128[simp]:
   "CapIsTagSet c \<longleftrightarrow> c !! 128"
-  by (auto simp: CapIsTagSet_def CapGetTag_def CAP_TAG_BIT_def nth_ucast test_bit_of_bl)
+  by (auto simp: CapIsTagSet_def CapGetTag_def nth_ucast test_bit_of_bl)
 
 lemma CapSetTag_set_bit128[simp]:
   "CapSetTag c t = set_bit c 128 (t !! 0)"
-  by (cases "t !! 0") (auto simp: CapSetTag_def CAP_TAG_BIT_def)
+  by (cases "t !! 0") (auto simp: CapSetTag_def)
 
 lemma CapIsTagSet_CapSetTag_iff[simp]:
   "CapIsTagSet (CapSetTag c t) \<longleftrightarrow> (t !! 0)"
@@ -268,7 +298,7 @@ proof
 next
   fix c obj_type
   show "is_tagged_method CC (seal_method CC c obj_type) = is_tagged_method CC c"
-    by (auto simp: CC_def seal_def CapIsTagSet_def CapGetTag_def CapSetObjectType_def CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def CAP_TAG_BIT_def update_subrange_vec_dec_test_bit)
+    by (auto simp: CC_def seal_def CapIsTagSet_def CapGetTag_def CapSetObjectType_def CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def update_subrange_vec_dec_test_bit)
 next
   fix c bytes tag
   have test_128_128: "w !! 128 \<longleftrightarrow> False" for w :: "128 word"
