@@ -952,6 +952,26 @@ lemma traces_enabled_bind_VADeref_ignore_first[traces_enabled_combinatorI]:
   shows "traces_enabled (VADeref va sz perms1 acctype1 \<bind> (\<lambda>_. VADeref va sz perms2 acctype2 \<bind> (\<lambda>addr. f addr))) s"
   sorry
 
+text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
+  using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
+  TRWTV and TSNJF in the Morello architecture document (DDI0606 A.c) say that
+  these values must "not increase the Capability defined rights available to
+  software".
+
+  TODO: Differentiate between UNKNOWN and uninitialised values in asl_to_sail.\<close>
+
+lemma undefined_Capability_derivable[derivable_capsE]:
+  assumes "Run (undefined_bitvector 129) t (c :: 129 word)" and "trace_assms t"
+  shows "c \<in> derivable_caps (run s t)"
+  (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
+     to allow arbitrary register_value's instead of just Booleans might make this easier. *)
+  sorry
+
+lemma undefined_VirtualAddress_derivable[derivable_capsE]:
+  assumes "Run (undefined_VirtualAddress u) t va" and "trace_assms t"
+  shows "VA_derivable va s"
+  sorry
+
 end
 
 end
