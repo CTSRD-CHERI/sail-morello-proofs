@@ -23,6 +23,26 @@ lemma bitU_of_bool_simps[simp]:
 lemma or_boolM_return_True[simp]: "or_boolM (return True) m = return True"
   by (auto simp: or_boolM_def)
 
+lemma if_then_let_unfold[simp]:
+  "(if c then let x = y in f x else z) = (if c then f y else z)"
+  by auto
+
+lemma Run_if_then_return[simp]:
+  "Run (if c then return x else m) t a \<longleftrightarrow> (c \<and> t = [] \<and> a = x \<or> \<not>c \<and> Run m t a)"
+  by auto
+
+lemma Run_bind_return[simp]:
+  "Run (m \<bind> (\<lambda>a. return (f a))) t a \<longleftrightarrow> (\<exists>a'. Run m t a' \<and> a = f a')"
+  by (auto elim!: Run_bindE intro: Traces_bindI[of m t _ _ "[]", simplified])
+
+lemma Run_bind_iff:
+  "Run (m \<bind> f) t a \<longleftrightarrow> (\<exists>t1 t2 a1. t = t1 @ t2 \<and> Run m t1 a1 \<and> Run (f a1) t2 a)"
+  by (auto elim!: Run_bindE intro: Traces_bindI)
+
+lemma Run_if_iff:
+  "Run (if c then m1 else m2) t a \<longleftrightarrow> (c \<and> Run m1 t a \<or> \<not>c \<and> Run m2 t a)"
+  by auto
+
 lemma uint_leq2pm1[intro]:
   fixes w :: "'a::len word"
   assumes "n \<ge> 2^LENGTH('a) - 1"
@@ -83,7 +103,27 @@ lemma of_bl_0th[simp]: "(of_bl [b] :: 1 word) !! 0 = b"
 definition aligned :: "nat \<Rightarrow> nat \<Rightarrow> bool" where
   "aligned addr sz \<equiv> sz dvd addr"
 
+lemma aligned_dvd_trans:
+  assumes "aligned addr sz" and "sz' dvd sz"
+  shows "aligned addr sz'"
+  using assms
+  by (auto simp: aligned_def)
+
+lemma aligned32_16[intro, simp]:
+  "aligned addr 32 \<Longrightarrow> aligned addr 16"
+  by (simp add: aligned_dvd_trans)
+
+lemma aligned_add_size_iff[simp]:
+  "aligned (addr + sz) sz \<longleftrightarrow> aligned addr sz"
+  by (auto simp: aligned_def)
+
 declare unat_add_lem[THEN iffD1, simp]
+declare unat_mult_lem[THEN iffD1, simp]
+
+lemma unat_le_unat_add_iff:
+  fixes x y :: "'a::len word"
+  shows "unat x \<le> unat (x + y) \<longleftrightarrow> unat x + unat y < 2^LENGTH('a)"
+  using no_olen_add_nat word_le_nat_alt by blast
 
 lemma aligned_unat_plus_distrib:
   fixes addr offset :: "'a::len word"
@@ -113,6 +153,10 @@ lemma integer_subrange_word_of_int[simp]:
   shows "(integer_subrange i sz 0 :: 'a::len word) = word_of_int i"
   using assms
   by (auto simp: integer_subrange_def of_bl_bin_word_of_int)
+
+lemma unat_word_of_int[simp]:
+  "unat (word_of_int i :: 'a::len word) = nat (i mod 2^LENGTH('a))"
+  by (auto simp: unat_def uint_word_of_int)
 
 lemma unat_add_word_of_int_l2p_distrib:
   fixes w :: "'a::len word"
@@ -588,7 +632,7 @@ declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
 lemma CapNull_derivable[simp, intro]: "CapNull u \<in> derivable_caps s"
   by (auto simp: derivable_caps_def CapNull_def Zeros_def zeros_def)
 
-(* Pattern common in auto-generated register accessors *)
+(* Common patterns, e.g. in auto-generated register accessors *)
 lemma if_ELs_derivable[derivable_capsE]:
   assumes "Run (if el = EL0 then m0 else if el = EL1 then m1 else if el = EL2 then m2 else if el = EL3 then m3 else mu) t a"
     and "el = EL0 \<longrightarrow> Run m0 t a \<longrightarrow> c \<in> derivable_caps (run s t)"
@@ -598,6 +642,16 @@ lemma if_ELs_derivable[derivable_capsE]:
   shows "c \<in> derivable_caps (run s t)"
   using assms
   by (cases el rule: exhaustive_2_word; auto simp: EL0_def EL1_def EL2_def EL3_def)
+
+lemma uint_3_word_bounded[derivable_capsI]:
+  fixes w :: "3 word"
+  shows "uint w \<in> {0, 1, 2, 3, 4, 5, 6, 7}"
+  by (cases w rule: exhaustive_3_word) auto
+
+lemma uint_2_word_plus_one_bounded[derivable_capsI]:
+  fixes w :: "2 word"
+  shows "uint w + 1 \<in> {1, 2, 3, 4}"
+  by (cases w rule: exhaustive_2_word) auto
 
 lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
@@ -662,7 +716,7 @@ lemma VAToCapability_vatype[simp]:
 
 lemma VAToCapability_base[simp]:
   "Run (VAToCapability va) t c \<Longrightarrow> VirtualAddress_base va = c"
-  by (auto simp: VAToCapability_def VAIsCapability_def elim!: Run_bindE)
+  by (auto simp: VAToCapability_def)
 
 lemma VAFromBits64_vatype[simp]:
   "Run (VAFromBits64 w) t va \<Longrightarrow> VirtualAddress_vatype va = VA_Bits64"

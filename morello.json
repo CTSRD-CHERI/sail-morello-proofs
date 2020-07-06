@@ -95,7 +95,7 @@
     },
     "AArch64_TaggedMemSingle__1": {
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) (nat arg1)", "store_enabled s (unat addr) 16 (ucast data :: 128 word) (tags !! 0)", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> store_enabled s (unat addr + 16) 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
+        "assms": ["aligned (unat addr) (nat sz)", "store_enabled s (unat addr) 16 (ucast data :: 128 word) (tags !! 0)", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> store_enabled s (unat addr + 16) 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
         "unfolding": ["AArch64_TaggedMemSingle__1_def", "bind_assoc"],
         "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
@@ -125,16 +125,16 @@
     },
     "Mem_read": {
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat vaddr) sz False", "uint vaddr + sz \\<le> 2^64"],
+        "assms": ["load_enabled s (unat vaddr) sz False"],
         "stmts": ["traces_enabled (Mem_read0 vaddr sz acctype) s"],
-        "proof": "(traces_enabledI assms: assms simp: unat_add_word_of_int_l2p_distrib unat_add_l2p_distrib AArch64_MemSingle_read_translate_address_Some)"
+        "proof": "(traces_enabledI assms: assms simp: AArch64_MemSingle_read_translate_address_Some)"
       }
     },
     "Mem_set": {
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat vaddr) sz data False", "uint vaddr + sz \\<le> 2^64", "LENGTH('a) = 8 * nat sz"],
+        "assms": ["store_enabled s (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz"],
         "stmts": ["traces_enabled (Mem_set0 vaddr sz acctype (data :: 'a::len word)) s"],
-        "proof": "(traces_enabledI assms: assms simp: unat_add_word_of_int_l2p_distrib unat_add_l2p_distrib AArch64_MemSingle_set_translate_address_Some)"
+        "proof": "(traces_enabledI assms: assms simp: AArch64_MemSingle_set_translate_address_Some)"
       }
     },
     "MemC_read": {
@@ -146,7 +146,7 @@
     "MemC_set": {
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
-        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def update_subrange_vec_dec_test_bit test_bit_of_bl)"
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit)"
       }
     },
     "MemCP": {
@@ -158,14 +158,14 @@
     "MemCP__1": {
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 32", "store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "store_enabled s (unat arg0 + 16) 16 (ucast arg3 :: 128 word) (CapIsTagSet arg3)", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
-        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def CAPABILITY_DBITS_def update_subrange_vec_dec_test_bit test_bit_of_bl)"
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit update_subrange_vec_dec_word_cat_cap_pair slice_128_cat_cap_pair)"
       }
     },
     "MemAtomicC": {
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True", "aligned (unat arg0) 16 \\<longrightarrow> store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
         "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def CAP_TAG_BIT_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else IsFault_def translate_correct)"
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else IsFault_def translate_correct)"
       }
     },
     "MemAtomicCompareAndSwap": {
@@ -216,6 +216,44 @@
       "derivable_caps": {
         "stmts": ["Run (VAToCapability va) t c \\<Longrightarrow> VA_derivable va s \\<Longrightarrow> c \\<in> derivable_caps s"],
         "proof": "(auto simp: VA_derivable_def)"
+      }
+    },
+    "execute_STLXP_R_CR_C": {
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"
+      }
+    },
+    "execute_STXP_R_CR_C": {
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"
+      }
+    },
+    "execute_aarch64_instrs_memory_vector_single_no_wb": {
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (element, offset :: 64 word, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (offset :: 64 word, rval, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] simp: Run_bind_iff Run_if_iff wi_hom_syms)"
+      }
+    },
+    "execute_aarch64_instrs_memory_exclusive_pair": {
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('regsize) \\<in> {32, 64} \\<and> arg2 \\<in> {32, 64} \\<and> arg1 = 2 * arg2"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_memory_exclusive_pair arg0 arg1 arg2 arg3 arg4 True (arg6 :: 'regsize::len itself) arg7 arg8 arg9) s"]
+      }
+    },
+    "execute_aarch64_instrs_memory_exclusive_single": {
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('regsize) \\<in> {32, 64} \\<and> arg2 \\<in> {8, 16, 32, 64} \\<and> arg1 = arg2"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_memory_exclusive_single arg0 arg1 arg2 arg3 arg4 False (arg6 :: 'regsize::len itself) arg7 arg8 arg9) s"]
+      }
+    },
+    "execute_aarch64_instrs_memory_vector_multiple_no_wb": {
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg1 > 0 \\<and> arg6 > 0 \\<and> arg7 > 0 \\<and> LENGTH('esize) \\<ge> 8 \\<and> 8 dvd LENGTH('esize)"],
+        "proof": "- (* TODO: traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where to = \"arg6 - 1\" and Inv = \"\\<lambda>idx (offset, _, _) _. unat offset = nat idx * nat arg1 * nat arg7 * (size_itself arg2 div 8)\"] traces_enabled_foreachM_index_list_inv[where to = \"arg1 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * nat arg7 * (size_itself arg2 div 8)\" for vars0] traces_enabled_foreachM_index_list_inv[where to = \"arg7 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * (size_itself arg2 div 8)\" for vars0] *)"
+      }
+    },
+    "execute_LDCT_R_R__": {
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (addr, _) s. case vars0 of (addr0, _) \\<Rightarrow> addr = addr0 + word_of_int (idx * 16)\" and vars = vars0 for vars0] simp: wi_hom_syms)"
       }
     }
   },
