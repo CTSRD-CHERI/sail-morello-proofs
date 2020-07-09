@@ -108,30 +108,6 @@ fun bitU_nonzero :: "bitU \<Rightarrow> bool" where
   "bitU_nonzero B0 = False"
 | "bitU_nonzero _ = True"
 
-definition Capability_of_tag_word :: "bool \<Rightarrow> 128 word \<Rightarrow> Capability" where
-  "Capability_of_tag_word tag word =
-     (let tag = (of_bl [tag] :: 1 word) in
-      word_cat tag word)"
-
-lemma Capability_of_tag_word_id[simp]:
-  fixes c :: Capability
-  shows "Capability_of_tag_word (c !! 128) (ucast c) = c" (is "?c' = c")
-proof (intro word_eqI impI)
-  fix n
-  assume "n < size ?c'"
-  then show "?c' !! n = c !! n"
-    unfolding Capability_of_tag_word_def
-    by (cases "n = 128") (auto simp: nth_word_cat nth_ucast test_bit_of_bl)
-qed
-
-lemma Capability_of_tag_word_128th[simp]:
-  "Capability_of_tag_word tag data !! 128 = tag"
-  by (auto simp: Capability_of_tag_word_def nth_word_cat test_bit_of_bl)
-
-lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
-  "Capability_of_tag_word False data \<in> derivable_caps s"
-  by (auto simp: derivable_caps_def)
-
 lemma traces_enabled_write_memt:
   fixes data :: "128 word"
   assumes "paccess_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) tag"
@@ -488,44 +464,12 @@ lemma CheckCapabilityAlignment_address_tag_aligned[intro, simp]:
   using assms
   by (auto simp add: CheckCapabilityAlignment_def elim!: Run_bindE Run_ifE)
 
-lemma CapIsTagClear_iff_not_128th[simp]:
-  "CapIsTagClear c \<longleftrightarrow> \<not>CapIsTagSet c"
-  by (auto simp: CapIsTagClear_def CapGetTag_def nth_ucast test_bit_of_bl)
-
-lemma more_CC_simps[simp]:
-  "is_sealed_method CC c = CapIsSealed c"
-  "get_base_method CC c = get_base c"
-  "get_top_method CC c = get_limit c"
-  by (auto simp: CC_def)
-
-lemma CapGetBounds_get_base:
-  assumes "Run (CapGetBounds c) t (base, limit, valid)"
-  shows "get_base c = unat base"
-  using assms
-  apply (auto simp: CC_def get_base_def CapGetBase_def)
-  apply (rule theI2)
-    apply auto
-  sorry
-
-lemma CapGetBounds_get_limit:
-  assumes "Run (CapGetBounds c) t (base, limit, valid)"
-  shows "get_limit c = unat limit"
-  sorry
-
-lemma CapUnsignedGreaterThanOrEqual_iff_unat_geq[simp]:
-  "CapUnsignedGreaterThanOrEqual x y \<longleftrightarrow> unat x \<ge> unat y"
-  by (auto simp: CapUnsignedGreaterThanOrEqual_def unat_def nat_le_eq_zle)
-
-lemma CapUnsignedLessThanOrEqual_iff_unat_geq[simp]:
-  "CapUnsignedLessThanOrEqual x y \<longleftrightarrow> unat x \<le> unat y"
-  by (auto simp: CapUnsignedLessThanOrEqual_def unat_def nat_le_eq_zle)
-
-lemma CapGetBounds_base_leq_limit:
+(*lemma CapGetBounds_base_leq_limit:
   assumes "Run (CapGetBounds c) t (base, limit, valid)"
     and "trace_assms t"
   shows "base \<le> limit"
   (* TODO: add global bounds validity assumption and prove as invariant *)
-  sorry
+  sorry*)
 
 lemma CapIsRangeInBounds_in_get_mem_region:
   assumes "Run (CapIsRangeInBounds c addr sz) t True" and "trace_assms t"
@@ -536,7 +480,7 @@ proof -
     using add_less_le_mono[OF unat_lt2p[of addr] \<open>unat sz \<le> 2^64\<close>]
     by (auto simp: unat_plus_if_size)
   then show ?thesis
-    using assms CapGetBounds_base_leq_limit
+    using assms (*CapGetBounds_base_leq_limit*)
     unfolding CapIsRangeInBounds_def get_mem_region_def
     by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit word_le_nat_alt
              elim!: Run_bindE Run_letE)
@@ -608,22 +552,6 @@ next
     by (fastforce simp: access_enabled_def)
 qed
 
-lemma concat_take_chunks_eq:
-  "n > 0 \<Longrightarrow> List.concat (take_chunks n xs) = xs"
-  by (induction n xs rule: take_chunks.induct) auto
-
-lemma bits_of_mem_bytes_of_word_to_bl:
-  "bits_of_mem_bytes (mem_bytes_of_word w) = map bitU_of_bool (to_bl w)"
-  unfolding bits_of_mem_bytes_def mem_bytes_of_word_def bits_of_bytes_def
-  by (auto simp add: concat_take_chunks_eq simp del: take_chunks.simps)
-
-lemma cap_of_mem_bytes_of_word_B1_Capability_of_tag_word:
-  fixes data :: "'a::len word"
-  assumes "LENGTH('a) = 128"
-  shows "cap_of_mem_bytes (mem_bytes_of_word data) B1 = Some (Capability_of_tag_word True (ucast data))"
-  unfolding Capability_of_tag_word_def cap_of_mem_bytes_def
-  by (auto simp: bind_eq_Some_conv bits_of_mem_bytes_of_word_to_bl ucast_bl)
-
 lemma CheckCapability_store_enabled:
   fixes data :: "'a::len word"
   assumes t: "Run (CheckCapability c addr sz req_perms acctype) t vaddr" "trace_assms t"
@@ -694,7 +622,7 @@ lemma Run_bindE':
   using assms
   by (auto elim: Run_bindE)
 
-  thm Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified]
+thm Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified]
 
 lemmas Run_case_prodE = case_prodE2[where Q = "\<lambda>m. Run m t a" and R = thesis for t a thesis]
 
@@ -971,6 +899,13 @@ lemma undefined_Capability_derivable[derivable_capsE]:
 lemma undefined_VirtualAddress_derivable[derivable_capsE]:
   assumes "Run (undefined_VirtualAddress u) t va" and "trace_assms t"
   shows "VA_derivable va s"
+  sorry
+
+text \<open>AArch32 is unsupported on Morello\<close>
+
+lemma UsingAArch32_False[simp]:
+  assumes "trace_assms t"
+  shows "\<not>Run (UsingAArch32 ()) t True"
   sorry
 
 end

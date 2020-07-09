@@ -15,6 +15,13 @@ adhoc_overloading bind Sail2_prompt_monad.bind
 
 section \<open>General lemmas\<close>
 
+lemma un_ui_lt:
+  "(unat x < unat y) \<longleftrightarrow> (uint x < uint y)"
+  unfolding unat_def nat_less_eq_zless[OF uint_ge_0] ..
+
+declare unat_add_lem[THEN iffD1, simp]
+declare unat_mult_lem[THEN iffD1, simp]
+
 lemma bitU_of_bool_simps[simp]:
   "bitU_of_bool True = B1"
   "bitU_of_bool False = B0"
@@ -42,6 +49,15 @@ lemma Run_bind_iff:
 lemma Run_if_iff:
   "Run (if c then m1 else m2) t a \<longleftrightarrow> (c \<and> Run m1 t a \<or> \<not>c \<and> Run m2 t a)"
   by auto
+
+lemma concat_take_chunks_eq:
+  "n > 0 \<Longrightarrow> List.concat (take_chunks n xs) = xs"
+  by (induction n xs rule: take_chunks.induct) auto
+
+lemma bits_of_mem_bytes_of_word_to_bl:
+  "bits_of_mem_bytes (mem_bytes_of_word w) = map bitU_of_bool (to_bl w)"
+  unfolding bits_of_mem_bytes_def mem_bytes_of_word_def bits_of_bytes_def
+  by (auto simp add: concat_take_chunks_eq simp del: take_chunks.simps)
 
 lemma uint_leq2pm1[intro]:
   fixes w :: "'a::len word"
@@ -117,9 +133,6 @@ lemma aligned_add_size_iff[simp]:
   "aligned (addr + sz) sz \<longleftrightarrow> aligned addr sz"
   by (auto simp: aligned_def)
 
-declare unat_add_lem[THEN iffD1, simp]
-declare unat_mult_lem[THEN iffD1, simp]
-
 lemma unat_le_unat_add_iff:
   fixes x y :: "'a::len word"
   shows "unat x \<le> unat (x + y) \<longleftrightarrow> unat x + unat y < 2^LENGTH('a)"
@@ -180,14 +193,37 @@ lemma Zeros_0[simp]:
   by (auto simp: Zeros_def zeros_def)
 
 declare CAPABILITY_DBITS_def[simp]
+declare CAPABILITY_DBYTES_def[simp]
 declare CAP_TAG_BIT_def[simp]
+declare zero_extend_def[simp]
+
+lemma ZeroExtend1_ucast[simp]:
+  "ZeroExtend1 n w = ucast w"
+  by (auto simp: ZeroExtend1_def)
 
 lemma DataFromCapability_tag_ucast[simp]:
   "DataFromCapability 128 c = (of_bl [c !! 128], ucast c)"
   by (auto simp: DataFromCapability_def)
 
-declare zero_extend_def[simp]
-declare CAPABILITY_DBYTES_def[simp]
+definition Capability_of_tag_word :: "bool \<Rightarrow> 128 word \<Rightarrow> Capability" where
+  "Capability_of_tag_word tag word =
+     (let tag = (of_bl [tag] :: 1 word) in
+      word_cat tag word)"
+
+lemma Capability_of_tag_word_id[simp]:
+  fixes c :: Capability
+  shows "Capability_of_tag_word (c !! 128) (ucast c) = c" (is "?c' = c")
+proof (intro word_eqI impI)
+  fix n
+  assume "n < size ?c'"
+  then show "?c' !! n = c !! n"
+    unfolding Capability_of_tag_word_def
+    by (cases "n = 128") (auto simp: nth_word_cat nth_ucast test_bit_of_bl)
+qed
+
+lemma Capability_of_tag_word_128th[simp]:
+  "Capability_of_tag_word tag data !! 128 = tag"
+  by (auto simp: Capability_of_tag_word_def nth_word_cat test_bit_of_bl)
 
 lemma nat_of_bv_mword_unat[simp]: "nat_of_bv BC_mword w = Some (unat w)"
   by (auto simp: nat_of_bv_def unat_def)
@@ -206,6 +242,42 @@ lemma CapSetTag_set_bit128[simp]:
 lemma CapIsTagSet_CapSetTag_iff[simp]:
   "CapIsTagSet (CapSetTag c t) \<longleftrightarrow> (t !! 0)"
   by (auto simp: test_bit_set)
+
+lemma CapWithTagClear_128th[simp]:
+  "CapWithTagClear c !! 128 = False"
+  by (auto simp: CapWithTagClear_def test_bit_set)
+
+lemma CapIsTagClear_iff_not_128th[simp]:
+  "CapIsTagClear c \<longleftrightarrow> \<not>CapIsTagSet c"
+  by (auto simp: CapIsTagClear_def CapGetTag_def nth_ucast test_bit_of_bl)
+
+lemma CapGetObjectType_CapSetObjectType_and_mask:
+  "CapGetObjectType (CapSetObjectType c otype) = (otype AND mask (nat CAP_OTYPE_HI_BIT - nat CAP_OTYPE_LO_BIT + 1))"
+  unfolding CapGetObjectType_def CapSetObjectType_def CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def
+  by (intro word_eqI)
+     (auto simp: word_ao_nth nth_slice nth_ucast update_subrange_vec_dec_test_bit)
+
+lemma CapUnseal_not_sealed[simp]:
+  "\<not>CapIsSealed (CapUnseal c)"
+  by (auto simp: CapIsSealed_def CapUnseal_def CapGetObjectType_CapSetObjectType_and_mask)
+
+lemma CapUnsignedGreaterThan_iff_unat_gt[simp]:
+  "CapUnsignedGreaterThan x y \<longleftrightarrow> unat x > unat y"
+  unfolding unat_def nat_less_eq_zless[OF uint_ge_0]
+  by (auto simp: CapUnsignedGreaterThan_def)
+
+lemma CapUnsignedGreaterThanOrEqual_iff_unat_geq[simp]:
+  "CapUnsignedGreaterThanOrEqual x y \<longleftrightarrow> unat x \<ge> unat y"
+  by (auto simp: CapUnsignedGreaterThanOrEqual_def unat_def nat_le_eq_zle)
+
+lemma CapUnsignedLessThan_iff_unat_lt[simp]:
+  "CapUnsignedLessThan x y \<longleftrightarrow> unat x < unat y"
+  unfolding unat_def nat_less_eq_zless[OF uint_ge_0]
+  by (auto simp: CapUnsignedLessThan_def)
+
+lemma CapUnsignedLessThanOrEqual_iff_unat_leq[simp]:
+  "CapUnsignedLessThanOrEqual x y \<longleftrightarrow> unat x \<le> unat y"
+  by (auto simp: CapUnsignedLessThanOrEqual_def unat_def nat_le_eq_zle)
 
 (*lemma no_Run_EndOfInstruction[simp]:
   "Run (EndOfInstruction u) t a \<longleftrightarrow> False"
@@ -355,7 +427,49 @@ qed
 
 lemma CC_simps[simp]:
   "is_tagged_method CC c = CapIsTagSet c"
+  "is_sealed_method CC c = CapIsSealed c"
+  "seal_method CC c otype = seal c otype"
+  "unseal_method CC c = CapUnseal c"
+  "get_cursor_method CC c = unat (CapGetValue c)"
+  "get_base_method CC c = get_base c"
+  "get_top_method CC c = get_limit c"
   by (auto simp: CC_def)
+
+lemma cap_of_mem_bytes_of_word_Capability_of_tag_word:
+  fixes data :: "'a::len word"
+  assumes "LENGTH('a) = 128"
+  shows "cap_of_mem_bytes_method CC (mem_bytes_of_word data) (bitU_of_bool tag) = Some (Capability_of_tag_word tag (ucast data))"
+  unfolding CC_def Capability_of_tag_word_def cap_of_mem_bytes_def
+  by (auto simp: bind_eq_Some_conv bits_of_mem_bytes_of_word_to_bl ucast_bl)
+
+lemma cap_of_mem_bytes_of_word_B1_Capability_of_tag_word:
+  fixes data :: "'a::len word"
+  assumes "LENGTH('a) = 128"
+  shows "cap_of_mem_bytes (mem_bytes_of_word data) B1 = Some (Capability_of_tag_word True (ucast data))"
+  using cap_of_mem_bytes_of_word_Capability_of_tag_word[of data True, OF assms]
+  by (auto simp: CC_def)
+
+lemma CapGetBounds_get_base:
+  assumes "Run (CapGetBounds c) t (base, limit, valid)"
+  shows "get_base c = unat base"
+  using assms
+  apply (auto simp: CC_def get_base_def)
+  apply (rule theI2) thm theI2
+    apply auto
+  thm CapGetBounds_def CapGetTop_def
+  sorry
+
+lemma CapGetBounds_get_limit:
+  assumes "Run (CapGetBounds c) t (base, limit, valid)"
+  shows "get_limit c = unat limit"
+  sorry
+
+lemma CapIsBaseAboveLimit_get_base_leq_get_limit:
+  assumes "Run (CapIsBaseAboveLimit c) t a"
+  shows "get_base c \<le> get_limit c \<longleftrightarrow> \<not>a"
+  using assms
+  unfolding CapIsBaseAboveLimit_def
+  by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit un_ui_le un_ui_lt elim!: Run_bindE)
 
 section \<open>Architecture abstraction\<close>
 
@@ -421,14 +535,14 @@ definition "ISA \<equiv>
    isa.instr_fetch = instr_fetch,
    tag_granule = 16,
    PCC = {''PCC''},
-   KCC = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''},
+   KCC = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    IDC = {''_R29''},
    isa.caps_of_regval = caps_of_regval,
    isa.invokes_caps = invokes_caps,
    isa.instr_raises_ex = instr_raises_ex,
    isa.fetch_raises_ex = fetch_raises_ex,
    isa.exception_targets = exception_targets,
-   privileged_regs = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''}, \<comment> \<open>TODO\<close>
+   privileged_regs = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
@@ -436,9 +550,9 @@ sublocale Capability_ISA CC ISA ..
 
 lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
-  "KCC ISA = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''}"
+  "KCC ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "IDC ISA = {''_R29''}"
-  "privileged_regs ISA = {''CVBAR_EL1'', ''CVBAR_EL2'', ''CVBAR_EL3''}"
+  "privileged_regs ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "isa.instr_sem ISA = instr_sem"
   "isa.instr_fetch ISA = instr_fetch"
   "isa.caps_of_regval ISA = caps_of_regval"
@@ -629,8 +743,45 @@ declare datatype_splits[split]
 declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
 
-lemma CapNull_derivable[simp, intro]: "CapNull u \<in> derivable_caps s"
+lemma CapNull_derivable[simp, intro, derivable_capsI]:
+  "CapNull u \<in> derivable_caps s"
   by (auto simp: derivable_caps_def CapNull_def Zeros_def zeros_def)
+
+lemma CapWithTagClear_derivable[intro, simp, derivable_capsI]:
+  "CapWithTagClear c \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def)
+
+lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
+  "Capability_of_tag_word False data \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def)
+
+lemma CapSetFlags_derivable[derivable_capsI]:
+  assumes "c \<in> derivable_caps s"
+  shows "CapSetFlags c flags \<in> derivable_caps s"
+  thm CapSetFlags_def
+  sorry
+
+lemma clear_perm_derivable[derivable_capsI]:
+  assumes "c \<in> derivable_caps s"
+  shows "clear_perm perms c \<in> derivable_caps s"
+  sorry
+
+lemma set_bit_0_derivable[derivable_capsI]:
+  assumes "c \<in> derivable_caps s"
+  shows "update_vec_dec c 0 b \<in> derivable_caps s"
+  (* TODO Changing the LSB should always be representable *)
+  sorry
+
+lemma subrange_vec_dec_128_derivable[derivable_capsI]:
+  "c \<in> derivable_caps s \<Longrightarrow> subrange_vec_dec c 128 0 \<in> derivable_caps s"
+  by auto
+
+lemma ucast_derivable[intro, simp]:
+  fixes w :: "'a::len word"
+  assumes "LENGTH('a) < 128"
+  shows "ucast w \<in> derivable_caps s"
+  using assms
+  by (auto simp: derivable_caps_def nth_ucast dest: test_bit_len)
 
 (* Common patterns, e.g. in auto-generated register accessors *)
 lemma if_ELs_derivable[derivable_capsE]:

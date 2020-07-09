@@ -25,15 +25,10 @@
   "slice": { "roots": ["__DecodeExecute", "__FetchInstr"] },
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
-  "privileged_regs": ["CVBAR_EL1", "CVBAR_EL2", "CVBAR_EL3"],
+  "privileged_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
   "pcc": ["PCC"],
   "idc": ["_R29"],
   "overrides": {
-    "C_read": {
-      "derivable_caps": {
-        "proof": "(auto elim!: Run_bindE Run_ifE derivable_capsE)"
-      }
-    },
     "AArch64_TakeException": {
       "exp_fails": {
         "proof": "(auto elim!: Run_bindE)"
