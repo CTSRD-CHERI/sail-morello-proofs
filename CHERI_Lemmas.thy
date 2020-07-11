@@ -2,6 +2,106 @@ theory CHERI_Lemmas
   imports CHERI_Gen_Lemmas
 begin
 
+context Morello_Write_Cap_Automaton
+begin
+
+lemmas traces_enabled_return = non_cap_exp_return[THEN non_cap_exp_traces_enabledI]
+
+lemma traces_enabled_Mem_read[traces_enabledI]:
+  shows "traces_enabled (Mem_read addrdesc sz accdesc) s"
+  by (unfold Mem_read_def, traces_enabledI)
+
+lemma traces_enabled_ReadMem[traces_enabledI]:
+  shows "traces_enabled (ReadMem addrdesc sz accdesc) s"
+  by (unfold ReadMem_def, traces_enabledI)
+
+lemma traces_enabled_ReadTaggedMem[traces_enabledI]:
+  shows "traces_enabled (ReadTaggedMem addrdesc sz accdesc) s"
+  by (unfold ReadTaggedMem_def, traces_enabledI intro: traces_enabled_return)
+
+lemma traces_enabled_ReadTags[traces_enabledI]:
+  shows "traces_enabled (ReadTags addrdesc sz accdesc) s"
+  by (unfold ReadTags_def, traces_enabledI intro: traces_enabled_return)
+
+lemma traces_enabled_Mem_set[traces_enabledI]:
+  shows "traces_enabled (Mem_set addrdesc sz accdesc data) s"
+  by (unfold Mem_set_def, traces_enabledI intro: traces_enabled_return)
+
+lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
+  fixes tags :: "'a::len word" and data :: "'b::len word"
+  assumes "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
+    and "sz \<noteq> 16 \<longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
+  shows "traces_enabled (WriteTaggedMem addrdesc sz accdesc tags data) s"
+  unfolding WriteTaggedMem_def
+  by (traces_enabledI assms: assms intro: traces_enabled_return
+                      simp: cap_of_mem_bytes_of_word_Capability_of_tag_word nth_ucast)
+
+lemma traces_enabled_WriteTags[traces_enabledI]:
+  assumes "tags = 0" and "LENGTH('a) = nat sz"
+  shows "traces_enabled (WriteTags addrdesc sz (tags :: 'a::len word) accdesc) s"
+  unfolding WriteTags_def
+  by (traces_enabledI assms: assms intro: traces_enabled_return
+                      simp: cap_of_mem_bytes_of_word_Capability_of_tag_word[where tag = False, simplified])
+
+text \<open>Sealing and unsealing\<close>
+
+lemma CapSetObjectType_derivable[derivable_capsI]:
+  assumes "c \<in> derivable_caps s" and "c' \<in> derivable_caps s"
+    and "CapIsTagSet c" and "CapIsTagSet c'"
+    and "\<not>CapIsSealed c" and "\<not>CapIsSealed c'"
+    and "cap_permits CAP_PERM_SEAL c'"
+    and "unat (CapGetValue c') \<in> get_mem_region CC c'"
+  shows "CapSetObjectType c (CapGetValue c') \<in> derivable_caps s"
+proof -
+  from assms have "permits_seal_method CC c'"
+    by (auto simp: CC_def)
+  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (accessed_caps s)"
+    using assms
+    by (intro derivable.Seal) (auto simp: derivable_caps_def)
+  then show ?thesis
+    by (auto simp: seal_def derivable_caps_def)
+qed
+
+lemma CapIsInBounds_cursor_in_mem_region:
+  assumes "Run (CapIsInBounds c) t a" and "a"
+  shows "unat (CapGetValue c) \<in> get_mem_region CC c"
+  using assms
+  unfolding CapIsInBounds_def get_mem_region_def
+  by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit elim!: Run_bindE)
+
+text \<open>Derivability of capabilities that are a subset of already derivable ones.\<close>
+
+lemma CapIsSubSetOf_WithTagSet_derivable:
+  assumes "Run (CapIsSubSetOf c c') t a" and "a"
+    and "c' \<in> derivable_caps s"
+    and "CapIsTagSet c'" and "\<not>CapIsSealed c'" and "\<not>CapIsSealed c"
+    and "get_base c \<le> get_limit c"
+  shows "CapWithTagSet c \<in> derivable_caps s"
+  thm leq_cap_def
+  sorry
+
+lemma CapIsSubSetOf_CapUnseal_derivable:
+  assumes "Run (CapIsSubSetOf c c') t a" and "a"
+    and "c \<in> derivable_caps s"
+    and "c' \<in> derivable_caps s"
+    and "CapIsTagSet c'" and "\<not>CapIsSealed c'"
+    (* and "get_base c \<le> get_limit c" *)
+  shows "CapUnseal c \<in> derivable_caps s"
+  (* TODO: Lemma as stated here requires global assumption that (base \<le> limit) holds for
+     derivable capabilities *)
+  sorry
+
+text \<open>Assume that UNKNOWN capabilities are derivable\<close>
+
+lemma UNKNOWN_bits_derivable[derivable_capsE]:
+  assumes "Run (UNKNOWN_bits 129) t c" and "trace_assms t"
+  shows "c \<in> derivable_caps s"
+  (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
+     to allow arbitrary register_value's instead of just Booleans might make this easier. *)
+  sorry
+
+end
+
 context Morello_Mem_Automaton
 begin
 
@@ -890,14 +990,14 @@ text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allo
   TODO: Differentiate between UNKNOWN and uninitialised values in asl_to_sail.\<close>
 
 lemma undefined_Capability_derivable[derivable_capsE]:
-  assumes "Run (undefined_bitvector 129) t (c :: 129 word)" and "trace_assms t"
-  shows "c \<in> derivable_caps (run s t)"
+  assumes "Run (UNKNOWN_bits 129) t c" and "trace_assms t"
+  shows "c \<in> derivable_caps s"
   (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
      to allow arbitrary register_value's instead of just Booleans might make this easier. *)
   sorry
 
 lemma undefined_VirtualAddress_derivable[derivable_capsE]:
-  assumes "Run (undefined_VirtualAddress u) t va" and "trace_assms t"
+  assumes "Run (UNKNOWN_VirtualAddress u) t va" and "trace_assms t"
   shows "VA_derivable va s"
   sorry
 
