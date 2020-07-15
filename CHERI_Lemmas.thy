@@ -142,6 +142,29 @@ proof -
     by (auto simp: seal_def derivable_caps_def)
 qed
 
+lemma CapSetObjectType_sentry_derivable:
+  assumes "c \<in> derivable_caps s"
+    and "\<not>CapIsSealed c"
+    and "otype \<in> {CAP_SEAL_TYPE_RB, CAP_SEAL_TYPE_LPB, CAP_SEAL_TYPE_LB}"
+  shows "CapSetObjectType c otype \<in> derivable_caps s"
+proof -
+  note simps = CapGetObjectType_CapSetObjectType_and_mask
+    CAP_SEAL_TYPE_RB_def CAP_SEAL_TYPE_LPB_def CAP_SEAL_TYPE_LB_def
+    CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def
+  have "seal_method CC c (unat otype) \<in> derivable (accessed_caps s)"
+    if "CapIsTagSet c"
+    using that assms
+    by (intro derivable.SealEntry)
+       (auto simp: is_sentry_def seal_def derivable_caps_def simps and_mask_bintr)
+  then show ?thesis
+    by (auto simp: seal_def derivable_caps_def)
+qed
+
+lemmas CapSetObjectType_sentries_derivable[derivable_capsI] =
+  CapSetObjectType_sentry_derivable[where otype = CAP_SEAL_TYPE_RB, simplified]
+  CapSetObjectType_sentry_derivable[where otype = CAP_SEAL_TYPE_LPB, simplified]
+  CapSetObjectType_sentry_derivable[where otype = CAP_SEAL_TYPE_LB, simplified]
+
 lemma CapIsInBounds_cursor_in_mem_region:
   assumes "Run (CapIsInBounds c) t a" and "a"
   shows "unat (CapGetValue c) \<in> get_mem_region CC c"

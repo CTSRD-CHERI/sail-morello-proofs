@@ -362,6 +362,11 @@ lemma CapGetObjectType_CapSetObjectType_and_mask:
   by (intro word_eqI)
      (auto simp: word_ao_nth nth_slice nth_ucast update_subrange_vec_dec_test_bit)
 
+lemma CapSetObjectType_128th_iff[simp]:
+  "CapSetObjectType c otype !! 128 \<longleftrightarrow> c !! 128"
+  unfolding CapSetObjectType_def CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def
+  by (auto simp: update_subrange_vec_dec_test_bit)
+
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
   by (auto simp: CapIsSealed_def CapUnseal_def CapGetObjectType_CapSetObjectType_and_mask)
@@ -519,7 +524,7 @@ proof
 next
   fix c obj_type
   show "is_tagged_method CC (seal_method CC c obj_type) = is_tagged_method CC c"
-    by (auto simp: CC_def seal_def CapIsTagSet_def CapGetTag_def CapSetObjectType_def CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def update_subrange_vec_dec_test_bit)
+    by (auto simp: CC_def seal_def)
 next
   fix c bytes tag
   have test_128_128: "w !! 128 \<longleftrightarrow> False" for w :: "128 word"
@@ -533,12 +538,14 @@ qed
 lemma CC_simps[simp]:
   "is_tagged_method CC c = CapIsTagSet c"
   "is_sealed_method CC c = CapIsSealed c"
+  "is_sentry_method CC c = is_sentry c"
   "seal_method CC c otype = seal c otype"
   "unseal_method CC c = CapUnseal c"
   "get_cursor_method CC c = unat (CapGetValue c)"
   "get_base_method CC c = get_base c"
   "get_top_method CC c = get_limit c"
-  by (auto simp: CC_def)
+  "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
+  by (auto simp: CC_def CapIsExecutePermitted_def)
 
 lemma cap_of_mem_bytes_of_word_Capability_of_tag_word:
   fixes data :: "'a::len word"
