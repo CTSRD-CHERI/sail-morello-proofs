@@ -46,9 +46,21 @@ lemma Run_bind_iff:
   "Run (m \<bind> f) t a \<longleftrightarrow> (\<exists>t1 t2 a1. t = t1 @ t2 \<and> Run m t1 a1 \<and> Run (f a1) t2 a)"
   by (auto elim!: Run_bindE intro: Traces_bindI)
 
+lemma Run_and_boolM_True_iff:
+  "Run (and_boolM m1 m2) t True \<longleftrightarrow> (\<exists>t1 t2. t = t1 @ t2 \<and> Run m1 t1 True \<and> Run m2 t2 True)"
+  by (auto simp: and_boolM_def Run_bind_iff)
+
 lemma Run_if_iff:
   "Run (if c then m1 else m2) t a \<longleftrightarrow> (c \<and> Run m1 t a \<or> \<not>c \<and> Run m2 t a)"
   by auto
+
+lemma Run_if_then_throw_iff[simp]:
+  "Run (if c then throw e else m) t a \<longleftrightarrow> \<not>c \<and> Run m t a"
+  by auto
+
+lemma Run_bind_assert_exp_iff[simp]:
+  "Run (assert_exp c msg \<bind> f) t a \<longleftrightarrow> c \<and> Run (f ()) t a"
+  by (auto elim: Run_bindE)
 
 lemma concat_take_chunks_eq:
   "n > 0 \<Longrightarrow> List.concat (take_chunks n xs) = xs"
@@ -186,12 +198,105 @@ lemma unat_add_l2p_distrib:
   using no_olen_add unat_plus_simple
   by auto
 
+context Cap_Axiom_Automaton
+begin
+
+lemma Run_bindE':
+  fixes m :: "('rv, 'b, 'e) monad" and a :: 'a
+  assumes "Run (bind m f) t a"
+    and "\<And>tm am tf. t = tm @ tf \<Longrightarrow> Run m tm am \<Longrightarrow> Run (f am) tf a \<Longrightarrow> P (tm @ tf)"
+  shows "P t"
+  using assms
+  by (auto elim: Run_bindE)
+
+lemmas Run_case_prodE = case_prodE2[where Q = "\<lambda>m. Run m t a" and R = thesis for t a thesis]
+
+declare Run_case_prodE[where thesis = "c \<in> derivable_caps s" and a = c for c s, derivable_caps_combinators]
+
+lemma prod_snd_derivable_caps[derivable_capsE]:
+  assumes "a = (x, y)"
+    and "snd a \<in> derivable_caps s"
+  shows "y \<in> derivable_caps s"
+  using assms
+  by auto
+
+lemma prod_fst_derivable_caps[derivable_capsE]:
+  assumes "a = (x, y)"
+    and "fst a \<in> derivable_caps s"
+  shows "x \<in> derivable_caps s"
+  using assms
+  by auto
+
+lemma return_prod_snd_derivable_caps[derivable_capsE]:
+  assumes "Run (return (x, y)) t a"
+    and "y \<in> derivable_caps s"
+  shows "snd a \<in> derivable_caps s"
+  using assms
+  by auto
+
+lemma return_prod_fst_derivable_caps[derivable_capsE]:
+  assumes "Run (return (x, y)) t a"
+    and "x \<in> derivable_caps s"
+  shows "fst a \<in> derivable_caps s"
+  using assms
+  by auto
+
+text \<open>For the proofs of some of the decode clauses, some fairly simple side conditions need to be
+  proved, but the auto proof method struggles in some cases due to the nesting of blocks and use
+  of mutable variables, so we declare some custom proof rules so that these conditions can be
+  handled efficiently by the derivable_capsI proof method.\<close>
+
+lemma member_fst_snd_prod_elims[derivable_capsE]:
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> fst a \<in> xs \<Longrightarrow> x \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> snd a \<in> xs \<Longrightarrow> y \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> fst (snd a) \<in> xs \<Longrightarrow> fst y \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> fst (snd (snd a)) \<in> xs \<Longrightarrow> fst (snd y) \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> fst (snd (snd (snd a))) \<in> xs \<Longrightarrow> fst (snd (snd y)) \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> snd (snd a) \<in> xs \<Longrightarrow> snd y \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> snd (snd (snd a)) \<in> xs \<Longrightarrow> snd (snd y) \<in> xs"
+  "\<And>a x y xs. a = (x, y) \<Longrightarrow> snd (snd (snd (snd a))) \<in> xs \<Longrightarrow> snd (snd (snd y)) \<in> xs"
+  by auto
+
+lemma return_prods_derivable[derivable_capsE]:
+  "\<And>a b x xs. Run (return (a, b)) t x \<Longrightarrow> a \<in> xs \<Longrightarrow> fst x \<in> xs"
+  "\<And>a b x xs. Run (return (a, b)) t x \<Longrightarrow> b \<in> xs \<Longrightarrow> snd x \<in> xs"
+  "\<And>a b c x xs. Run (return (a, b, c)) t x \<Longrightarrow> b \<in> xs \<Longrightarrow> fst (snd x) \<in> xs"
+  "\<And>a b c x xs. Run (return (a, b, c)) t x \<Longrightarrow> c \<in> xs \<Longrightarrow> snd (snd x) \<in> xs"
+  "\<And>a b c d e x xs. Run (return (a, b, c, d, e)) t x \<Longrightarrow> d \<in> xs \<Longrightarrow> fst (snd (snd (snd x))) \<in> xs"
+  by auto
+
+declare Run_bindE[where thesis = "fst (snd (snd (snd a))) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_bindE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_ifE[where thesis = "fst (snd (snd (snd a))) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_ifE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_letE[where thesis = "fst (snd (snd (snd a))) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_letE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_case_prodE[where thesis = "fst (snd (snd (snd a))) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_case_prodE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, derivable_caps_combinators]
+
+declare Run_bindE[where thesis = "a \<in> xs" and a = a for a xs, derivable_capsE]
+declare Run_ifE[where thesis = "a \<in> xs" and a = a for a xs, derivable_capsE]
+declare Run_letE[where thesis = "a \<in> xs" and a = a for a xs, derivable_capsE]
+
+lemma Run_return_resultE:
+  assumes "Run (return x) t a"
+    and "P x"
+  shows "P a"
+  using assms
+  by auto
+
+declare Run_return_resultE[where P = "\<lambda>a. a \<in> xs" for xs, derivable_capsE]
+
+end
+
 section \<open>Simplification rules\<close>
 
 lemma Zeros_0[simp]:
   "Zeros n = 0"
   by (auto simp: Zeros_def zeros_def)
 
+declare id0_def[simp]
+declare eq_bits_int_def[simp]
 declare CAPABILITY_DBITS_def[simp]
 declare CAPABILITY_DBYTES_def[simp]
 declare CAP_TAG_BIT_def[simp]
@@ -231,11 +336,11 @@ lemma nat_of_bv_mword_unat[simp]: "nat_of_bv BC_mword w = Some (unat w)"
 lemma Bit_bitU_of_bool[simp]: "Morello.Bit w = bitU_of_bool (w !! 0)"
   by (auto simp: Morello.Bit_def)
 
-lemma CapIsTagSet_bit128[simp]:
+lemma CapIsTagSet_128th[simp]:
   "CapIsTagSet c \<longleftrightarrow> c !! 128"
   by (auto simp: CapIsTagSet_def CapGetTag_def nth_ucast test_bit_of_bl)
 
-lemma CapSetTag_set_bit128[simp]:
+lemma CapSetTag_set_128th[simp]:
   "CapSetTag c t = set_bit c 128 (t !! 0)"
   by (cases "t !! 0") (auto simp: CapSetTag_def)
 
@@ -338,14 +443,14 @@ proof -
 qed
 
 lemmas datatype_splits =
-  ArchVersion.splits Constraint.splits Unpredictable.splits Exception.splits InstrEnc.splits
-  BranchType.splits Fault.splits AccType.splits DeviceType.splits MemType.splits InstrSet.splits
-  GTEParamType.splits PrivilegeLevel.splits MBReqDomain.splits MBReqTypes.splits PrefetchHint.splits
-  FPExc.splits FPRounding.splits FPType.splits SysRegAccess.splits OpType.splits TimeStamp.splits
-  CountOp.splits ExtendType.splits FPMaxMinOp.splits FPUnaryOp.splits FPConvOp.splits
-  MoveWideOp.splits ShiftType.splits LogicalOp.splits MemOp.splits MemAtomicOp.splits
-  MemBarrierOp.splits SystemHintOp.splits PSTATEField.splits SystemOp.splits VBitOp.splits
-  CompareOp.splits ImmediateOp.splits ReduceOp.splits AsyncErrorType.splits
+  ArchVersion.split Constraint.split Unpredictable.split Exception.split InstrEnc.split
+  BranchType.split Fault.split AccType.split DeviceType.split MemType.split InstrSet.split
+  GTEParamType.split PrivilegeLevel.split MBReqDomain.split MBReqTypes.split PrefetchHint.split
+  FPExc.split FPRounding.split FPType.split SysRegAccess.split OpType.split TimeStamp.split
+  CountOp.split ExtendType.split FPMaxMinOp.split FPUnaryOp.split FPConvOp.split
+  MoveWideOp.split ShiftType.split LogicalOp.split MemOp.split MemAtomicOp.split
+  MemBarrierOp.split SystemHintOp.split PSTATEField.split SystemOp.split VBitOp.split
+  CompareOp.split ImmediateOp.split ReduceOp.split AsyncErrorType.split
 
 section \<open>Capabilities\<close>
 
@@ -651,6 +756,11 @@ locale Morello_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enable
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
 begin
 
+lemmas privilegeds_accessible_system_reg_access[intro] =
+  privileged_accessible_system_reg_access[where r = "''VBAR_EL1''", simplified]
+  privileged_accessible_system_reg_access[where r = "''VBAR_EL2''", simplified]
+  privileged_accessible_system_reg_access[where r = "''VBAR_EL3''", simplified]
+
 lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
   "non_cap_exp (undefined_bitvector n)"
   by (auto simp add: undefined_bitvector_def simp del: repeat.simps intro: non_cap_expI)
@@ -742,6 +852,8 @@ lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
 declare datatype_splits[split]
 declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
+declare datatype_splits[where P = "no_reg_writes_to Rs" for Rs, THEN iffD2, no_reg_writes_toI]
+declare datatype_splits[where P = "runs_no_reg_writes_to Rs" for Rs, THEN iffD2, runs_no_reg_writes_toI]
 
 lemma CapNull_derivable[simp, intro, derivable_capsI]:
   "CapNull u \<in> derivable_caps s"
@@ -799,10 +911,36 @@ lemma uint_3_word_bounded[derivable_capsI]:
   shows "uint w \<in> {0, 1, 2, 3, 4, 5, 6, 7}"
   by (cases w rule: exhaustive_3_word) auto
 
+lemma uint_2_word_bounded[derivable_capsI]:
+  "uint (w :: 2 word) \<in> insert 0 (insert 1 (insert 2 (insert 3 xs)))"
+  by (cases w rule: exhaustive_2_word) auto
+
 lemma uint_2_word_plus_one_bounded[derivable_capsI]:
   fixes w :: "2 word"
   shows "uint w + 1 \<in> {1, 2, 3, 4}"
   by (cases w rule: exhaustive_2_word) auto
+
+lemma uint_1_word_bounded[derivable_capsI]:
+  "uint (w :: 1 word) \<in> {0, 1}"
+  by (cases w rule: exhaustive_1_word, auto)
+
+lemma uint_1_word_plus_2_bounded[derivable_capsI]:
+  "2 + uint (w :: 1 word) \<in> {2, 3}"
+  by (cases w rule: exhaustive_1_word, auto)
+
+declare uint_ge_0[derivable_capsI]
+thm uint_lt2p[where x = x for x :: "5 word", simplified]
+
+lemma uint_5_word_le_31[derivable_capsI]:
+  "uint (w :: 5 word) \<le> 31"
+  by auto
+
+declare insertI1[derivable_capsI]
+(* declare insertI2[derivable_capsI] *)
+
+lemma size_64_word_eq_64[derivable_capsI]:
+  "int (size (w :: 64 word)) = 64"
+  by auto
 
 lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
@@ -922,6 +1060,8 @@ fun ev_assms :: "register_value event \<Rightarrow> bool" where
 sublocale Write_Cap_Assm_Automaton where CC = CC and ISA = ISA and ev_assms = ev_assms ..
 
 sublocale Morello_Axiom_Automaton where enabled = enabled ..
+
+declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
 end
 

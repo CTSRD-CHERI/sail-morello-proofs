@@ -2,6 +2,86 @@ theory CHERI_Lemmas
   imports CHERI_Gen_Lemmas
 begin
 
+context Morello_Axiom_Automaton
+begin
+
+lemma VAAdd_derivable[derivable_capsE]:
+  assumes t: "Run (VAAdd va offset) t va'"
+    and "VA_derivable va s"
+  shows "VA_derivable va' s"
+proof -
+  have "VA_derivable va' (run s t)"
+    using assms
+    by (cases "VirtualAddress_vatype va"; auto simp: VAAdd_def elim!: Run_bindE Run_ifE)
+       (derivable_capsI)+
+  then show ?thesis
+    using non_cap_exp_Run_run_invI[OF non_cap_exp_VAAdd t]
+    by simp
+qed
+
+lemma CSP_read_derivable_caps[derivable_capsE]:
+  "Run (CSP_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
+  using EL_exhaust_disj
+  by (fastforce simp: CSP_read_def Let_def register_defs derivable_caps_def accessible_regs_def
+                elim!: Run_bindE Run_ifE Run_read_regE intro!: derivable.Copy)
+
+lemma VAFromCapability_base_derivable_run:
+  assumes "Run (VAFromCapability c) t va"
+    and "c \<in> derivable_caps s"
+  shows "VirtualAddress_base va \<in> derivable_caps (run s t)"
+  using assms
+  by (auto simp: VAFromCapability_base_derivable non_cap_exp_VAFromCapability[THEN non_cap_exp_Run_run_invI])
+
+lemma BaseReg_read_VA_derivable[derivable_capsE]:
+  assumes "Run (BaseReg_read n is_prefetch) t va"
+    and "{''_R29'', ''PCC''} \<subseteq> accessible_regs s"
+  shows "VA_derivable va (run s t)"
+proof (cases "VirtualAddress_vatype va")
+  case VA_Bits64
+  then show ?thesis
+    by (auto simp: VA_derivable_def)
+next
+  case VA_Capability
+  then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
+    using assms
+    unfolding BaseReg_read_def
+    by - (derivable_capsI elim: CSP_read_derivable_caps VAFromCapability_base_derivable_run)
+  then show ?thesis
+    using VA_Capability
+    by (auto simp: VA_derivable_def)
+qed
+
+declare BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def, derivable_capsE]
+
+lemma AltBaseReg_read_VA_derivable[derivable_capsE]:
+  assumes "Run (AltBaseReg_read n is_prefetch) t va"
+    and "{''_R29''} \<subseteq> accessible_regs s"
+  shows "VA_derivable va (run s t)"
+proof (cases "VirtualAddress_vatype va")
+  case VA_Bits64
+  then show ?thesis
+    by (auto simp: VA_derivable_def)
+next
+  case VA_Capability
+  then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
+    using assms
+    unfolding AltBaseReg_read_def
+    by - (derivable_capsI elim: CSP_read_derivable_caps VAFromCapability_base_derivable_run)
+  then show ?thesis
+    using VA_Capability
+    by (auto simp: VA_derivable_def)
+qed
+
+declare AltBaseReg_read_VA_derivable[where is_prefetch = False, folded AltBaseReg_read__1_def, derivable_capsE]
+
+lemmas VA_derivable_combinators[derivable_caps_combinators] =
+  Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified]
+  Run_ifE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
+  Run_letE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
+  Run_case_prodE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
+
+end
+
 context Morello_Write_Cap_Automaton
 begin
 
@@ -91,13 +171,48 @@ lemma CapIsSubSetOf_CapUnseal_derivable:
      derivable capabilities *)
   sorry
 
-text \<open>Assume that UNKNOWN capabilities are derivable\<close>
+text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
+  using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
+  TRWTV and TSNJF in the Morello architecture document (DDI0606 A.c) say that
+  these values must "not increase the Capability defined rights available to
+  software".  Here, we assume that UNKNOWN capabilities are derivable.\<close>
 
-lemma UNKNOWN_bits_derivable[derivable_capsE]:
+lemma UNKNOWN_Capability_derivable[derivable_capsE]:
   assumes "Run (UNKNOWN_bits 129) t c" and "trace_assms t"
   shows "c \<in> derivable_caps s"
   (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
      to allow arbitrary register_value's instead of just Booleans might make this easier. *)
+  sorry
+
+lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
+  assumes "Run (UNKNOWN_VirtualAddress u) t va" and "trace_assms t"
+  shows "VA_derivable va s"
+  sorry
+
+text \<open>AArch32 is unsupported on Morello\<close>
+
+lemma UsingAArch32_False[simp]:
+  assumes "trace_assms t"
+  shows "\<not>Run (UsingAArch32 ()) t True"
+  sorry
+
+text \<open>Assume that tag setting is disabled\<close>
+
+lemma IsTagSettingDisabled_not_False:
+  assumes "trace_assms t"
+  shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
+  sorry
+
+text \<open>Assume that PCC is not sealed\<close>
+
+lemma PCC_not_sealed:
+  assumes "Run (PCC_read ()) t c" and "trace_assms t"
+  shows "\<not>CapIsSealed c"
+  sorry
+
+lemma CapAdd__1_Cap_IsSealed_iff:
+  assumes "Run (CapAdd__1 c increment) t c'"
+  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
   sorry
 
 end
@@ -212,7 +327,6 @@ lemma traces_enabled_write_memt:
   fixes data :: "128 word"
   assumes "paccess_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) tag"
     and "tag = B0 \<or> tag = B1"
-    and "tag \<noteq> B0 \<Longrightarrow> Capability_of_tag_word (bitU_nonzero tag) data \<in> derivable_caps s"
   shows "traces_enabled (write_memt BC_mword BC_mword wk paddr 16 data tag) s"
   using assms
   unfolding write_memt_def
@@ -222,7 +336,6 @@ lemma traces_enabled_write_memt:
 lemma traces_enabled_WriteTaggedMem_single[traces_enabledI]:
   fixes tag :: "1 word" and data :: "128 word"
   assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word data) (bitU_of_bool (tag !! 0))"
-    and "Capability_of_tag_word (tag !! 0) data \<in> derivable_caps s"
   shows "traces_enabled (WriteTaggedMem desc 16 accdesc tag data) s"
   using assms
   unfolding WriteTaggedMem_def
@@ -239,29 +352,24 @@ lemma traces_enabled_WriteTaggedMem_pair[traces_enabledI]:
   fixes tags :: "2 word" and data :: "256 word"
   assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
     and "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
-    and "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
-    and "Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
   shows "traces_enabled (WriteTaggedMem desc 32 accdesc tags data) s"
   using assms
   unfolding WriteTaggedMem_def
-  by (cases "tags !! 0"; cases "tags !! 1")
-     (auto intro!: traces_enabled_write_memt traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI]
-           simp: run_write_memt)
+  by (auto intro!: traces_enabled_write_memt traces_enabled_bind traces_enabled_let non_cap_expI[THEN non_cap_exp_traces_enabledI]
+           simp: run_write_memt bitU_of_bool_def)
 
 lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
   fixes tags :: "'t::len word" and data :: "'d::len word"
   assumes "paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word (ucast data :: 128 word)) (bitU_of_bool (tags !! 0))"
-    and "Capability_of_tag_word (tags !! 0) (ucast data) \<in> derivable_caps s"
     and "sz = 32 \<Longrightarrow> paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 (mem_bytes_of_word (Word.slice 128 data :: 128 word)) (bitU_of_bool (tags !! 1))"
-    and "sz = 32 \<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \<in> derivable_caps s"
     and "sz = 16 \<or> sz = 32"
     and "LENGTH('t) = nat sz div 16" and "LENGTH('d) = 8 * nat sz"
   shows "traces_enabled (WriteTaggedMem desc sz accdesc tags data) s"
   using assms
   unfolding WriteTaggedMem_def
-  by (cases "tags !! 0"; cases "tags !! 1")
-     (auto intro!: traces_enabled_write_memt traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI]
-           simp: run_write_memt nth_ucast)
+  by (auto intro!: traces_enabled_write_memt traces_enabled_bind traces_enabled_let non_cap_expI[THEN non_cap_exp_traces_enabledI]
+           simp: run_write_memt nth_ucast bitU_of_bool_def;
+      fastforce)
 
 definition store_enabled where
   "store_enabled s vaddr sz data tag \<equiv>
@@ -361,12 +469,31 @@ lemma trace_assms_translation_trace_assms[intro, simp]:
   "trace_assms t \<Longrightarrow> translation_assms_trace t"
   by auto
 
+lemma aligned_dvd_plus_lt:
+  assumes "aligned x sz" and "y < sz" and "sz dvd sz'" and "x < sz'"
+  shows "x + y < sz'"
+proof -
+  obtain k k' where k: "x = sz * k" and k': "sz' = sz * k'" "k < k'" "k' > 0"
+    using assms
+    by (auto simp: aligned_def dvd_def)
+  have "sz * k + y < sz * (Suc k)"
+    using assms
+    by auto
+  also have "\<dots> \<le> sz * k'"
+    using k'
+    unfolding less_eq_Suc_le
+    by (intro mult_le_mono2)
+  finally show ?thesis
+    unfolding k k' .
+qed
+
 lemma translate_address_aligned32_plus16:
   assumes "translate_address vaddr = Some paddr"
     and "aligned vaddr 32"
   shows "translate_address (vaddr + 16) = Some (paddr + 16)"
   using assms
   apply (auto simp: translate_address_def aligned_def dvd_def)
+  find_theorems aligned "(_ + _)"
   find_theorems (70) "(_ + _) mod _"
   sorry
 
@@ -412,68 +539,6 @@ lemma perm_bits_included_OR[simp, intro]:
   shows "perm_bits_included p (p1 OR p2)"
   using assms
   by (auto simp: perm_bits_included_def word_ao_nth)
-
-lemma VAAdd_derivable[derivable_capsE]:
-  assumes t: "Run (VAAdd va offset) t va'"
-    and "VA_derivable va s"
-  shows "VA_derivable va' s"
-proof -
-  have "VA_derivable va' (run s t)"
-    using assms
-    by (cases "VirtualAddress_vatype va"; auto simp: VAAdd_def elim!: Run_bindE Run_ifE)
-       (derivable_capsI)+
-  then show ?thesis
-    using non_cap_exp_Run_run_invI[OF non_cap_exp_VAAdd t]
-    by simp
-qed
-
-lemma CSP_read_derivable_caps[derivable_capsE]:
-  "Run (CSP_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
-  using EL_exhaust_disj
-  by (fastforce simp: CSP_read_def Let_def register_defs derivable_caps_def accessible_regs_def
-                elim!: Run_bindE Run_ifE Run_read_regE intro!: derivable.Copy)
-
-lemma BaseReg_read_VA_derivable[derivable_capsE]:
-  assumes "Run (BaseReg_read n is_prefetch) t va"
-    and "{''_R29''} \<subseteq> accessible_regs s"
-  shows "VA_derivable va (run s t)"
-proof (cases "VirtualAddress_vatype va")
-  case VA_Bits64
-  then show ?thesis
-    by (auto simp: VA_derivable_def)
-next
-  case VA_Capability
-  then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
-    using assms
-    unfolding BaseReg_read_def
-    by - (derivable_capsI elim: CSP_read_derivable_caps)
-  then show ?thesis
-    using VA_Capability
-    by (auto simp: VA_derivable_def)
-qed
-
-declare BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def, derivable_capsE]
-
-lemma AltBaseReg_read_VA_derivable[derivable_capsE]:
-  assumes "Run (AltBaseReg_read n is_prefetch) t va"
-    and "{''_R29''} \<subseteq> accessible_regs s"
-  shows "VA_derivable va (run s t)"
-proof (cases "VirtualAddress_vatype va")
-  case VA_Bits64
-  then show ?thesis
-    by (auto simp: VA_derivable_def)
-next
-  case VA_Capability
-  then have "VirtualAddress_base va \<in> derivable_caps (run s t)"
-    using assms
-    unfolding AltBaseReg_read_def
-    by - (derivable_capsI elim: CSP_read_derivable_caps)
-  then show ?thesis
-    using VA_Capability
-    by (auto simp: VA_derivable_def)
-qed
-
-declare AltBaseReg_read_VA_derivable[where is_prefetch = False, folded AltBaseReg_read__1_def, derivable_capsE]
 
 lemma tag_granule_16[simp]: "tag_granule ISA = 16"
   by (auto simp: ISA_def)
@@ -714,64 +779,6 @@ next
     by (cases tag) (auto simp: access_enabled_def)
 qed
 
-lemma Run_bindE':
-  fixes m :: "('rv, 'b, 'e) monad" and a :: 'a
-  assumes "Run (bind m f) t a"
-    and "\<And>tm am tf. t = tm @ tf \<Longrightarrow> Run m tm am \<Longrightarrow> Run (f am) tf a \<Longrightarrow> P (tm @ tf)"
-  shows "P t"
-  using assms
-  by (auto elim: Run_bindE)
-
-thm Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified]
-
-lemmas Run_case_prodE = case_prodE2[where Q = "\<lambda>m. Run m t a" and R = thesis for t a thesis]
-
-lemmas VA_derivable_combinators[derivable_caps_combinators] =
-  Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified]
-  Run_ifE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
-  Run_letE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
-  Run_case_prodE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
-
-lemmas load_enabled_combinators[derivable_caps_combinators] =
-  Run_bindE'[where P = "\<lambda>t. load_enabled (run s t) addr sz tagged" for s addr sz tagged, simplified]
-  Run_ifE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
-  Run_letE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
-  Run_case_prodE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
-
-lemmas store_enabled_combinators[derivable_caps_combinators] =
-  Run_bindE'[where P = "\<lambda>t. store_enabled (run s t) addr sz data tag" for s addr sz data tag, simplified]
-  Run_ifE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
-  Run_letE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
-  Run_case_prodE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
-
-lemma prod_snd_derivable_caps[derivable_capsE]:
-  assumes "a = (x, y)"
-    and "snd a \<in> derivable_caps s"
-  shows "y \<in> derivable_caps s"
-  using assms
-  by auto
-
-lemma prod_fst_derivable_caps[derivable_capsE]:
-  assumes "a = (x, y)"
-    and "fst a \<in> derivable_caps s"
-  shows "x \<in> derivable_caps s"
-  using assms
-  by auto
-
-lemma return_prod_snd_derivable_caps[derivable_capsE]:
-  assumes "Run (return (x, y)) t a"
-    and "y \<in> derivable_caps s"
-  shows "snd a \<in> derivable_caps s"
-  using assms
-  by auto
-
-lemma return_prod_fst_derivable_caps[derivable_capsE]:
-  assumes "Run (return (x, y)) t a"
-    and "x \<in> derivable_caps s"
-  shows "fst a \<in> derivable_caps s"
-  using assms
-  by auto
-
 lemma VADeref_addr_l2p64[intro, simp, derivable_capsE]:
   assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
   shows "uint vaddr + sz \<le> 2^64"
@@ -787,6 +794,12 @@ lemma VADeref_addr_l2p64_nat[intro, simp, derivable_capsE]:
   by (auto simp add: unat_def simp flip: nat_add_distrib)
 
 text \<open>Loads enabled by VADeref\<close>
+
+lemmas load_enabled_combinators[derivable_caps_combinators] =
+  Run_bindE'[where P = "\<lambda>t. load_enabled (run s t) addr sz tagged" for s addr sz tagged, simplified]
+  Run_ifE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
+  Run_letE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
+  Run_case_prodE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
 
 lemma VADeref_load_enabled:
   assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
@@ -858,6 +871,12 @@ lemma VADeref_load_data_access_enabled'[derivable_capsE]:
   by (auto intro: VADeref_data_load_enabled')
 
 text \<open>Stores enabled by VADeref\<close>
+
+lemmas store_enabled_combinators[derivable_caps_combinators] =
+  Run_bindE'[where P = "\<lambda>t. store_enabled (run s t) addr sz data tag" for s addr sz data tag, simplified]
+  Run_ifE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
+  Run_letE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
+  Run_case_prodE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
 
 lemma VADeref_store_enabled:
   assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
@@ -985,18 +1004,16 @@ text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allo
   using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
   TRWTV and TSNJF in the Morello architecture document (DDI0606 A.c) say that
   these values must "not increase the Capability defined rights available to
-  software".
+  software".\<close>
 
-  TODO: Differentiate between UNKNOWN and uninitialised values in asl_to_sail.\<close>
-
-lemma undefined_Capability_derivable[derivable_capsE]:
+lemma UNKNOWN_Capability_derivable[derivable_capsE]:
   assumes "Run (UNKNOWN_bits 129) t c" and "trace_assms t"
   shows "c \<in> derivable_caps s"
   (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
      to allow arbitrary register_value's instead of just Booleans might make this easier. *)
   sorry
 
-lemma undefined_VirtualAddress_derivable[derivable_capsE]:
+lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
   assumes "Run (UNKNOWN_VirtualAddress u) t va" and "trace_assms t"
   shows "VA_derivable va s"
   sorry

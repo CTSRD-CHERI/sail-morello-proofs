@@ -61,6 +61,11 @@
         "proof": "(traces_enabledI)"
       }
     },
+    "CapSetBounds": {
+      "traces_enabled": {
+        "proof": "- (* TODO *)"
+      }
+    },
     "X_set": {
       "traces_enabled": {
         "assms": ["LENGTH('a) \\<in> {32, 64}"],
@@ -91,7 +96,7 @@
     "ReduceCombine": {
       "traces_enabled": {
         "unfolding": [],
-        "proof": "(cases arg0; simp; traces_enabledI)"
+        "proof": "(cases arg0; simp; traces_enabledI assms: assms)"
       },
       "non_mem_exp": {
         "proof": "(cases arg0; simp; non_mem_expI)"
@@ -100,12 +105,26 @@
         "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
       }
     },
+    "Reduce": {
+      "traces_enabled": {
+        "assms": ["arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
+        "stmts": ["traces_enabled (Reduce arg0 arg1 arg2 :: 'esize::len word M) s"]
+      }
+    },
     "execute_aarch64_instrs_system_hints": {
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "(cases arg0; simp; traces_enabledI)"
+      },
       "non_mem_exp": {
         "proof": "(cases arg0; simp; non_mem_expI)"
       }
     },
     "AArch64_MemSingle_read": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> load_enabled s (unat arg0) arg1 False"],
         "unfolding": ["AArch64_MemSingle_read_def", "AArch64_TranslateAddress_def", "bind_assoc"],
@@ -113,6 +132,10 @@
       }
     },
     "AArch64_MemSingle_set": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> store_enabled s (unat arg0) arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
         "stmts": ["traces_enabled (AArch64_MemSingle_set arg0 arg1 arg2 arg3 (arg4 :: 'a::len word)) s"],
@@ -121,6 +144,10 @@
       }
     },
     "AArch64_TaggedMemSingle": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) (nat arg1)", "load_enabled s (unat arg0) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0 + 16) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0) 32 False"],
         "unfolding": ["AArch64_TaggedMemSingle_def", "AArch64_TranslateAddress_def", "bind_assoc"],
@@ -166,6 +193,10 @@
       }
     },
     "Mem_read": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      },
       "traces_enabled_mem": {
         "assms": ["load_enabled s (unat vaddr) sz False"],
         "stmts": ["traces_enabled (Mem_read0 vaddr sz acctype) s"],
@@ -173,6 +204,10 @@
       }
     },
     "Mem_set": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      },
       "traces_enabled_mem": {
         "assms": ["store_enabled s (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz"],
         "stmts": ["traces_enabled (Mem_set0 vaddr sz acctype (data :: 'a::len word)) s"],
@@ -220,6 +255,9 @@
       }
     },
     "MemAtomicCompareAndSwap": {
+      "traces_enabled": {
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
+      },
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
         "stmts": ["traces_enabled (MemAtomicCompareAndSwap base expval (newval :: 'a::len word) ldacctype stacctype) s"],
@@ -239,6 +277,9 @@
       }
     },
     "MemAtomic": {
+      "traces_enabled": {
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
+      },
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
         "stmts": ["traces_enabled (MemAtomic base op (data :: 'a::len word) ldacctype stacctype) s"],
@@ -247,6 +288,10 @@
       }
     },
     "AArch64_AutoGen_ArchitectureReset": {
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "- (* TODO: takes very long *)"
+      },
       "no_reg_writes_to": {
         "proof": "- (* TODO: takes very long *)"
       }
@@ -256,7 +301,17 @@
         "proof": "- (* TODO: takes very long *)"
       }
     },
+    "AArch64_AutoGen_SysRegRead": {
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "- (* TODO: takes very long *)"
+      }
+    },
     "AArch64_AutoGen_SysRegWrite": {
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "- (* TODO: takes very long *)"
+      },
       "runs_no_reg_writes_to": {
         "proof": "- (* TODO: takes very long *)"
       }
@@ -323,6 +378,26 @@
     "execute_CSEAL_C_C_C": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms elim: Run_and_boolM_E CapIsInBounds_cursor_in_mem_region)"
+      }
+    },
+    "execute_SCTAG_C_CR_C": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+      }
+    },
+    "execute_STCT_R_R": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+      }
+    },
+    "execute_aarch64_instrs_branch_unconditional_immediate": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms simp: CapAdd__1_Cap_IsSealed_iff PCC_not_sealed)"
+      }
+    },
+    "execute_aarch64_instrs_branch_unconditional_register": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms simp: CapAdd__1_Cap_IsSealed_iff PCC_not_sealed)"
       }
     }
   },
