@@ -5,18 +5,77 @@ begin
 context Morello_Axiom_Automaton
 begin
 
+lemma CapGetObjectType_set_bit_128_eq[simp]:
+  "CapGetObjectType (set_bit c 128 tag) = CapGetObjectType c"
+  unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapGetObjectType_update_address[simp]:
+  fixes addr :: "64 word"
+  shows "CapGetObjectType (update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr) = CapGetObjectType c"
+  unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice update_subrange_vec_dec_test_bit)
+
+lemma CapAdd_GetObjectType_eq:
+  assumes "Run (CapAdd c increment) t c'"
+  shows "CapGetObjectType c' = CapGetObjectType c"
+  using assms
+  unfolding CapAdd_def
+  by (auto elim!: Run_letE Run_bindE)
+
+lemma CapAdd_CapIsSealed_iff[simp]:
+  assumes "Run (CapAdd c increment) t c'"
+  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+  using assms
+  by (auto simp: CapIsSealed_def CapAdd_GetObjectType_eq)
+
+lemma CapAdd__1_CapIsSealed_iff[simp]:
+  assumes "Run (CapAdd__1 c increment) t c'"
+  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+  using assms
+  by (auto simp: CapAdd__1_def)
+
+lemma Run_CapAdd_tag_imp:
+  assumes "Run (CapAdd c offset) t c'"
+    and "c' !! 128"
+  shows "c !! 128"
+  using assms
+  unfolding CapAdd_def CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
+  by (auto simp: test_bit_set update_subrange_vec_dec_test_bit
+           elim!: Run_bindE Run_letE split: if_splits)
+
+(* declare VAIsCapability_def[simp] *)
+
+definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
+  "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
+
+definition VAIsSealedCap :: "VirtualAddress \<Rightarrow> bool" where
+  "VAIsSealedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsSealed (VirtualAddress_base va))"
+
+declare Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified, derivable_caps_combinators]
+
 lemma VAAdd_derivable[derivable_capsE]:
   assumes t: "Run (VAAdd va offset) t va'"
-    and "VA_derivable va s"
+    and "VAIsTaggedCap va \<and> VAIsTaggedCap va' \<and> (VAIsSealedCap va' \<longleftrightarrow> VAIsSealedCap va) \<longrightarrow> \<not>VAIsSealedCap va"
+    and "VAIsTaggedCap va \<and> \<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
   shows "VA_derivable va' s"
 proof -
-  have "VA_derivable va' (run s t)"
-    using assms
-    by (cases "VirtualAddress_vatype va"; auto simp: VAAdd_def elim!: Run_bindE Run_ifE)
-       (derivable_capsI)+
-  then show ?thesis
+  have *: "VAIsSealedCap va' \<longleftrightarrow> VAIsSealedCap va"
+    using t
+    by (auto simp: VAAdd_def VAIsSealedCap_def VAIsCapability_def elim!: Run_bindE Run_ifE)
+  have **: "VAIsTaggedCap va' \<longrightarrow> VAIsTaggedCap va"
+    using t
+    by (auto simp: VAAdd_def VAIsTaggedCap_def VAIsCapability_def elim!: Run_bindE Run_ifE Run_CapAdd_tag_imp)
+  have "\<not>VAIsTaggedCap va' \<longrightarrow> VA_derivable va' s"
+    by (cases "VirtualAddress_vatype va'")
+       (auto simp add: VA_derivable_def derivable_caps_def VAIsTaggedCap_def VAIsCapability_def)
+  moreover have "VAIsTaggedCap va' \<longrightarrow> VA_derivable va' (run s t)"
+    using assms **
+    unfolding VAAdd_def *
+    by - (derivable_capsI simp: VAIsSealedCap_def)
+  ultimately show ?thesis
     using non_cap_exp_Run_run_invI[OF non_cap_exp_VAAdd t]
-    by simp
+    by auto
 qed
 
 lemma CSP_read_derivable_caps[derivable_capsE]:
@@ -228,14 +287,14 @@ lemma IsTagSettingDisabled_not_False:
 
 text \<open>Assume that PCC is not sealed\<close>
 
-lemma PCC_not_sealed:
-  assumes "Run (PCC_read ()) t c" and "trace_assms t"
+lemma PCC_read_not_sealed[intro, simp, derivable_capsE]:
+  assumes "Run (PCC_read u) t c" and "trace_assms t"
   shows "\<not>CapIsSealed c"
   sorry
 
-lemma CapAdd__1_Cap_IsSealed_iff:
-  assumes "Run (CapAdd__1 c increment) t c'"
-  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+lemma read_PCC_not_sealed[intro, simp, derivable_capsE]:
+  assumes "Run (read_reg PCC_ref) t c" and "trace_assms t"
+  shows "\<not>CapIsSealed c"
   sorry
 
 end
@@ -518,6 +577,8 @@ lemma translate_address_aligned32_plus16:
   apply (auto simp: translate_address_def aligned_def dvd_def)
   find_theorems aligned "(_ + _)"
   find_theorems (70) "(_ + _) mod _"
+  find_theorems (80) "(mod)" "(*)" "(+)"
+  thm div_mult_mod_eq
   sorry
 
 lemma AArch64_MemSingle_read_translate_address_Some:
@@ -692,7 +753,7 @@ lemma CheckCapability_load_enabled:
     and "perm_bits_included CAP_PERM_LOAD req_perms"
     and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP req_perms"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
-    and "c \<in> derivable_caps (run s t)"
+    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps (run s t)"
   shows "load_enabled (run s t) vaddr' sz' tagged"
 proof (unfold load_enabled_def, intro allI impI conjI)
   show "sz' > 0" and "vaddr' + nat sz' \<le> 2 ^ 64"
@@ -708,7 +769,7 @@ next
     using assms
     by (auto elim!: Run_bindE split: if_splits simp: CheckCapability_def)
   then have c: "c \<in> derivable (accessed_caps (run s t))"
-    using \<open>c \<in> derivable_caps (run s t)\<close>
+    using \<open>\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps (run s t)\<close>
     by (auto simp: derivable_caps_def)
   have aligned: "nat sz' = 16 \<and> aligned paddr 16" if "tagged"
     using assms paddr that
@@ -749,7 +810,7 @@ lemma CheckCapability_store_enabled:
     and store_cap_perm: "tag \<longrightarrow> perm_bits_included CAP_PERM_STORE_CAP req_perms"
     and local_perm: "tag \<and> CapIsLocal (Capability_of_tag_word tag (ucast data)) \<longrightarrow> perm_bits_included CAP_PERM_STORE_LOCAL req_perms"
     and aligned: "tag \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> LENGTH('a) = 128"
-    and "c \<in> derivable_caps (run s t)"
+    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps (run s t)"
   shows "store_enabled (run s t) vaddr' sz' data tag"
 proof (unfold store_enabled_def, intro allI impI conjI)
   show "sz' > 0" and "vaddr' + nat sz' \<le> 2 ^ 64"
@@ -769,7 +830,7 @@ next
     using assms
     by (auto elim!: Run_bindE split: if_splits simp: CheckCapability_def)
   then have c: "c \<in> derivable (accessed_caps (run s t))"
-    using \<open>c \<in> derivable_caps (run s t)\<close>
+    using \<open>\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps (run s t)\<close>
     by (auto simp: derivable_caps_def)
   have aligned': "nat sz' = 16 \<and> aligned paddr 16" if "tag"
     using aligned paddr that
@@ -824,6 +885,11 @@ lemmas load_enabled_combinators[derivable_caps_combinators] =
   Run_letE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
   Run_case_prodE[where thesis = "load_enabled (run s t) addr sz tagged" and t = t for s addr sz tagged t]
 
+lemma Run_VAToCapability_iff:
+  "Run (VAToCapability va) t c \<longleftrightarrow> VAIsCapability va \<and> c = VirtualAddress_base va \<and> t = []"
+  unfolding VAToCapability_def
+  by auto
+
 lemma VADeref_load_enabled:
   assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
@@ -831,13 +897,33 @@ lemma VADeref_load_enabled:
     and "perm_bits_included CAP_PERM_LOAD perms"
     and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP perms"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "load_enabled (run s t) vaddr' sz' tagged"
-  using assms(1,2)
-  unfolding VADeref_def
-  by - (derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
-                        elim: CheckCapability_load_enabled)
+proof (cases "VAIsPCCRelative va \<or> VAIsBits64 va")
+  case True
+  then show ?thesis
+    using assms(1,2)
+    unfolding VADeref_def
+    by - (derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
+                          elim: CheckCapability_load_enabled)
+next
+  case False
+  let ?c = "VirtualAddress_base va"
+  obtain t' t''
+    where "Run (CheckCapability ?c (CapGetValue ?c) sz perms acctype) t'' vaddr"
+      and "trace_assms t''"
+      and "VirtualAddress_vatype va = VA_Capability"
+      and "t = t' @ t''"
+    using False assms(1,2)
+    unfolding VADeref_def
+    by (auto elim!: Run_bindE Run_ifE)
+  then show ?thesis
+    using assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
+    unfolding \<open>t = t' @ t''\<close> foldl_append
+    by (elim CheckCapability_load_enabled)
+       (auto simp: VA_derivable_def VAIsSealedCap_def intro: derivable_caps_run_imp)
+qed
 
 text \<open>Common patterns\<close>
 
@@ -845,7 +931,7 @@ lemma VADeref_data_load_enabled[derivable_capsE]:
   assumes "Run (VADeref va sz CAP_PERM_LOAD acctype) t vaddr" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "load_enabled (run s t) vaddr' sz' False"
   using assms
@@ -855,7 +941,7 @@ lemma VADeref_data_load_enabled'[derivable_capsE]:
   assumes "Run (VADeref va sz (CAP_PERM_LOAD OR perms) acctype) t vaddr" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "load_enabled (run s t) vaddr' sz' False"
   using assms
@@ -866,7 +952,7 @@ lemma VADeref_cap_load_enabled[derivable_capsE]:
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "nat sz' = 16 \<and> aligned vaddr' 16"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "load_enabled (run s t) vaddr' sz' True"
   using assms
@@ -877,7 +963,7 @@ lemma VADeref_cap_load_enabled'[derivable_capsE]:
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "nat sz' = 16 \<and> aligned vaddr' 16"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "load_enabled (run s t) vaddr' sz' True"
   using assms
@@ -887,7 +973,7 @@ lemma VADeref_load_data_access_enabled'[derivable_capsE]:
   assumes "Run (VADeref va sz (CAP_PERM_LOAD OR perms) acctype) t vaddr" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "translate_address (unat vaddr) = Some paddr"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "\<exists>vaddr. access_enabled (run s t) Load vaddr paddr (nat sz) data B0"
   using assms
@@ -909,13 +995,33 @@ lemma VADeref_store_enabled:
     and "tag \<longrightarrow> perm_bits_included CAP_PERM_STORE_CAP perms"
     and "tag \<and> CapIsLocal (Capability_of_tag_word tag (ucast data)) \<longrightarrow> perm_bits_included CAP_PERM_STORE_LOCAL perms"
     and "tag \<longrightarrow> LENGTH('a) = 128 \<and> nat sz' = 16 \<and> aligned vaddr' 16"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "store_enabled (run s t) vaddr' sz' (data :: 'a::len word) tag"
-  using assms(1,2)
-  unfolding VADeref_def
-  by - (derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
-                        elim: CheckCapability_store_enabled)
+proof (cases "VAIsPCCRelative va \<or> VAIsBits64 va")
+  case True
+  then show ?thesis
+    using assms(1,2)
+    unfolding VADeref_def
+    by - (derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
+                          elim: CheckCapability_store_enabled)
+next
+  case False
+  let ?c = "VirtualAddress_base va"
+  obtain t' t''
+    where "Run (CheckCapability ?c (CapGetValue ?c) sz perms acctype) t'' vaddr"
+      and "trace_assms t''"
+      and "VirtualAddress_vatype va = VA_Capability"
+      and "t = t' @ t''"
+    using False assms(1,2)
+    unfolding VADeref_def
+    by (auto elim!: Run_bindE Run_ifE)
+  then show ?thesis
+    using assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
+    unfolding \<open>t = t' @ t''\<close> foldl_append
+    by (elim CheckCapability_store_enabled)
+       (auto simp: VA_derivable_def VAIsSealedCap_def intro: derivable_caps_run_imp)
+qed
 
 text \<open>Common patterns\<close>
 
@@ -923,7 +1029,7 @@ lemma VADeref_store_data_enabled[derivable_capsE]:
   assumes "Run (VADeref va sz CAP_PERM_STORE acctype) t vaddr" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "store_enabled (run s t) vaddr' sz' (data :: 'a::len word) False"
   using assms
@@ -933,7 +1039,7 @@ lemma VADeref_store_data_enabled'[derivable_capsE]:
   assumes "Run (VADeref va sz (perms OR CAP_PERM_STORE) acctype) t vaddr" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "store_enabled (run s t) vaddr' sz' (data :: 'a::len word) False"
   using assms
@@ -950,7 +1056,7 @@ lemma VADeref_store_cap_enabled[derivable_capsE]:
   assumes "Run (VADeref va CAPABILITY_DBYTES (cap_store_perms c) acctype) t vaddr" "trace_assms t"
     and "aligned (unat vaddr) 16"
     and "Capability_of_tag_word tag data = c"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "store_enabled (run s t) (unat vaddr) 16 (data :: 128 word) tag"
   using assms
@@ -960,7 +1066,7 @@ lemma VADeref_store_cap_enabled'[derivable_capsE]:
   assumes "Run (VADeref va CAPABILITY_DBYTES (perms OR cap_store_perms c) acctype) t vaddr" "trace_assms t"
     and "aligned (unat vaddr) 16"
     and "Capability_of_tag_word tag data = c"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "store_enabled (run s t) (unat vaddr) 16 (data :: 128 word) tag"
   using assms
@@ -970,7 +1076,7 @@ lemma VADeref_store_data_access_enabled[derivable_capsE]:
   assumes "Run (VADeref va sz CAP_PERM_STORE acctype) t vaddr" "trace_assms t"
     and "sz > 0"
     and "translate_address (unat vaddr) = Some paddr"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "\<exists>vaddr. access_enabled (run s t) Store vaddr paddr (nat sz) (mem_bytes_of_word data) B0"
   using assms
@@ -980,7 +1086,7 @@ lemma VADeref_store_data_access_enabled'[derivable_capsE]:
   assumes "Run (VADeref va sz (perms OR CAP_PERM_STORE) acctype) t vaddr" "trace_assms t"
     and "sz > 0"
     and "translate_address (unat vaddr) = Some paddr"
-    and "VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "\<exists>vaddr. access_enabled (run s t) Store vaddr paddr (nat sz) (mem_bytes_of_word data) B0"
   using assms
@@ -1046,6 +1152,13 @@ text \<open>AArch32 is unsupported on Morello\<close>
 lemma UsingAArch32_False[simp]:
   assumes "trace_assms t"
   shows "\<not>Run (UsingAArch32 ()) t True"
+  sorry
+
+text \<open>Assume that tag setting is disabled\<close>
+
+lemma IsTagSettingDisabled_not_False:
+  assumes "trace_assms t"
+  shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
   sorry
 
 end

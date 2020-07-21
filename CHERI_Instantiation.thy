@@ -274,9 +274,9 @@ declare Run_letE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, deriv
 declare Run_case_prodE[where thesis = "fst (snd (snd (snd a))) \<in> xs" and a = a for a xs, derivable_caps_combinators]
 declare Run_case_prodE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, derivable_caps_combinators]
 
-declare Run_bindE[where thesis = "a \<in> xs" and a = a for a xs, derivable_capsE]
-declare Run_ifE[where thesis = "a \<in> xs" and a = a for a xs, derivable_capsE]
-declare Run_letE[where thesis = "a \<in> xs" and a = a for a xs, derivable_capsE]
+declare Run_bindE[where thesis = "a \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_ifE[where thesis = "a \<in> xs" and a = a for a xs, derivable_caps_combinators]
+declare Run_letE[where thesis = "a \<in> xs" and a = a for a xs, derivable_caps_combinators]
 
 lemma Run_return_resultE:
   assumes "Run (return x) t a"
@@ -329,6 +329,14 @@ qed
 lemma Capability_of_tag_word_128th[simp]:
   "Capability_of_tag_word tag data !! 128 = tag"
   by (auto simp: Capability_of_tag_word_def nth_word_cat test_bit_of_bl)
+
+lemma update_bits_tag_Capability_from_tag_word[simp]:
+  "update_vec_dec (update_subrange_vec_dec c 127 0 cap_bits) 128 (bitU_of_bool tag)
+   = Capability_of_tag_word tag cap_bits"
+  unfolding Capability_of_tag_word_def
+  by (cases tag; intro word_eqI)
+     (auto simp: test_bit_set_gen update_subrange_vec_dec_test_bit nth_word_cat nth_ucast
+           dest: test_bit_len)
 
 lemma nat_of_bv_mword_unat[simp]: "nat_of_bv BC_mword w = Some (unat w)"
   by (auto simp: nat_of_bv_def unat_def)
@@ -875,18 +883,18 @@ lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
   by (auto simp: derivable_caps_def)
 
 lemma CapSetFlags_derivable[derivable_capsI]:
-  assumes "c \<in> derivable_caps s"
+  assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "CapSetFlags c flags \<in> derivable_caps s"
   thm CapSetFlags_def
   sorry
 
 lemma clear_perm_derivable[derivable_capsI]:
-  assumes "c \<in> derivable_caps s"
+  assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "clear_perm perms c \<in> derivable_caps s"
   sorry
 
 lemma set_bit_0_derivable[derivable_capsI]:
-  assumes "c \<in> derivable_caps s"
+  assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "update_vec_dec c 0 b \<in> derivable_caps s"
   (* TODO Changing the LSB should always be representable *)
   sorry

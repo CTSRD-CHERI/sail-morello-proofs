@@ -52,7 +52,8 @@
     },
     "CapabilityFromData": {
       "derivable_caps": {
-        "stmts": ["Run (CapabilityFromData 128 arg1 arg2) t c \\<Longrightarrow> Capability_of_tag_word (arg1 !! 0) arg2 \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps s"]
+        "stmts": ["Run (CapabilityFromData n arg1 arg2) t c \\<Longrightarrow> n = 128 \\<Longrightarrow> Capability_of_tag_word (arg1 !! 0) arg2 \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_insert_run s, auto simp: CapabilityFromData_def)"
       }
     },
     "CheckCapability": {
@@ -61,8 +62,32 @@
         "proof": "(traces_enabledI)"
       }
     },
+    "CapSetValue": {
+      "derivable_caps": {
+        "stmts": ["Run (CapSetValue arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_insert_run s, unfold CapSetValue_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentable_derivable intro: update_subrange_if_derivable update_subrange_addr_CapWithTagClear_derivable)"
+      }
+    },
+    "CapAdd": {
+      "derivable_caps": {
+        "stmts": ["Run (CapAdd arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_insert_run s, unfold CapAdd_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentableFast_derivable)"
+      }
+    },
+    "CapAdd__1": {
+      "derivable_caps": {
+        "stmts": ["Run (CapAdd__1 arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"]
+      }
+    },
+    "CapSetOffset": {
+      "derivable_caps": {
+        "stmts": ["Run (CapSetOffset arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_insert_run s, unfold CapSetOffset_def, derivable_capsI)"
+      }
+    },
     "CapSetBounds": {
-      "traces_enabled": {
+      "derivable_caps": {
+        "stmts": ["Run (CapSetBounds arg0 arg1 arg2) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
         "proof": "- (* TODO *)"
       }
     },
@@ -226,7 +251,7 @@
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)"],
-        "proof": "(traces_enabledI assms: assms) (* simp: DataFromCapability_def update_subrange_vec_dec_test_bit *)"
+        "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       }
     },
     "MemCP": {
@@ -388,16 +413,6 @@
     "execute_STCT_R_R": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
-      }
-    },
-    "execute_aarch64_instrs_branch_unconditional_immediate": {
-      "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms simp: CapAdd__1_Cap_IsSealed_iff PCC_not_sealed)"
-      }
-    },
-    "execute_aarch64_instrs_branch_unconditional_register": {
-      "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms simp: CapAdd__1_Cap_IsSealed_iff PCC_not_sealed)"
       }
     }
   },
