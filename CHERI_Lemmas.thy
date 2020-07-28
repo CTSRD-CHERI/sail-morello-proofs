@@ -239,19 +239,51 @@ lemma CapIsSubSetOf_WithTagSet_derivable:
     and "CapIsTagSet c'" and "\<not>CapIsSealed c'" and "\<not>CapIsSealed c"
     and "get_base c \<le> get_limit c"
   shows "CapWithTagSet c \<in> derivable_caps s"
-  thm leq_cap_def
-  sorry
+proof -
+  have "leq_perms (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
+    using assms
+    unfolding leq_perms_to_bl_iff CapIsSubSetOf_def
+    by (auto elim!: Run_bindE simp: AND_NOT_eq_0_iff)
+  then have "leq_cap CC (CapWithTagSet c) c'"
+    using assms
+    unfolding leq_cap_def CapIsSubSetOf_def
+    by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit elim: leq_perms_cap_permits_imp
+             elim!: Run_bindE)
+  then show "CapWithTagSet c \<in> derivable_caps s"
+    using \<open>c' \<in> derivable_caps s\<close> and \<open>CapIsTagSet c'\<close>
+    by (auto simp: derivable_caps_def intro: derivable.Restrict)
+qed
 
 lemma CapIsSubSetOf_CapUnseal_derivable:
-  assumes "Run (CapIsSubSetOf c c') t a" and "a"
+  assumes "Run (CapIsSubSetOf c c') t a" and "a" and "trace_assms t"
     and "c \<in> derivable_caps s"
     and "c' \<in> derivable_caps s"
     and "CapIsTagSet c'" and "\<not>CapIsSealed c'"
-    (* and "get_base c \<le> get_limit c" *)
   shows "CapUnseal c \<in> derivable_caps s"
+proof cases
+  assume tag: "CapIsTagSet c"
   (* TODO: Lemma as stated here requires global assumption that (base \<le> limit) holds for
      derivable capabilities *)
-  sorry
+  then have "get_base (CapUnseal c) \<le> get_limit (CapUnseal c)"
+    using \<open>c \<in> derivable_caps s\<close> and \<open>trace_assms t\<close>
+    unfolding get_bounds_CapUnseal_eq
+    sorry
+  then have "CapWithTagSet (CapUnseal c) \<in> derivable_caps s"
+    using assms
+    by (intro CapIsSubSetOf_WithTagSet_derivable) (auto simp: CapIsSubSetOf_CapUnseal_eq)
+  then show ?thesis
+    using tag
+    by (auto simp: CapIsTagSet_CapWithTagSet_eq)
+next
+  assume "\<not>CapIsTagSet c"
+  then show ?thesis
+    by (auto simp: derivable_caps_def)
+qed
+
+(*lemma CapIsInternalExponent_CapSetObjectType_iff[simp]:
+  "CapIsInternalExponent (CapSetObjectType c otype) = CapIsInternalExponent c"
+  unfolding CapIsInternalExponent_def CapSetObjectType_def CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def CAP_IE_BIT_def
+  by (auto simp: update_subrange_vec_dec_test_bit)*)
 
 text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
   using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules

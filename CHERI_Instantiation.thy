@@ -118,6 +118,26 @@ proof -
   qed
 qed
 
+lemma slice_update_subrange_vec_dec_above:
+  fixes w :: "'a::len word" and w' :: "'b::len word"
+  assumes "0 \<le> j" and "j \<le> i" and "nat i < LENGTH('a)" and "LENGTH('b) = nat (i - j + 1)"
+    and "nat j \<ge> n + LENGTH('c)"
+  shows "Word.slice n (update_subrange_vec_dec w i j w') = (Word.slice n w :: 'c::len word)"
+  using assms
+  by (intro word_eqI)
+     (auto simp: update_subrange_vec_dec_update_subrange_list_dec update_subrange_list_dec_drop_take
+                 nth_slice test_bit_of_bl nat_add_distrib nat_diff_distrib nth_append rev_nth to_bl_nth)
+
+lemma slice_update_subrange_vec_dec_below:
+  fixes w :: "'a::len word" and w' :: "'b::len word"
+  assumes "0 \<le> j" and "j \<le> i" and "nat i < LENGTH('a)" and "LENGTH('b) = nat (i - j + 1)"
+    and "n > nat i"
+  shows "Word.slice n (update_subrange_vec_dec w i j w') = (Word.slice n w :: 'c::len word)"
+  using assms
+  by (intro word_eqI)
+     (auto simp: update_subrange_vec_dec_update_subrange_list_dec update_subrange_list_dec_drop_take
+                 nth_slice test_bit_of_bl_append nth_rev nat_add_distrib nat_diff_distrib test_bit_bl[of w "n' + n" for n'])
+
 lemma update_subrange_vec_dec_word_cat_cap_pair:
   fixes tmp :: "256 word" and c1 c2 :: "128 word"
   shows "update_subrange_vec_dec (update_subrange_vec_dec tmp 127 0 c2) 255 128 c1 = (word_cat c1 c2 :: 256 word)"
@@ -197,6 +217,37 @@ lemma unat_add_l2p_distrib:
   using assms
   using no_olen_add unat_plus_simple
   by auto
+
+lemma leq_bools_iff:
+  "leq_bools bs1 bs2 \<longleftrightarrow> (\<forall>n < length bs1. bs1 ! n \<longrightarrow> bs2 ! n) \<and> length bs2 = length bs1"
+  by (induction bs1 bs2 rule: leq_bools.induct) (auto simp: nth_Cons split: nat.splits)
+
+lemma leq_perms_to_bl_iff:
+  fixes x y :: "'a::len word"
+  shows "leq_perms (to_bl x) (to_bl y) \<longleftrightarrow> (\<forall>n. x !! n \<longrightarrow> y !! n)"
+proof
+  assume leq: "leq_perms (to_bl x) (to_bl y)"
+  show "\<forall>n. x !! n \<longrightarrow> y !! n"
+  proof
+    fix n
+    have "to_bl x ! (size x - Suc n) \<longrightarrow> to_bl y ! (size y - Suc n)"
+      using leq
+      unfolding leq_perms_def leq_bools_iff
+      by auto
+    then show "x !! n \<longrightarrow> y !! n"
+      by (cases "n < LENGTH('a)") (auto simp: to_bl_nth dest: test_bit_len)
+  qed
+next
+  assume "\<forall>n. x !! n \<longrightarrow> y !! n"
+  then show "leq_perms (to_bl x) (to_bl y)"
+    unfolding leq_perms_def leq_bools_iff
+    by (auto simp: to_bl_nth)
+qed
+
+lemma AND_NOT_eq_0_iff:
+  fixes x y :: "'a::len word"
+  shows "(x AND NOT y = 0) \<longleftrightarrow> (\<forall>n. x !! n \<longrightarrow> y !! n)"
+  by (auto simp: word_eq_iff word_ops_nth_size intro: test_bit_len)
 
 context Cap_Axiom_Automaton
 begin
@@ -295,6 +346,10 @@ lemma Zeros_0[simp]:
   "Zeros n = 0"
   by (auto simp: Zeros_def zeros_def)
 
+lemma Ones_max_word[simp]:
+  "Ones n = max_word"
+  by (auto simp: Ones_def sail_ones_def zeros_def)
+
 declare id0_def[simp]
 declare eq_bits_int_def[simp]
 declare CAPABILITY_DBITS_def[simp]
@@ -360,6 +415,12 @@ lemma CapWithTagClear_128th[simp]:
   "CapWithTagClear c !! 128 = False"
   by (auto simp: CapWithTagClear_def test_bit_set)
 
+lemma CapIsTagSet_CapWithTagSet_eq:
+  assumes "CapIsTagSet c"
+  shows "CapWithTagSet c = c"
+  using assms
+  by (intro word_eqI) (auto simp: CapWithTagSet_def test_bit_set_gen)
+
 lemma CapIsTagClear_iff_not_128th[simp]:
   "CapIsTagClear c \<longleftrightarrow> \<not>CapIsTagSet c"
   by (auto simp: CapIsTagClear_def CapGetTag_def nth_ucast test_bit_of_bl)
@@ -374,6 +435,10 @@ lemma CapSetObjectType_128th_iff[simp]:
   "CapSetObjectType c otype !! 128 \<longleftrightarrow> c !! 128"
   unfolding CapSetObjectType_def CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def
   by (auto simp: update_subrange_vec_dec_test_bit)
+
+lemma CapUnseal_128th_iff[simp]:
+  "CapUnseal c !! 128 = c !! 128"
+  by (auto simp: CapUnseal_def)
 
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
@@ -553,7 +618,9 @@ lemma CC_simps[simp]:
   "get_base_method CC c = get_base c"
   "get_top_method CC c = get_limit c"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
-  by (auto simp: CC_def CapIsExecutePermitted_def)
+  "get_perms_method CC c = to_bl (CapGetPermissions c)"
+  "is_global_method CC c = cap_permits CAP_PERM_GLOBAL c"
+  by (auto simp: CC_def CapIsExecutePermitted_def get_perms_def CapIsLocal_def)
 
 lemma cap_of_mem_bytes_of_word_Capability_of_tag_word:
   fixes data :: "'a::len word"
@@ -590,6 +657,42 @@ lemma CapIsBaseAboveLimit_get_base_leq_get_limit:
   using assms
   unfolding CapIsBaseAboveLimit_def
   by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit un_ui_le un_ui_lt elim!: Run_bindE)
+
+lemma CapUnseal_get_bounds_helpers_eq:
+  "CapGetExponent (CapUnseal c) = CapGetExponent c"
+  "CapGetBottom (CapUnseal c) = CapGetBottom c"
+  "CapGetTop (CapUnseal c) = CapGetTop c"
+  "CapGetValue (CapUnseal c) = CapGetValue c"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+  unfolding CapUnseal_def CapIsInternalExponent_def CapSetObjectType_def
+  unfolding CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def CAP_IE_BIT_def
+  unfolding CAP_LIMIT_LO_BIT_def CAP_BASE_LO_BIT_def CAP_VALUE_LO_BIT_def
+  unfolding CAP_BASE_MANTISSA_LO_BIT_def CAP_LIMIT_MANTISSA_LO_BIT_def
+  by (auto simp add: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above
+           simp del: slice_zero)
+
+lemma CapGetBounds_CapUnseal_eq:
+  shows "CapGetBounds (CapUnseal c) = CapGetBounds c"
+  unfolding CapGetBounds_def CapIsExponentOutOfRange_def CapUnseal_get_bounds_helpers_eq
+  ..
+
+lemma CapGetPermissions_CapUnseal_eq:
+  "CapGetPermissions (CapUnseal c) = CapGetPermissions c"
+  unfolding CapGetPermissions_def CapUnseal_def CapSetObjectType_def
+  unfolding CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def CAP_PERMS_LO_BIT_def
+  by (auto simp: slice_update_subrange_vec_dec_below)
+
+lemma CapIsSubSetOf_CapUnseal_eq:
+  "CapIsSubSetOf (CapUnseal c) c' = CapIsSubSetOf c c'"
+  "CapIsSubSetOf c (CapUnseal c') = CapIsSubSetOf c c'"
+  unfolding CapIsSubSetOf_def CapGetBounds_CapUnseal_eq CapGetPermissions_CapUnseal_eq
+  by blast+
+
+lemma get_bounds_CapUnseal_eq:
+  "get_base (CapUnseal c) = get_base c"
+  "get_limit (CapUnseal c) = get_limit c"
+  unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapUnseal_eq
+  by auto
 
 section \<open>Architecture abstraction\<close>
 
@@ -877,6 +980,37 @@ lemma CapNull_derivable[simp, intro, derivable_capsI]:
 lemma CapWithTagClear_derivable[intro, simp, derivable_capsI]:
   "CapWithTagClear c \<in> derivable_caps s"
   by (auto simp: derivable_caps_def)
+
+lemma CapWithTagSet_bounds_eq[simp]:
+  "get_base (CapWithTagSet c) = get_base c"
+  "get_limit (CapWithTagSet c) = get_limit c"
+  sorry
+
+lemma CapGetPermissions_CapWithTagSet_eq[simp]:
+  "CapGetPermissions (CapWithTagSet c) = CapGetPermissions c"
+  unfolding CapGetPermissions_def CapWithTagSet_def CAP_PERMS_LO_BIT_def
+  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
+
+lemma cap_permits_CapWithTagSet_iff[simp]:
+  "cap_permits perms (CapWithTagSet c) \<longleftrightarrow> cap_permits perms c"
+  by (auto simp: CapCheckPermissions_def)
+
+lemma CapGetObjectType_CapWithTagSet_eq[simp]:
+  "CapGetObjectType (CapWithTagSet c) = CapGetObjectType c"
+  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def CAP_OTYPE_LO_BIT_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapIsSealed_CapWithTagSet_iff[simp]:
+  "CapIsSealed (CapWithTagSet c) \<longleftrightarrow> CapIsSealed c"
+  unfolding CapIsSealed_def
+  by auto
+
+lemma leq_perms_cap_permits_imp:
+  assumes "leq_perms (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
+    and "cap_permits perms c"
+  shows "cap_permits perms c'"
+  using assms
+  by (auto simp: CapCheckPermissions_def word_eq_iff word_ops_nth_size nth_ucast leq_perms_to_bl_iff)
 
 lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
   "Capability_of_tag_word False data \<in> derivable_caps s"
