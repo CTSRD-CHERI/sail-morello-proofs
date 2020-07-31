@@ -169,6 +169,13 @@
       }
     },
     "AArch64_TaggedMemSingle": {
+      "derivable_caps": {
+        "assms": ["Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a", "LENGTH('a) = nat sz * 8"],
+        "stmts": ["Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \\<in> derivable_caps (run s t)"],
+        "using": ["assms"],
+        "unfolding": ["AArch64_TaggedMemSingle_def"],
+        "proof": "(auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp])"
+      },
       "traces_enabled": {
         "assms": [],
         "proof": "(traces_enabledI)"

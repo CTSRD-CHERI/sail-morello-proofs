@@ -5,6 +5,14 @@ begin
 context Morello_Axiom_Automaton
 begin
 
+lemma MemCP_fst_derivable[derivable_capsE]:
+  "Run (MemCP address acctype) t a \<Longrightarrow> fst a \<in> derivable_caps (run s t)"
+  by (unfold MemCP_def, derivable_capsI)
+
+lemma MemCP_snd_derivable[derivable_capsE]:
+  "Run (MemCP address acctype) t a \<Longrightarrow> snd a \<in> derivable_caps (run s t)"
+  by (unfold MemCP_def, derivable_capsI)
+
 lemma CapGetObjectType_set_bit_128_eq[simp]:
   "CapGetObjectType (set_bit c 128 tag) = CapGetObjectType c"
   unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def
@@ -12,8 +20,8 @@ lemma CapGetObjectType_set_bit_128_eq[simp]:
 
 lemma CapGetObjectType_update_address[simp]:
   fixes addr :: "64 word"
-  shows "CapGetObjectType (update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr) = CapGetObjectType c"
-  unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
+  shows "CapGetObjectType (update_subrange_vec_dec c 63 0 addr) = CapGetObjectType c"
+  unfolding CapGetObjectType_def
   by (intro word_eqI) (auto simp: word_ao_nth nth_slice update_subrange_vec_dec_test_bit)
 
 lemma CapAdd_GetObjectType_eq:
@@ -209,7 +217,6 @@ lemma CapSetObjectType_sentry_derivable:
 proof -
   note simps = CapGetObjectType_CapSetObjectType_and_mask
     CAP_SEAL_TYPE_RB_def CAP_SEAL_TYPE_LPB_def CAP_SEAL_TYPE_LB_def
-    CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def
   have "seal_method CC c (unat otype) \<in> derivable (accessed_caps s)"
     if "CapIsTagSet c"
     using that assms
@@ -246,9 +253,9 @@ proof -
     by (auto elim!: Run_bindE simp: AND_NOT_eq_0_iff)
   then have "leq_cap CC (CapWithTagSet c) c'"
     using assms
-    unfolding leq_cap_def CapIsSubSetOf_def
-    by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit elim: leq_perms_cap_permits_imp
-             elim!: Run_bindE)
+    unfolding leq_cap_def leq_bounds_def CapIsSubSetOf_def
+    by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit
+             elim: leq_perms_cap_permits_imp elim!: Run_bindE)
   then show "CapWithTagSet c \<in> derivable_caps s"
     using \<open>c' \<in> derivable_caps s\<close> and \<open>CapIsTagSet c'\<close>
     by (auto simp: derivable_caps_def intro: derivable.Restrict)

@@ -27,6 +27,10 @@ lemma bitU_of_bool_simps[simp]:
   "bitU_of_bool False = B0"
   by (auto simp: bitU_of_bool_def)
 
+lemma of_bits_method_vec_of_bits_maybe[simp]:
+  "of_bits_method BC_mword = vec_of_bits_maybe"
+  by (auto simp: BC_mword_defs vec_of_bits_maybe_def)
+
 lemma or_boolM_return_True[simp]: "or_boolM (return True) m = return True"
   by (auto simp: or_boolM_def)
 
@@ -145,6 +149,12 @@ lemma update_subrange_vec_dec_word_cat_cap_pair:
 
 lemmas slice_128_cat_cap_pair = slice_cat1[where a = c1 and b = c2 for c1 c2 :: "128 word", simplified]
 
+lemma slice_set_bit_above:
+  assumes "n' \<ge> n + LENGTH('a)"
+  shows "Word.slice n (set_bit w n' b) = (Word.slice n w :: 'a::len word)"
+  using assms
+  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
+
 lemma of_bl_0th[simp]: "(of_bl [b] :: 1 word) !! 0 = b"
   by (auto simp: test_bit_of_bl)
 
@@ -218,10 +228,6 @@ lemma unat_add_l2p_distrib:
   using no_olen_add unat_plus_simple
   by auto
 
-lemma leq_bools_iff:
-  "leq_bools bs1 bs2 \<longleftrightarrow> (\<forall>n < length bs1. bs1 ! n \<longrightarrow> bs2 ! n) \<and> length bs2 = length bs1"
-  by (induction bs1 bs2 rule: leq_bools.induct) (auto simp: nth_Cons split: nat.splits)
-
 lemma leq_perms_to_bl_iff:
   fixes x y :: "'a::len word"
   shows "leq_perms (to_bl x) (to_bl y) \<longleftrightarrow> (\<forall>n. x !! n \<longrightarrow> y !! n)"
@@ -252,6 +258,16 @@ lemma AND_NOT_eq_0_iff:
 context Cap_Axiom_Automaton
 begin
 
+lemma (in Cap_Axiom_Automaton) read_memt_bytes_derivable:
+  assumes "Run (read_memt_bytes BCa BCb rk addr sz) t (bytes, tag)"
+    and "cap_of_mem_bytes_method CC bytes tag = Some c"
+    and "\<forall>addr'. nat_of_bv BCa addr = Some addr' \<longrightarrow> \<not>is_translation_event ISA (E_read_memt rk addr' (nat sz) (bytes, tag))"
+  shows "c \<in> derivable_caps (run s t)"
+  using assms
+  unfolding read_memt_bytes_def
+  by (auto simp: derivable_caps_def maybe_fail_def split: option.splits intro: derivable.Copy
+           elim!: Run_bindE Traces_cases[of "Read_memt _ _ _ _"])
+
 lemma Run_bindE':
   fixes m :: "('rv, 'b, 'e) monad" and a :: 'a
   assumes "Run (bind m f) t a"
@@ -263,6 +279,8 @@ lemma Run_bindE':
 lemmas Run_case_prodE = case_prodE2[where Q = "\<lambda>m. Run m t a" and R = thesis for t a thesis]
 
 declare Run_case_prodE[where thesis = "c \<in> derivable_caps s" and a = c for c s, derivable_caps_combinators]
+declare Run_case_prodE[where thesis = "fst a \<in> derivable_caps s" and a = a for a s, derivable_caps_combinators]
+declare Run_case_prodE[where thesis = "snd a \<in> derivable_caps s" and a = a for a s, derivable_caps_combinators]
 
 lemma prod_snd_derivable_caps[derivable_capsE]:
   assumes "a = (x, y)"
@@ -354,8 +372,17 @@ declare id0_def[simp]
 declare eq_bits_int_def[simp]
 declare CAPABILITY_DBITS_def[simp]
 declare CAPABILITY_DBYTES_def[simp]
-declare CAP_TAG_BIT_def[simp]
 declare zero_extend_def[simp]
+
+lemmas cap_bit_index_defs[simp] =
+  CAP_TAG_BIT_def CAP_IE_BIT_def
+  CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
+  CAP_PERMS_LO_BIT_def CAP_PERMS_HI_BIT_def
+  CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def
+  CAP_BASE_LO_BIT_def CAP_BASE_HI_BIT_def
+  CAP_LIMIT_LO_BIT_def CAP_LIMIT_HI_BIT_def
+  CAP_BASE_MANTISSA_LO_BIT_def CAP_LIMIT_MANTISSA_LO_BIT_def
+  CAP_FLAGS_HI_BIT_def CAP_FLAGS_LO_BIT_def
 
 lemma ZeroExtend1_ucast[simp]:
   "ZeroExtend1 n w = ucast w"
@@ -427,13 +454,13 @@ lemma CapIsTagClear_iff_not_128th[simp]:
 
 lemma CapGetObjectType_CapSetObjectType_and_mask:
   "CapGetObjectType (CapSetObjectType c otype) = (otype AND mask (nat CAP_OTYPE_HI_BIT - nat CAP_OTYPE_LO_BIT + 1))"
-  unfolding CapGetObjectType_def CapSetObjectType_def CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def
+  unfolding CapGetObjectType_def CapSetObjectType_def
   by (intro word_eqI)
      (auto simp: word_ao_nth nth_slice nth_ucast update_subrange_vec_dec_test_bit)
 
 lemma CapSetObjectType_128th_iff[simp]:
   "CapSetObjectType c otype !! 128 \<longleftrightarrow> c !! 128"
-  unfolding CapSetObjectType_def CAP_OTYPE_HI_BIT_def CAP_OTYPE_LO_BIT_def
+  unfolding CapSetObjectType_def
   by (auto simp: update_subrange_vec_dec_test_bit)
 
 lemma CapUnseal_128th_iff[simp]:
@@ -617,6 +644,7 @@ lemma CC_simps[simp]:
   "get_cursor_method CC c = unat (CapGetValue c)"
   "get_base_method CC c = get_base c"
   "get_top_method CC c = get_limit c"
+  "cap_of_mem_bytes_method CC = cap_of_mem_bytes"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
   "get_perms_method CC c = to_bl (CapGetPermissions c)"
   "is_global_method CC c = cap_permits CAP_PERM_GLOBAL c"
@@ -625,8 +653,8 @@ lemma CC_simps[simp]:
 lemma cap_of_mem_bytes_of_word_Capability_of_tag_word:
   fixes data :: "'a::len word"
   assumes "LENGTH('a) = 128"
-  shows "cap_of_mem_bytes_method CC (mem_bytes_of_word data) (bitU_of_bool tag) = Some (Capability_of_tag_word tag (ucast data))"
-  unfolding CC_def Capability_of_tag_word_def cap_of_mem_bytes_def
+  shows "cap_of_mem_bytes (mem_bytes_of_word data) (bitU_of_bool tag) = Some (Capability_of_tag_word tag (ucast data))"
+  unfolding Capability_of_tag_word_def cap_of_mem_bytes_def
   by (auto simp: bind_eq_Some_conv bits_of_mem_bytes_of_word_to_bl ucast_bl)
 
 lemma cap_of_mem_bytes_of_word_B1_Capability_of_tag_word:
@@ -665,9 +693,6 @@ lemma CapUnseal_get_bounds_helpers_eq:
   "CapGetValue (CapUnseal c) = CapGetValue c"
   unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
   unfolding CapUnseal_def CapIsInternalExponent_def CapSetObjectType_def
-  unfolding CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def CAP_IE_BIT_def
-  unfolding CAP_LIMIT_LO_BIT_def CAP_BASE_LO_BIT_def CAP_VALUE_LO_BIT_def
-  unfolding CAP_BASE_MANTISSA_LO_BIT_def CAP_LIMIT_MANTISSA_LO_BIT_def
   by (auto simp add: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above
            simp del: slice_zero)
 
@@ -692,6 +717,47 @@ lemma get_bounds_CapUnseal_eq:
   "get_base (CapUnseal c) = get_base c"
   "get_limit (CapUnseal c) = get_limit c"
   unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapUnseal_eq
+  by auto
+
+lemma CapWithTagSet_get_bounds_helpers_eq:
+  "CapGetExponent (CapWithTagSet c) = CapGetExponent c"
+  "CapGetBottom (CapWithTagSet c) = CapGetBottom c"
+  "CapGetTop (CapWithTagSet c) = CapGetTop c"
+  "CapGetValue (CapWithTagSet c) = CapGetValue c"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+  unfolding CapWithTagSet_def CapIsInternalExponent_def CapSetObjectType_def
+  by (auto simp add: test_bit_set_gen slice_set_bit_above simp del: slice_zero)
+
+lemma CapGetBounds_CapWithTagSet_eq:
+  shows "CapGetBounds (CapWithTagSet c) = CapGetBounds c"
+  unfolding CapGetBounds_def CapIsExponentOutOfRange_def CapWithTagSet_get_bounds_helpers_eq
+  ..
+
+lemma get_bounds_CapWithTagSet_eq:
+  "get_base (CapWithTagSet c) = get_base c"
+  "get_limit (CapWithTagSet c) = get_limit c"
+  unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapWithTagSet_eq
+  by auto
+
+lemma CapClearPerms_get_bounds_helpers_eq:
+  "CapGetExponent (CapClearPerms c perms) = CapGetExponent c"
+  "CapGetBottom (CapClearPerms c perms) = CapGetBottom c"
+  "CapGetTop (CapClearPerms c perms) = CapGetTop c"
+  "CapGetValue (CapClearPerms c perms) = CapGetValue c"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+  unfolding CapClearPerms_def CapIsInternalExponent_def CapSetObjectType_def
+  by (auto simp add: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above
+           simp del: slice_zero)
+
+lemma CapGetBounds_CapClearPerms_eq:
+  shows "CapGetBounds (CapClearPerms c perms) = CapGetBounds c"
+  unfolding CapGetBounds_def CapIsExponentOutOfRange_def CapClearPerms_get_bounds_helpers_eq
+  ..
+
+lemma get_bounds_CapClearPerms_eq:
+  "get_base (CapClearPerms c perms) = get_base c"
+  "get_limit (CapClearPerms c perms) = get_limit c"
+  unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapClearPerms_eq
   by auto
 
 section \<open>Architecture abstraction\<close>
@@ -751,6 +817,7 @@ fun is_mem_event :: "'regval event \<Rightarrow> bool" where
 locale Morello_ISA =
   fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
+  assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
 begin
 
 definition "ISA \<equiv>
@@ -831,9 +898,12 @@ locale Morello_Fixed_Address_Translation =
           \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
           e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
           is_translation_event e"
+    and no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
 begin
 
-sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr" .
+sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
+  using no_cap_load_translation_events
+  by unfold_locales auto
 
 sublocale Capability_ISA_Fixed_Translation CC ISA translation_assms
   by unfold_locales (auto simp: ISA_def)
@@ -984,11 +1054,12 @@ lemma CapWithTagClear_derivable[intro, simp, derivable_capsI]:
 lemma CapWithTagSet_bounds_eq[simp]:
   "get_base (CapWithTagSet c) = get_base c"
   "get_limit (CapWithTagSet c) = get_limit c"
-  sorry
+  unfolding get_base_def get_limit_def CapGetBase_def CapGetBounds_CapWithTagSet_eq
+  by auto
 
 lemma CapGetPermissions_CapWithTagSet_eq[simp]:
   "CapGetPermissions (CapWithTagSet c) = CapGetPermissions c"
-  unfolding CapGetPermissions_def CapWithTagSet_def CAP_PERMS_LO_BIT_def
+  unfolding CapGetPermissions_def CapWithTagSet_def
   by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
 
 lemma cap_permits_CapWithTagSet_iff[simp]:
@@ -997,7 +1068,7 @@ lemma cap_permits_CapWithTagSet_iff[simp]:
 
 lemma CapGetObjectType_CapWithTagSet_eq[simp]:
   "CapGetObjectType (CapWithTagSet c) = CapGetObjectType c"
-  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def CAP_OTYPE_LO_BIT_def
+  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def
   by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
 
 lemma CapIsSealed_CapWithTagSet_iff[simp]:
@@ -1025,7 +1096,26 @@ lemma CapSetFlags_derivable[derivable_capsI]:
 lemma clear_perm_derivable[derivable_capsI]:
   assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "clear_perm perms c \<in> derivable_caps s"
-  sorry
+    (is "?c' \<in> derivable_caps s")
+proof -
+  have perms: "leq_perms (to_bl (CapGetPermissions (clear_perm perms c))) (to_bl (CapGetPermissions c))"
+    unfolding leq_perms_def leq_bools_iff CapGetPermissions_def CapClearPerms_def
+    by (auto simp: to_bl_nth nth_slice update_subrange_vec_dec_test_bit word_ops_nth_size)
+  moreover have "cap_permits CAP_PERM_GLOBAL ?c' \<longrightarrow> cap_permits CAP_PERM_GLOBAL c"
+    using perms
+    by (auto simp: leq_perms_to_bl_iff CapCheckPermissions_def word_eq_iff word_ops_nth_size)
+  moreover have tag: "CapIsTagSet ?c' \<longleftrightarrow> CapIsTagSet c"
+    and "CapIsSealed ?c' \<longleftrightarrow> CapIsSealed c"
+    unfolding CapClearPerms_def CapIsSealed_def CapGetObjectType_def
+    by (auto simp: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above)
+  ultimately have "leq_cap CC (clear_perm perms c) c"
+    using assms(2)
+    by (auto simp: leq_cap_def leq_bounds_def get_bounds_CapClearPerms_eq)
+  from derivable.Restrict[OF _ this]
+  show ?thesis
+    using assms(1) tag
+    by (auto simp: derivable_caps_def)
+qed
 
 lemma set_bit_0_derivable[derivable_capsI]:
   assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
@@ -1037,12 +1127,144 @@ lemma subrange_vec_dec_128_derivable[derivable_capsI]:
   "c \<in> derivable_caps s \<Longrightarrow> subrange_vec_dec c 128 0 \<in> derivable_caps s"
   by auto
 
+lemma update_subrange_addr_CapWithTagClear_derivable:
+  fixes addr :: "64 word"
+  shows "update_subrange_vec_dec (CapWithTagClear c) CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def update_subrange_vec_dec_test_bit)
+
+lemma update_subrange_addr_CapIsRepresentable_derivable:
+  assumes "Run (CapIsRepresentable c addr) t a" and "a"
+    and "c \<in> derivable_caps s"
+    and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr \<in> derivable_caps s"
+    (is "?c' \<in> derivable_caps s")
+proof -
+  have "get_base ?c' = get_base c" and "get_limit ?c' = get_limit c"
+    using assms(1-2)
+    unfolding CapIsRepresentable_def CapBoundsEqual_def
+    by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit elim!: Run_bindE)
+  then have "leq_bounds CC ?c' c"
+    by (auto simp: leq_bounds_def)
+  moreover have tag: "CapIsTagSet ?c' \<longleftrightarrow> CapIsTagSet c"
+    and perms: "CapGetPermissions ?c' = CapGetPermissions c"
+    and "CapIsSealed ?c' \<longleftrightarrow> CapIsSealed c"
+    unfolding CapIsSealed_def CapGetObjectType_def CapGetPermissions_def
+    by (auto simp: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_below)
+  moreover have "cap_permits CAP_PERM_GLOBAL ?c' \<longleftrightarrow> cap_permits CAP_PERM_GLOBAL c"
+    using perms
+    by (auto simp: CapCheckPermissions_def)
+  ultimately have "leq_cap CC ?c' c"
+    using assms(4)
+    unfolding derivable_caps_def
+    by (auto simp: leq_cap_def)
+  from derivable.Restrict[OF _ this]
+  show ?thesis
+    using assms(3) tag
+    by (auto simp: derivable_caps_def)
+qed
+
+lemmas update_subrange_if_derivable =
+  if_split[where P = "\<lambda>c. update_subrange_vec_dec c hi lo v \<in> derivable_caps s" for hi lo v s, THEN iffD2]
+
+lemma update_subrange_addr_CapIsRepresentableFast_derivable:
+  assumes "Run (CapIsRepresentableFast c incr) t a" and "a"
+    and "c \<in> derivable_caps s"
+    and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT (add_vec (CapGetValue c) incr) \<in> derivable_caps s"
+  sorry
+
+lemma update_tag_bit_zero_derivable[derivable_capsI]:
+  "update_vec_dec c CAP_TAG_BIT (Morello.Bit 0) \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def test_bit_set)
+
 lemma ucast_derivable[intro, simp]:
   fixes w :: "'a::len word"
   assumes "LENGTH('a) < 128"
   shows "ucast w \<in> derivable_caps s"
   using assms
   by (auto simp: derivable_caps_def nth_ucast dest: test_bit_len)
+
+lemma read_memt_derivable:
+  assumes "Run (read_memt BC_mword BC_mword rk addr sz) t (data, tag)"
+    and "tag' \<longleftrightarrow> tag = B1"
+  shows "Capability_of_tag_word tag' data \<in> derivable_caps (run s t)"
+proof cases
+  assume "tag = B1"
+  then show ?thesis
+    using assms no_cap_load_translation_events
+    unfolding read_memt_def maybe_fail_def Capability_of_tag_word_def
+    by (auto simp: cap_of_mem_bytes_def bind_eq_Some_conv split: option.splits
+             elim!: Run_bindE read_memt_bytes_derivable)
+next
+  assume "tag \<noteq> B1"
+  then show ?thesis
+    using assms
+    by auto
+qed
+
+lemma ReadTaggedMem_single_derivable:
+  assumes "Run (ReadTaggedMem desc 16 accdesc) t (tag, data)"
+  shows "Capability_of_tag_word (tag !! 0) data \<in> derivable_caps (run s t)"
+  using assms
+  unfolding ReadTaggedMem_def
+  by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_derivable)
+
+lemma ReadTaggedMem_lower_derivable:
+  assumes "Run (ReadTaggedMem desc sz accdesc) t (tag, data :: 'a::len word)"
+    and "LENGTH('a) = nat sz * 8" and "sz = 16 \<or> sz = 32"
+  shows "Capability_of_tag_word (tag !! 0) (ucast data) \<in> derivable_caps (run s t)"
+  using assms
+  unfolding ReadTaggedMem_def
+  by (auto simp add: Bits_def nth_ucast nth_word_cat
+           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable)
+
+lemma ReadTaggedMem_upper_derivable:
+  assumes "Run (ReadTaggedMem desc sz accdesc) t (tag :: 2 word, data :: 256 word)"
+    and "sz = 32"
+  shows "Capability_of_tag_word (tag !! Suc 0) (Word.slice 128 data) \<in> derivable_caps (run s t)"
+  using assms
+  unfolding ReadTaggedMem_def
+  by (auto simp add: Bits_def nth_ucast nth_word_cat slice_128_cat_cap_pair
+           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable[THEN derivable_caps_run_imp])
+
+lemma ReadTaggedMem_lower_prod_derivable[derivable_capsE]:
+  assumes "Run (ReadTaggedMem desc sz accdesc) t a"
+    and "LENGTH('a) = nat sz * 8" and "sz = 16 \<or> sz = 32"
+  shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \<in> derivable_caps (run s t)"
+  using assms
+  by (cases a) (auto simp: test_bit_of_bl elim: ReadTaggedMem_lower_derivable)
+
+lemma AArch64_TaggedMemSingle_upper_derivable[derivable_capsE]:
+  assumes "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
+    and "sz = 32"
+  shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a :: 2 word) 1] !! 0) (slice (snd a :: 256 word) CAPABILITY_DBITS 128) \<in> derivable_caps (run s t)"
+  using assms
+  unfolding AArch64_TaggedMemSingle_def
+  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_upper_derivable[THEN derivable_caps_run_imp])
+
+(* Common patterns of capability/data conversions in memory access helpers *)
+lemma Capability_of_tag_word_pairE[derivable_capsE]:
+  assumes "x = (tag, data)"
+    and "Capability_of_tag_word ((vec_of_bits [access_vec_dec (fst x) i] :: 1 word) !! 0) (slice (snd x) j 128) \<in> derivable_caps s"
+  shows "Capability_of_tag_word ((vec_of_bits [access_vec_dec tag i] :: 1 word) !! 0) (slice data j 128) \<in> derivable_caps s"
+  using assms
+  by auto
+
+lemma Capability_of_tag_word_rev_pairE[derivable_capsE]:
+  assumes "x = (data, tag)"
+    and "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_caps s"
+  shows "Capability_of_tag_word ((vec_of_bits [access_vec_dec tag i] :: 1 word) !! 0) (slice data j 128) \<in> derivable_caps s"
+  using assms
+  by auto
+
+declare Run_case_prodE[where thesis = "Capability_of_tag_word tag word \<in> derivable_caps s" for tag word s, derivable_capsE]
+
+lemma Capability_of_tag_word_return_rev_pairE[derivable_capsE]:
+  assumes "Run (return (data, tag)) t x"
+    and "t = [] \<longrightarrow> Capability_of_tag_word ((vec_of_bits [access_vec_dec tag i] :: 1 word) !! 0) (slice data j 128) \<in> derivable_caps s"
+  shows "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_caps s"
+  using assms
+  by auto
 
 (* Common patterns, e.g. in auto-generated register accessors *)
 lemma if_ELs_derivable[derivable_capsE]:
