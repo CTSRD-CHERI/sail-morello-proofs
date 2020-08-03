@@ -384,6 +384,9 @@ lemmas cap_bit_index_defs[simp] =
   CAP_BASE_MANTISSA_LO_BIT_def CAP_LIMIT_MANTISSA_LO_BIT_def
   CAP_FLAGS_HI_BIT_def CAP_FLAGS_LO_BIT_def
 
+lemmas special_otype_defs[simp] =
+  CAP_SEAL_TYPE_RB_def CAP_SEAL_TYPE_LPB_def CAP_SEAL_TYPE_LB_def
+
 lemma ZeroExtend1_ucast[simp]:
   "ZeroExtend1 n w = ucast w"
   by (auto simp: ZeroExtend1_def)
@@ -466,6 +469,10 @@ lemma CapSetObjectType_128th_iff[simp]:
 lemma CapUnseal_128th_iff[simp]:
   "CapUnseal c !! 128 = c !! 128"
   by (auto simp: CapUnseal_def)
+
+lemma clear_perms_128th_iff[simp]:
+  "CapClearPerms c perms !! 128 \<longleftrightarrow> c !! 128"
+  by (auto simp: CapClearPerms_def update_subrange_vec_dec_test_bit)
 
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
@@ -644,10 +651,13 @@ lemma CC_simps[simp]:
   "get_cursor_method CC c = unat (CapGetValue c)"
   "get_base_method CC c = get_base c"
   "get_top_method CC c = get_limit c"
+  "get_obj_type_method CC c = unat (CapGetObjectType c)"
   "cap_of_mem_bytes_method CC = cap_of_mem_bytes"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
+  "permits_unseal_method CC c = cap_permits CAP_PERM_UNSEAL c"
   "get_perms_method CC c = to_bl (CapGetPermissions c)"
   "is_global_method CC c = cap_permits CAP_PERM_GLOBAL c"
+  "clear_global_method CC c = clear_perm CAP_PERM_GLOBAL c"
   by (auto simp: CC_def CapIsExecutePermitted_def get_perms_def CapIsLocal_def)
 
 lemma cap_of_mem_bytes_of_word_Capability_of_tag_word:
@@ -1075,6 +1085,32 @@ lemma CapIsSealed_CapWithTagSet_iff[simp]:
   "CapIsSealed (CapWithTagSet c) \<longleftrightarrow> CapIsSealed c"
   unfolding CapIsSealed_def
   by auto
+
+lemma CapGetObjectType_CapSetFlags_eq[simp]:
+  "CapGetObjectType (CapSetFlags c flags) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def CapSetFlags_def word_ao_nth slice_update_subrange_vec_dec_below)
+
+lemma CapIsSealed_CapSetFlags_iff[simp]:
+  "CapIsSealed (CapSetFlags c flags) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
+lemma Run_BranchAddr_not_CapIsSealed_if:
+  assumes "Run (BranchAddr c el) t c'"
+    and "CapIsTagSet c'" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE split: if_splits)
+
+lemma CapGetObjectType_set_bit_0_eq[simp]:
+  "CapGetObjectType (set_bit c 0 b) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapIsSealed_set_bit_0_iff[simp]:
+  "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
 
 lemma leq_perms_cap_permits_imp:
   assumes "leq_perms (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"

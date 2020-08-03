@@ -216,7 +216,6 @@ lemma CapSetObjectType_sentry_derivable:
   shows "CapSetObjectType c otype \<in> derivable_caps s"
 proof -
   note simps = CapGetObjectType_CapSetObjectType_and_mask
-    CAP_SEAL_TYPE_RB_def CAP_SEAL_TYPE_LPB_def CAP_SEAL_TYPE_LB_def
   have "seal_method CC c (unat otype) \<in> derivable (accessed_caps s)"
     if "CapIsTagSet c"
     using that assms
@@ -237,6 +236,30 @@ lemma CapIsInBounds_cursor_in_mem_region:
   using assms
   unfolding CapIsInBounds_def get_mem_region_def
   by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit elim!: Run_bindE)
+
+abbreviation check_global_perm :: "Capability \<Rightarrow> Capability \<Rightarrow> Capability" where
+  "check_global_perm c auth \<equiv>
+     (if \<not>cap_permits CAP_PERM_GLOBAL auth then clear_perm CAP_PERM_GLOBAL c else c)"
+
+lemma CapUnseal_check_global_derivable:
+  assumes "cap_permits CAP_PERM_UNSEAL auth"
+    and "c \<in> derivable_caps s" and "auth \<in> derivable_caps s"
+    and "CapIsTagSet auth"
+    and "CapIsSealed c" and "\<not>CapIsSealed auth"
+    and "CapGetObjectType c = CapGetValue auth"
+    and in_bounds: "\<exists>t. Run (CapIsInBounds auth) t True"
+  shows "check_global_perm (CapUnseal c) auth \<in> derivable_caps s"
+proof -
+  have "unat (CapGetValue auth) \<in> get_mem_region CC auth"
+    using in_bounds
+    by (auto simp: elim!: Run_bindE CapIsInBounds_cursor_in_mem_region)
+  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (accessed_caps s)"
+    if "CapIsTagSet c"
+    using that assms
+    by (intro derivable.Unseal) (auto simp: derivable_caps_def)
+  then show ?thesis
+    by (auto simp: derivable_caps_def clear_global_unless_def)
+qed
 
 text \<open>Derivability of capabilities that are a subset of already derivable ones.\<close>
 

@@ -412,6 +412,27 @@
         "proof": "(traces_enabledI assms: assms elim: Run_and_boolM_E CapIsInBounds_cursor_in_mem_region)"
       }
     },
+    "execute_SEAL_C_CC_C": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff elim: CapIsInBounds_cursor_in_mem_region)"
+      }
+    },
+    "execute_SEAL_C_CI_C": {
+      "traces_enabled": {
+        "assms": ["{''_R29''} \\<subseteq> accessible_regs s", "arg1 \\<in> {0, 1, 2, 3}"],
+        "proof": "(traces_enabledI assms: assms intro: CapSetObjectType_sentry_derivable)"
+      }
+    },
+    "decode_SEAL_C_CI_C": {
+      "traces_enabled": {
+        "proof": "(cases arg0 rule: exhaustive_2_word) (use assms in \\<open>auto intro: traces_enabled_execute_SEAL_C_CI_C\\<close>)"
+      }
+    },
+    "execute_UNSEAL_C_CC_C": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: CapUnseal_check_global_derivable simp: Run_and_boolM_True_iff)"
+      }
+    },
     "execute_SCTAG_C_CR_C": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
