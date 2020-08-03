@@ -52,13 +52,65 @@ lemma Run_CapAdd_tag_imp:
   by (auto simp: test_bit_set update_subrange_vec_dec_test_bit
            elim!: Run_bindE Run_letE split: if_splits)
 
-(* declare VAIsCapability_def[simp] *)
-
 definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
 
 definition VAIsSealedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsSealedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsSealed (VirtualAddress_base va))"
+
+lemma CheckCapability_CapIsSealed_False:
+  assumes "Run (CheckCapability c addr sz perms acctype) t a"
+  shows "CapIsSealed c \<longleftrightarrow> False"
+  using assms
+  by (auto simp: CheckCapability_def elim!: Run_bindE)
+
+lemma Run_VAToBits64_vatype_Bits64[simp]:
+  assumes "Run (VAToBits64 va) t addr"
+  shows "VirtualAddress_vatype va = VA_Bits64"
+  using assms
+  by (auto simp: VAToBits64_def VAIsBits64_def)
+
+lemma VADeref_VAIsSealedCap_False[simp]:
+  assumes "Run (VADeref va sz perms acctype) t vaddr"
+  shows "VAIsSealedCap va \<longleftrightarrow> False"
+  using assms
+  unfolding VADeref_def
+  by (auto simp: VAIsSealedCap_def VAIsCapability_def CheckCapability_CapIsSealed_False elim!: Run_bindE Run_ifE)
+
+lemma VADeref_not_sealed[derivable_capsE]:
+  assumes "Run (VADeref va sz perms acctype) t vaddr"
+  shows "\<not>VAIsSealedCap va"
+  using assms
+  by auto
+
+lemma if_VADerefs_VAIsSealedCap_False[derivable_capsE]:
+  assumes "Run (if b then VADeref va sz perms acctype else VADeref va sz' perms' acctype') t vaddr"
+  shows "\<not>VAIsSealedCap va"
+  using assms
+  by (auto split: if_splits)
+
+lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap[derivable_capsE]:
+  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VADeref va sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VADeref va sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> return ()) t a"
+    and "memop \<noteq> MemOp_PREFETCH"
+  shows "\<not>VAIsSealedCap va"
+  using assms
+  by (cases memop) (auto elim!: Run_bindE)
+
+lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_pre_idx[derivable_capsE]:
+  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VADeref va sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VADeref va sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> return ()) t a"
+    and "memop \<noteq> MemOp_PREFETCH"
+    and "VAIsSealedCap va = VAIsSealedCap va'"
+  shows "\<not>VAIsSealedCap va'"
+  using assms
+  by (cases memop) (auto elim!: Run_bindE)
+
+lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_generic:
+  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VADeref va sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VADeref va sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> m'') t a"
+    and "memop \<noteq> MemOp_PREFETCH"
+    and "VAIsSealedCap va = VAIsSealedCap va'"
+  shows "\<not>VAIsSealedCap va'"
+  using assms
+  by (cases memop) (auto elim!: Run_bindE)
 
 declare Run_bindE'[where P = "\<lambda>t. VA_derivable va (run s t)" for va s, simplified, derivable_caps_combinators]
 

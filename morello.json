@@ -369,6 +369,11 @@
         "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"
       }
     },
+    "execute_aarch64_instrs_memory_single_general_immediate_signed_post_idx": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms elim: Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_generic)"
+      }
+    },
     "execute_aarch64_instrs_memory_vector_single_no_wb": {
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (element, offset :: 64 word, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (offset :: 64 word, rval, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] simp: Run_bind_iff Run_if_iff wi_hom_syms)"
@@ -390,6 +395,66 @@
       "traces_enabled_mem": {
         "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg1 > 0 \\<and> arg6 > 0 \\<and> arg7 > 0 \\<and> LENGTH('esize) \\<ge> 8 \\<and> 8 dvd LENGTH('esize)"],
         "proof": "- (* TODO: traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where to = \"arg6 - 1\" and Inv = \"\\<lambda>idx (offset, _, _) _. unat offset = nat idx * nat arg1 * nat arg7 * (size_itself arg2 div 8)\"] traces_enabled_foreachM_index_list_inv[where to = \"arg1 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * nat arg7 * (size_itself arg2 div 8)\" for vars0] traces_enabled_foreachM_index_list_inv[where to = \"arg7 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * (size_itself arg2 div 8)\" for vars0] *)"
+      }
+    },
+    "execute_aarch64_instrs_memory_pair_simdfp_no_alloc": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64, 128, 256}", "\\<not>arg5", "\\<not>arg8"]
+      }
+    },
+    "execute_aarch64_instrs_memory_pair_general_no_alloc": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64}", "\\<not>arg8"]
+      }
+    },
+    "execute_aarch64_instrs_memory_pair_simdfp_post_idx": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64, 128, 256}", "arg2 \\<noteq> MemOp_PREFETCH"]
+      }
+    },
+    "execute_aarch64_instrs_memory_pair_general_post_idx": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64}", "arg2 \\<noteq> MemOp_PREFETCH"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_simdfp_immediate_signed_post_idx": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "arg2 \\<noteq> MemOp_PREFETCH"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_general_immediate_signed_post_idx": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "arg2 \\<noteq> MemOp_PREFETCH"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_simdfp_register": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg7 \\<in> {0, 1, 2, 3, 4, 5, 6, 7}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "arg4 \\<noteq> MemOp_PREFETCH"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_general_register": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg8 \\<in> {0, 1, 2, 3}", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg11"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_general_immediate_signed_offset_unpriv": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg8"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_simdfp_immediate_signed_offset_normal": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "\\<not>arg7"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_general_immediate_signed_offset_normal": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg9"]
+      }
+    },
+    "execute_aarch64_instrs_memory_single_general_immediate_unsigned": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg9"]
       }
     },
     "execute_LDCT_R_R__": {
@@ -438,7 +503,7 @@
         "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
       }
     },
-    "execute_STCT_R_R": {
+    "execute_STCT_R_R__": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
       }
