@@ -37,6 +37,12 @@
         "proof": "(auto simp: runs_no_reg_writes_to_def)"
       }
     },
+    "AArch64_ExceptionReturnToCapability": {
+      "traces_enabled": {
+        "assms": ["arg0 \\<in> derivable_caps s"],
+        "proof": "(traces_enabledI assms: assms intro: derivable_enabled_branch_target)"
+      }
+    },
     "ConstrainUnpredictable": {
       "non_cap_exp": {
         "proof": "(cases arg0; simp; non_cap_expI)"
@@ -108,6 +114,11 @@
     "BaseReg_set": {
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable arg1 s"]
+      }
+    },
+    "BranchXToCapability": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_set_0th derivable_enabled_branch_target)"
       }
     },
     "execute_aarch64_instrs_system_register_cpsr": {

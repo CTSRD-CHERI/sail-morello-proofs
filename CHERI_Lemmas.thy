@@ -13,45 +13,6 @@ lemma MemCP_snd_derivable[derivable_capsE]:
   "Run (MemCP address acctype) t a \<Longrightarrow> snd a \<in> derivable_caps (run s t)"
   by (unfold MemCP_def, derivable_capsI)
 
-lemma CapGetObjectType_set_bit_128_eq[simp]:
-  "CapGetObjectType (set_bit c 128 tag) = CapGetObjectType c"
-  unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def
-  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
-
-lemma CapGetObjectType_update_address[simp]:
-  fixes addr :: "64 word"
-  shows "CapGetObjectType (update_subrange_vec_dec c 63 0 addr) = CapGetObjectType c"
-  unfolding CapGetObjectType_def
-  by (intro word_eqI) (auto simp: word_ao_nth nth_slice update_subrange_vec_dec_test_bit)
-
-lemma CapAdd_GetObjectType_eq:
-  assumes "Run (CapAdd c increment) t c'"
-  shows "CapGetObjectType c' = CapGetObjectType c"
-  using assms
-  unfolding CapAdd_def
-  by (auto elim!: Run_letE Run_bindE)
-
-lemma CapAdd_CapIsSealed_iff[simp]:
-  assumes "Run (CapAdd c increment) t c'"
-  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
-  using assms
-  by (auto simp: CapIsSealed_def CapAdd_GetObjectType_eq)
-
-lemma CapAdd__1_CapIsSealed_iff[simp]:
-  assumes "Run (CapAdd__1 c increment) t c'"
-  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
-  using assms
-  by (auto simp: CapAdd__1_def)
-
-lemma Run_CapAdd_tag_imp:
-  assumes "Run (CapAdd c offset) t c'"
-    and "c' !! 128"
-  shows "c !! 128"
-  using assms
-  unfolding CapAdd_def CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
-  by (auto simp: test_bit_set update_subrange_vec_dec_test_bit
-           elim!: Run_bindE Run_letE split: if_splits)
-
 definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
 
@@ -242,6 +203,110 @@ lemma traces_enabled_WriteTags[traces_enabledI]:
   by (traces_enabledI assms: assms intro: traces_enabled_return
                       simp: cap_of_mem_bytes_of_word_Capability_of_tag_word[where tag = False, simplified])
 
+text \<open>Capability invocation\<close>
+
+definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
+  "enabled_pcc c s \<equiv>
+     c \<in> derivable_caps s \<or>
+     (\<exists>c' \<in> derivable_caps s.
+        c \<in> invoked_caps \<and>
+        CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB \<and>
+        leq_cap CC c (CapUnseal c'))"
+
+lemma traces_enabled_PCC_set:
+  assumes "enabled_pcc c s"
+  shows "traces_enabled (PCC_set c) s"
+  using assms
+  unfolding PCC_set_def enabled_pcc_def derivable_caps_def
+  by (intro traces_enabled_write_reg) (auto simp: register_defs is_sentry_def CapIsSealed_def)
+
+definition enabled_branch_target :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
+  "enabled_branch_target c s \<equiv>
+     (CapIsTagSet c \<and> \<not>CapIsSealed c) \<longrightarrow> (\<forall>c' \<in> branch_caps c. enabled_pcc c' s)"
+
+declare Run_ifE[where thesis = "enabled_branch_target c s" and a = c for c s, derivable_caps_combinators]
+declare Run_letE[where thesis = "enabled_branch_target c s" and a = c for c s, derivable_caps_combinators]
+declare Run_return_resultE[where P = "\<lambda>c. enabled_branch_target c s" for s, derivable_caps_combinators]
+
+declare Run_bindE'[where P = "\<lambda>t. enabled_branch_target c (run s t)" for c s, simplified, derivable_caps_combinators]
+declare Run_bindE[where thesis = "enabled_branch_target c s" and a = c for c s, derivable_caps_combinators]
+declare if_split[where P = "\<lambda>c. enabled_branch_target c s" for s, THEN iffD2, derivable_capsI]
+declare if_split[where P = "\<lambda>c. enabled_branch_target (CapUnseal c) s" for s, THEN iffD2, derivable_capsI]
+
+lemma enabled_branch_targetI:
+  assumes "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> (\<forall>c' \<in> branch_caps c. enabled_pcc c' s)"
+  shows "enabled_branch_target c s"
+  using assms
+  by (auto simp: enabled_branch_target_def)
+
+lemma enabled_pcc_run_imp:
+  assumes "enabled_pcc c s"
+  shows "enabled_pcc c (run s t)"
+  using assms
+  by (auto simp: enabled_pcc_def intro: derivable_caps_run_imp)
+
+lemma enabled_branch_target_run_imp[derivable_caps_runI]:
+  assumes "enabled_branch_target c s"
+  shows "enabled_branch_target c (run s t)"
+  using assms
+  by (auto simp: enabled_branch_target_def intro: derivable_caps_run_imp enabled_pcc_run_imp)
+
+lemma enabled_branch_target_CapUnseal[derivable_capsI]:
+  assumes "c \<in> derivable_caps s"
+    and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+  shows "enabled_branch_target (CapUnseal c) s"
+  using assms
+  unfolding enabled_branch_target_def enabled_pcc_def
+  by (fastforce intro: branch_caps_leq)
+
+lemma enabled_branch_target_CapWithTagClear[derivable_capsI]:
+  "enabled_branch_target (CapWithTagClear c) s"
+  by (auto simp: enabled_branch_target_def enabled_pcc_def derivable_caps_def branch_caps_128th_iff)
+
+lemma derivable_enabled_branch_target:
+  assumes "c \<in> derivable_caps s"
+  shows "enabled_branch_target c s"
+  using branch_caps_derivable_caps[OF _ assms]
+  by (auto simp: enabled_branch_target_def enabled_pcc_def)
+
+declare C_read_derivable[THEN derivable_enabled_branch_target, derivable_capsE]
+
+lemma BranchAddr_enabled_pcc[derivable_capsE]:
+  assumes "Run (BranchAddr c el) t c'" and "enabled_branch_target c s"
+  shows "enabled_pcc c' s"
+proof cases
+  assume "CapIsTagSet c'"
+  then have "c' \<in> branch_caps c" and "\<not>CapIsSealed c" and "CapIsTagSet c"
+    using BranchAddr_in_branch_caps[OF assms(1)]
+    using BranchAddr_not_sealed[OF assms(1)]
+    by auto
+  then show ?thesis
+    using assms(2)
+    by (auto simp: enabled_branch_target_def)
+next
+  assume "\<not>CapIsTagSet c'"
+  then show ?thesis
+    by (auto simp: enabled_pcc_def derivable_caps_def)
+qed
+
+lemma traces_enabled_BranchToCapability[traces_enabledI]:
+  assumes "enabled_branch_target c s"
+  shows "traces_enabled (BranchToCapability c branch_type) s"
+  unfolding BranchToCapability_def
+  by (traces_enabledI assms: assms intro: traces_enabled_PCC_set non_cap_expI[THEN non_cap_exp_traces_enabledI])
+
+lemma enabled_branch_target_set_0th[derivable_capsI]:
+  assumes "enabled_branch_target c s"
+  shows "enabled_branch_target (update_vec_dec c 0 (Morello.Bit 0)) s"
+  using assms
+  by (auto simp: enabled_branch_target_def branch_caps_def CapGetValue_def nth_ucast test_bit_set_gen)
+
+lemma traces_enabled_BranchXToCapability[traces_enabledI]:
+  assumes "enabled_branch_target c s"
+  shows "traces_enabled (BranchXToCapability c branch_type) s"
+  unfolding BranchXToCapability_def
+  by (traces_enabledI assms: assms intro: non_cap_expI[THEN non_cap_exp_traces_enabledI])
+
 text \<open>Sealing and unsealing\<close>
 
 lemma CapSetObjectType_derivable[derivable_capsI]:
@@ -277,10 +342,14 @@ proof -
     by (auto simp: seal_def derivable_caps_def)
 qed
 
-lemmas CapSetObjectType_sentries_derivable[derivable_capsI] =
-  CapSetObjectType_sentry_derivable[where otype = CAP_SEAL_TYPE_RB, simplified]
-  CapSetObjectType_sentry_derivable[where otype = CAP_SEAL_TYPE_LPB, simplified]
-  CapSetObjectType_sentry_derivable[where otype = CAP_SEAL_TYPE_LB, simplified]
+lemma CapSetObjectType_sentries_derivable[derivable_capsI]:
+  assumes "c \<in> derivable_caps s"
+    and "\<not>CapIsSealed c"
+  shows "CapSetObjectType c CAP_SEAL_TYPE_RB \<in> derivable_caps s"
+    and "CapSetObjectType c CAP_SEAL_TYPE_LPB \<in> derivable_caps s"
+    and "CapSetObjectType c CAP_SEAL_TYPE_LB \<in> derivable_caps s"
+  using assms
+  by (auto intro: CapSetObjectType_sentry_derivable)
 
 lemma CapIsInBounds_cursor_in_mem_region:
   assumes "Run (CapIsInBounds c) t a" and "a"

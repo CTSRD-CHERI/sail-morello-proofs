@@ -70,6 +70,24 @@ lemma concat_take_chunks_eq:
   "n > 0 \<Longrightarrow> List.concat (take_chunks n xs) = xs"
   by (induction n xs rule: take_chunks.induct) auto
 
+lemma leq_bounds_trans:
+  assumes "leq_bounds CC c c'" and "leq_bounds CC c' c''"
+  shows "leq_bounds CC c c''"
+  using assms
+  by (auto simp: leq_bounds_def)
+
+lemma leq_perms_trans:
+  assumes "leq_perms p p'" and "leq_perms p' p''"
+  shows "leq_perms p p''"
+  using assms
+  by (auto simp: leq_perms_def leq_bools_iff)
+
+lemma leq_cap_trans:
+  assumes "leq_cap CC c c'" and "leq_cap CC c' c''"
+  shows "leq_cap CC c c''"
+  using assms
+  by (auto simp: leq_cap_def elim: leq_bounds_trans leq_perms_trans)
+
 lemma bits_of_mem_bytes_of_word_to_bl:
   "bits_of_mem_bytes (mem_bytes_of_word w) = map bitU_of_bool (to_bl w)"
   unfolding bits_of_mem_bytes_def mem_bytes_of_word_def bits_of_bytes_def
@@ -455,6 +473,15 @@ lemma CapIsTagClear_iff_not_128th[simp]:
   "CapIsTagClear c \<longleftrightarrow> \<not>CapIsTagSet c"
   by (auto simp: CapIsTagClear_def CapGetTag_def nth_ucast test_bit_of_bl)
 
+lemma CapGetPermissions_set_0th[simp]:
+  "CapGetPermissions (set_bit c 0 b) = CapGetPermissions c"
+  by (intro word_eqI) (auto simp: CapGetPermissions_def nth_slice test_bit_set_gen)
+
+lemma CapGetPermissions_CapSetFlags_eq[simp]:
+  "CapGetPermissions (CapSetFlags c flags) = CapGetPermissions c"
+  by (intro word_eqI)
+     (auto simp: CapGetPermissions_def CapSetFlags_def nth_slice slice_update_subrange_vec_dec_below)
+
 lemma CapGetObjectType_CapSetObjectType_and_mask:
   "CapGetObjectType (CapSetObjectType c otype) = (otype AND mask (nat CAP_OTYPE_HI_BIT - nat CAP_OTYPE_LO_BIT + 1))"
   unfolding CapGetObjectType_def CapSetObjectType_def
@@ -473,6 +500,10 @@ lemma CapUnseal_128th_iff[simp]:
 lemma clear_perms_128th_iff[simp]:
   "CapClearPerms c perms !! 128 \<longleftrightarrow> c !! 128"
   by (auto simp: CapClearPerms_def update_subrange_vec_dec_test_bit)
+
+lemma CapSetFlags_128th_iff[simp]:
+  "CapSetFlags c flags !! 128 = c !! 128"
+  by (auto simp: CapSetFlags_def update_subrange_vec_dec_test_bit)
 
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
@@ -495,6 +526,45 @@ lemma CapUnsignedLessThan_iff_unat_lt[simp]:
 lemma CapUnsignedLessThanOrEqual_iff_unat_leq[simp]:
   "CapUnsignedLessThanOrEqual x y \<longleftrightarrow> unat x \<le> unat y"
   by (auto simp: CapUnsignedLessThanOrEqual_def unat_def nat_le_eq_zle)
+
+lemma CapGetObjectType_set_bit_128_eq[simp]:
+  "CapGetObjectType (set_bit c 128 tag) = CapGetObjectType c"
+  unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapGetObjectType_update_address[simp]:
+  fixes addr :: "64 word"
+  shows "CapGetObjectType (update_subrange_vec_dec c 63 0 addr) = CapGetObjectType c"
+  unfolding CapGetObjectType_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice update_subrange_vec_dec_test_bit)
+
+lemma CapAdd_GetObjectType_eq:
+  assumes "Run (CapAdd c increment) t c'"
+  shows "CapGetObjectType c' = CapGetObjectType c"
+  using assms
+  unfolding CapAdd_def
+  by (auto elim!: Run_letE Run_bindE)
+
+lemma CapAdd_CapIsSealed_iff[simp]:
+  assumes "Run (CapAdd c increment) t c'"
+  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+  using assms
+  by (auto simp: CapIsSealed_def CapAdd_GetObjectType_eq)
+
+lemma CapAdd__1_CapIsSealed_iff[simp]:
+  assumes "Run (CapAdd__1 c increment) t c'"
+  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+  using assms
+  by (auto simp: CapAdd__1_def)
+
+lemma Run_CapAdd_tag_imp:
+  assumes "Run (CapAdd c offset) t c'"
+    and "c' !! 128"
+  shows "c !! 128"
+  using assms
+  unfolding CapAdd_def CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
+  by (auto simp: test_bit_set update_subrange_vec_dec_test_bit
+           elim!: Run_bindE Run_letE split: if_splits)
 
 (*lemma no_Run_EndOfInstruction[simp]:
   "Run (EndOfInstruction u) t a \<longleftrightarrow> False"
@@ -885,9 +955,13 @@ lemma no_cap_regvals[simp]:
   "\<And>v. caps_of_regval (regval_of_option rv_of v) = {}"
   by (cases rv; auto simp: vector_of_regval_def regval_of_vector_def option_of_regval_def regval_of_option_def)+
 
-lemma caps_of_bitvector_129_regval[simp]:
-  "bitvector_129_dec_of_regval rv = Some c \<Longrightarrow> caps_of_regval rv = {c}"
-  by (cases rv) (auto)
+lemma caps_of_regval_of_bitvector_129[simp]:
+  "caps_of_regval (regval_of_bitvector_129_dec c) = {c}"
+  by (auto simp: regval_of_bitvector_129_dec_def)
+
+lemma bitvector_129_Some_iff[simp]:
+  "bitvector_129_dec_of_regval rv = Some c \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
+  by (cases rv) auto
 
 end
 
@@ -1118,6 +1192,24 @@ lemma leq_perms_cap_permits_imp:
   shows "cap_permits perms c'"
   using assms
   by (auto simp: CapCheckPermissions_def word_eq_iff word_ops_nth_size nth_ucast leq_perms_to_bl_iff)
+
+lemma leq_bounds_set_0th:
+  "leq_bounds CC (set_bit c 0 b) c"
+  sorry
+
+lemma leq_bounds_CapSetFlags:
+  "leq_bounds CC (CapSetFlags c flags) c"
+  sorry
+
+lemma leq_cap_set_0th:
+  "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (set_bit c 0 b) c"
+  using leq_perms_cap_permits_imp[rotated]
+  by (auto simp: leq_cap_def test_bit_set_gen leq_bounds_set_0th)
+
+lemma leq_cap_CapSetFlags:
+  "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (CapSetFlags c flags) c"
+  using leq_perms_cap_permits_imp[rotated]
+  by (auto simp: leq_cap_def leq_bounds_CapSetFlags)
 
 lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
   "Capability_of_tag_word False data \<in> derivable_caps s"
@@ -1455,13 +1547,57 @@ sublocale Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA
 
 end*)
 
+definition R_name :: "int \<Rightarrow> string" where
+  "R_name n \<equiv>
+     (if n =  0 then ''_R00'' else
+      if n =  1 then ''_R01'' else
+      if n =  2 then ''_R02'' else
+      if n =  3 then ''_R03'' else
+      if n =  4 then ''_R04'' else
+      if n =  5 then ''_R05'' else
+      if n =  6 then ''_R06'' else
+      if n =  7 then ''_R07'' else
+      if n =  8 then ''_R08'' else
+      if n =  9 then ''_R09'' else
+      if n = 10 then ''_R10'' else
+      if n = 11 then ''_R11'' else
+      if n = 12 then ''_R12'' else
+      if n = 13 then ''_R13'' else
+      if n = 14 then ''_R14'' else
+      if n = 15 then ''_R15'' else
+      if n = 16 then ''_R16'' else
+      if n = 17 then ''_R17'' else
+      if n = 18 then ''_R18'' else
+      if n = 19 then ''_R19'' else
+      if n = 20 then ''_R20'' else
+      if n = 21 then ''_R21'' else
+      if n = 22 then ''_R22'' else
+      if n = 23 then ''_R23'' else
+      if n = 24 then ''_R24'' else
+      if n = 25 then ''_R25'' else
+      if n = 26 then ''_R26'' else
+      if n = 27 then ''_R27'' else
+      if n = 28 then ''_R28'' else
+      if n = 29 then ''_R29'' else
+      ''_R30'')"
+
 locale Morello_Write_Cap_Automaton = Morello_ISA +
   fixes ex_traces :: bool and invoked_caps :: "Capability set"
+    and invoked_regs :: "int set" and invokes_mem_caps :: bool
 begin
+
+definition normalise_cursor_flags :: "Capability \<Rightarrow> bool \<Rightarrow> Capability" where
+  "normalise_cursor_flags c top_bit \<equiv> CapSetFlags c (if top_bit then max_word else 0)"
+
+definition branch_caps :: "Capability \<Rightarrow> Capability set" where
+  "branch_caps c \<equiv>
+     {c, normalise_cursor_flags c (CapGetValue c !! 55), normalise_cursor_flags c False,
+      set_bit c 0 False, normalise_cursor_flags (set_bit c 0 False) (CapGetValue c !! 55),
+      normalise_cursor_flags (set_bit c 0 False) False}"
 
 (* TODO *)
 fun ev_assms :: "register_value event \<Rightarrow> bool" where
-  "ev_assms (E_read_reg r v) = (r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c))"
+  "ev_assms (E_read_reg r v) = ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and> (\<forall>n c. R_name n = r \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps))"
 | "ev_assms _ = True"
 
 sublocale Write_Cap_Assm_Automaton where CC = CC and ISA = ISA and ev_assms = ev_assms ..
@@ -1470,7 +1606,115 @@ sublocale Morello_Axiom_Automaton where enabled = enabled ..
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
+lemma branch_caps_leq:
+  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "leq_cap CC c' c"
+proof cases
+  assume "CapIsTagSet c"
+  then show ?thesis
+    using assms
+    unfolding branch_caps_def normalise_cursor_flags_def
+    by (auto intro: leq_cap_set_0th leq_cap_CapSetFlags leq_cap_CapSetFlags[THEN leq_cap_trans])
+next
+  assume "\<not>CapIsTagSet c"
+  then have "\<not>CapIsTagSet c'"
+    using assms
+    by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen)
+  then show ?thesis
+    by (auto simp: leq_cap_def)
+qed
+
+lemma branch_caps_128th_iff:
+  assumes "c' \<in> branch_caps c"
+  shows "c' !! 128 \<longleftrightarrow> c !! 128"
+  using assms
+  by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen)
+
+lemma branch_caps_derivable_caps:
+  assumes "c' \<in> branch_caps c" and "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "c' \<in> derivable_caps s"
+  using assms(2) branch_caps_leq[OF assms(1,3)] branch_caps_128th_iff[OF assms(1)]
+  by (auto simp: derivable_caps_def intro: derivable.Restrict)
+
+lemma CapSetFlags_mask_56_normalise_cursor_flags:
+  "CapSetFlags c (CapGetValue c AND mask 56) = normalise_cursor_flags c False"
+  unfolding CapSetFlags_def normalise_cursor_flags_def
+  by (intro word_eqI)
+     (auto simp: update_subrange_vec_dec_test_bit nth_slice word_ao_nth)
+
+lemma CapSetFlags_SignExtend_normalise_cursor_flags:
+  assumes "CapGetValue c !! 55"
+  shows "CapSetFlags c (SignExtend1 64 (ucast (CapGetValue c) :: 56 word)) = normalise_cursor_flags c True"
+  using assms
+  unfolding CapSetFlags_def normalise_cursor_flags_def SignExtend1_def sign_extend_def
+  by (intro word_eqI)
+     (auto simp: update_subrange_vec_dec_test_bit nth_slice nth_scast nth_ucast)
+
+lemma BranchAddr_in_branch_caps:
+  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
+  shows "c' \<in> branch_caps c"
+  using assms
+  unfolding BranchAddr_def branch_caps_def
+  by (cases "CapIsSealed c")
+     (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E
+           simp: CapSetFlags_mask_56_normalise_cursor_flags CapSetFlags_SignExtend_normalise_cursor_flags)
+
+lemma CapAdd_CapIsSealed_imp[derivable_capsE]:
+  assumes "Run (CapAdd c incr) t c'" and "\<not>CapIsSealed c"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  by auto
+
+lemma CapAdd__1_CapIsSealed_imp[derivable_capsE]:
+  assumes "Run (CapAdd__1 c incr) t c'" and "\<not>CapIsSealed c"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  by auto
+
+lemma BranchAddr_not_sealed:
+  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
+  shows "\<not>CapIsSealed c" and "CapIsTagSet c"
+  using assms
+  unfolding BranchAddr_def
+  apply (auto elim!: Run_bindE Run_letE split: if_splits)
+  (* TODO: Should be fixed in the ASL *)
+  sorry
+
+lemma C_read_invoked_regs_branch_caps[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "trace_assms t"
+    and "n \<in> invoked_regs"
+    and "CapIsTagSet c" and "CapIsSealed c"
+  shows "branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+proof -
+  have "t = [E_read_reg (R_name n) (Regval_bitvector_129_dec c)]"
+    using assms(1,4)
+    unfolding C_read_def R_read_def
+    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
+  with assms(2-)
+  show ?thesis
+    by auto
+qed
+
 end
+
+lemma HaveAArch32EL_False[simp]:
+  "Run (HaveAArch32EL el) t a \<longleftrightarrow> (t = [] \<and> a = False)"
+  unfolding HaveAArch32EL_def HaveAnyAArch32_def HaveEL_def
+  unfolding EL0_def EL1_def EL2_def EL3_def
+  by (cases el rule: exhaustive_2_word) (auto elim: Run_bindE)
+
+lemma ELUsingAArch32_False:
+  shows "\<not>Run (ELUsingAArch32 el) t True"
+  unfolding ELUsingAArch32_def ELStateUsingAArch32_def ELStateUsingAArch32K_def
+  by (auto elim!: Run_bindE)
+
+lemma AddrTop_63_or_55:
+  assumes "Run (AddrTop address el) t b"
+  shows "b = 63 \<or> b = 55"
+  using assms
+  unfolding AddrTop_def
+  by (auto elim!: Run_bindE simp: ELUsingAArch32_False)
+
 
 (* Assume stubbed out address translation for now *)
 locale Morello_Mem_Automaton =
