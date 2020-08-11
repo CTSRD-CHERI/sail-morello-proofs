@@ -375,6 +375,21 @@
         "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"
       }
     },
+    "execute_BLRS_C_C_C": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_targetI[where c = \"CapUnseal c\" for c] elim: branch_sealed_pair_enabled_pcc branch_sealed_pair_C_set_29)"
+      }
+    },
+    "execute_BRS_C_C_C": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_targetI[where c = \"CapUnseal c\" for c] elim: branch_sealed_pair_enabled_pcc branch_sealed_pair_C_set_29)"
+      }
+    },
+    "execute_RETS_C_C_C": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_targetI[where c = \"CapUnseal c\" for c] elim: branch_sealed_pair_enabled_pcc branch_sealed_pair_C_set_29)"
+      }
+    },
     "execute_STXP_R_CR_C": {
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"

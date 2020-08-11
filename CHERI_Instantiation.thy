@@ -404,6 +404,7 @@ lemmas cap_bit_index_defs[simp] =
 
 lemmas special_otype_defs[simp] =
   CAP_SEAL_TYPE_RB_def CAP_SEAL_TYPE_LPB_def CAP_SEAL_TYPE_LB_def
+  CAP_MAX_FIXED_SEAL_TYPE_def
 
 lemma ZeroExtend1_ucast[simp]:
   "ZeroExtend1 n w = ucast w"
@@ -487,6 +488,10 @@ lemma CapGetObjectType_CapSetObjectType_and_mask:
   unfolding CapGetObjectType_def CapSetObjectType_def
   by (intro word_eqI)
      (auto simp: word_ao_nth nth_slice nth_ucast update_subrange_vec_dec_test_bit)
+
+lemma CapGetObjectType_CapUnseal_0[simp]:
+  "CapGetObjectType (CapUnseal c) = 0"
+  by (auto simp: CapUnseal_def CapGetObjectType_CapSetObjectType_and_mask)
 
 lemma CapSetObjectType_128th_iff[simp]:
   "CapSetObjectType c otype !! 128 \<longleftrightarrow> c !! 128"
@@ -725,6 +730,7 @@ lemma CC_simps[simp]:
   "cap_of_mem_bytes_method CC = cap_of_mem_bytes"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
   "permits_unseal_method CC c = cap_permits CAP_PERM_UNSEAL c"
+  "permits_ccall_method CC c = cap_permits CAP_PERM_BRANCH_SEALED_PAIR c"
   "get_perms_method CC c = to_bl (CapGetPermissions c)"
   "is_global_method CC c = cap_permits CAP_PERM_GLOBAL c"
   "clear_global_method CC c = clear_perm CAP_PERM_GLOBAL c"
@@ -1650,6 +1656,23 @@ lemma CapSetFlags_SignExtend_normalise_cursor_flags:
   by (intro word_eqI)
      (auto simp: update_subrange_vec_dec_test_bit nth_slice nth_scast nth_ucast)
 
+lemma leq_cap_CapWithTagClear[simp, intro]:
+  "leq_cap CC (CapWithTagClear c) c'"
+  by (auto simp: leq_cap_def)
+
+lemma leq_cap_CapSetFlags:
+  assumes "\<not>CapIsSealed c"
+  shows "leq_cap CC (CapSetFlags c flags) c"
+  using assms leq_perms_cap_permits_imp[of "CapSetFlags c flags" c]
+  by (auto simp: leq_cap_def intro: leq_bounds_CapSetFlags)
+
+lemma BranchAddr_leq_cap:
+  assumes "Run (BranchAddr c el) t c'"
+  shows "leq_cap CC c' c"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E intro: leq_cap_CapSetFlags)
+
 lemma BranchAddr_in_branch_caps:
   assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
   shows "c' \<in> branch_caps c"
@@ -1680,7 +1703,7 @@ lemma BranchAddr_not_sealed:
   (* TODO: Should be fixed in the ASL *)
   sorry
 
-lemma C_read_invoked_regs_branch_caps[derivable_capsE]:
+lemma C_read_branch_caps_invoked_caps[derivable_capsE]:
   assumes "Run (C_read n) t c" and "trace_assms t"
     and "n \<in> invoked_regs"
     and "CapIsTagSet c" and "CapIsSealed c"
@@ -1694,6 +1717,14 @@ proof -
   show ?thesis
     by auto
 qed
+
+lemma C_read_invoked_caps[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "trace_assms t"
+    and "n \<in> invoked_regs"
+    and "CapIsTagSet c" and "CapIsSealed c"
+  shows "CapUnseal c \<in> invoked_caps"
+  using C_read_branch_caps_invoked_caps[OF assms]
+  by (auto simp: branch_caps_def)
 
 end
 

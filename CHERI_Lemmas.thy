@@ -208,17 +208,21 @@ text \<open>Capability invocation\<close>
 definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
   "enabled_pcc c s \<equiv>
      c \<in> derivable_caps s \<or>
-     (\<exists>c' \<in> derivable_caps s.
-        c \<in> invoked_caps \<and>
-        CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB \<and>
-        leq_cap CC c (CapUnseal c'))"
+     (c \<in> invoked_caps \<and>
+      ((\<exists>c' \<in> derivable_caps s.
+          CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB \<and>
+          leq_cap CC c (CapUnseal c')) \<or>
+       (\<exists>cc cd.
+          cc \<in> derivable_caps s \<and> cd \<in> derivable_caps s \<and>
+          invokable CC cc cd \<and>
+          leq_cap CC c (CapUnseal cc))))"
 
 lemma traces_enabled_PCC_set:
   assumes "enabled_pcc c s"
   shows "traces_enabled (PCC_set c) s"
   using assms
   unfolding PCC_set_def enabled_pcc_def derivable_caps_def
-  by (intro traces_enabled_write_reg) (auto simp: register_defs is_sentry_def CapIsSealed_def)
+  by (intro traces_enabled_write_reg) (auto simp: register_defs is_sentry_def invokable_def CapIsSealed_def)
 
 definition enabled_branch_target :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
   "enabled_branch_target c s \<equiv>
@@ -288,6 +292,32 @@ next
   then show ?thesis
     by (auto simp: enabled_pcc_def derivable_caps_def)
 qed
+
+lemma branch_sealed_pair_enabled_pcc:
+  assumes "CapGetObjectType cc = CapGetObjectType cd"
+    and "CapIsTagSet cc" and "CapIsTagSet cd"
+    and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
+    and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cc" and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cd"
+    and "CAP_MAX_FIXED_SEAL_TYPE < uint (CapGetObjectType cc)"
+    and "cc \<in> derivable_caps s" and "cd \<in> derivable_caps s"
+    and "branch_caps (CapUnseal cc) \<subseteq> invoked_caps"
+  shows "\<forall>c' \<in> branch_caps (CapUnseal cc). enabled_pcc c' s"
+  using assms
+  unfolding enabled_pcc_def
+  by (fastforce simp: invokable_def CapIsSealed_def is_sentry_def intro: branch_caps_leq)
+
+lemma branch_sealed_pair_C_set_29:
+  assumes "CapGetObjectType cc = CapGetObjectType cd"
+    and "CapIsTagSet cc" and "CapIsTagSet cd"
+    and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
+    and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cc" and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cd"
+    and "CAP_MAX_FIXED_SEAL_TYPE < uint (CapGetObjectType cc)"
+    and "cc \<in> derivable_caps s" and "cd \<in> derivable_caps s"
+    and "CapUnseal cd \<in> invoked_caps"
+  shows "traces_enabled (C_set 29 (CapUnseal cd)) s"
+  using assms
+  by (fastforce simp: C_set_def R_set_def  derivable_caps_def invokable_def CapIsSealed_def is_sentry_def register_defs
+                intro: traces_enabled_write_reg)
 
 lemma traces_enabled_BranchToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"
