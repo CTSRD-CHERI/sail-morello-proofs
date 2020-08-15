@@ -259,7 +259,7 @@
     },
     "MemC_read": {
       "derivable_caps": {
-        "stmts": ["Run (MemC_read arg0 arg1) t c \<Longrightarrow> use_mem_caps \<Longrightarrow> c \<in> derivable_caps (run s t)"]
+        "stmts": ["Run (MemC_read arg0 arg1) t c \\<Longrightarrow> use_mem_caps \\<Longrightarrow> c \\<in> derivable_caps (run s t)"]
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True"],
@@ -291,6 +291,13 @@
       }
     },
     "MemAtomicC": {
+      "derivable_caps": {
+        "assms": ["Run (MemAtomicC arg0 arg1 arg2 arg3 arg4) t c", "arg2 \\<in> derivable_caps s", "use_mem_caps"],
+        "stmts": ["c \\<in> derivable_caps (run s t)"],
+        "using": ["assms(1)"],
+        "unfolding": ["MemAtomicC_def"],
+        "proof": "- (derivable_capsI assms: assms(2) intro: assms(3))"
+      },
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
@@ -312,6 +319,13 @@
       }
     },
     "MemAtomicCompareAndSwapC": {
+      "derivable_caps": {
+        "assms": ["Run (MemAtomicCompareAndSwapC arg0 arg1 arg2 arg3 arg4 arg5) t c", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s", "{''PCC''} \\<subseteq> accessible_regs s", "use_mem_caps"],
+        "stmts": ["c \\<in> derivable_caps (run s t)"],
+        "using": ["assms(1)"],
+        "unfolding": ["MemAtomicCompareAndSwapC_def"],
+        "proof": "- (derivable_capsI assms: assms(2-4) intro: assms(5))"
+      },
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },

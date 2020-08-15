@@ -276,14 +276,16 @@ lemma AND_NOT_eq_0_iff:
 context Cap_Axiom_Automaton
 begin
 
-lemma (in Cap_Axiom_Automaton) read_memt_bytes_derivable:
+lemma read_memt_bytes_derivable:
   assumes "Run (read_memt_bytes BCa BCb rk addr sz) t (bytes, tag)"
     and "cap_of_mem_bytes_method CC bytes tag = Some c"
     and "\<forall>addr'. nat_of_bv BCa addr = Some addr' \<longrightarrow> \<not>is_translation_event ISA (E_read_memt rk addr' (nat sz) (bytes, tag))"
+    and "use_mem_caps"
   shows "c \<in> derivable_caps (run s t)"
-  using assms
+  using assms(1-3)
   unfolding read_memt_bytes_def
-  by (auto simp: derivable_caps_def maybe_fail_def split: option.splits intro: derivable.Copy
+  by (auto simp: derivable_caps_def maybe_fail_def accessed_caps_def
+           split: option.splits intro: derivable.Copy assms(4)
            elim!: Run_bindE Traces_cases[of "Read_memt _ _ _ _"])
 
 lemma Run_bindE':
@@ -871,6 +873,9 @@ TODO: Restrict to branching instructions and caps that result from unsealing cap
 definition invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "invokes_caps instr t = {c. E_write_reg ''PCC'' (Regval_bitvector_129_dec c) \<in> set t}"
 
+definition invokes_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
+  "invokes_mem_caps instr t = False" \<comment> \<open>TODO\<close>
+
 definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
   "instr_raises_ex instr t \<equiv> hasException t (instr_sem instr)"
 
@@ -914,6 +919,7 @@ definition "ISA \<equiv>
    KCC = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    IDC = {''_R29''},
    isa.caps_of_regval = caps_of_regval,
+   isa.invokes_mem_caps = invokes_mem_caps,
    isa.invokes_caps = invokes_caps,
    isa.instr_raises_ex = instr_raises_ex,
    isa.fetch_raises_ex = fetch_raises_ex,
@@ -1030,8 +1036,9 @@ interpretation Morello_Fixed_Address_Translation
 
 section \<open>Verification framework\<close>
 
-locale Morello_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled
+locale Morello_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled use_mem_caps
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
+  and use_mem_caps :: bool
 begin
 
 lemmas privilegeds_accessible_system_reg_access[intro] =
@@ -1321,69 +1328,77 @@ lemma ucast_derivable[intro, simp]:
 lemma read_memt_derivable:
   assumes "Run (read_memt BC_mword BC_mword rk addr sz) t (data, tag)"
     and "tag' \<longleftrightarrow> tag = B1"
+    and "use_mem_caps"
   shows "Capability_of_tag_word tag' data \<in> derivable_caps (run s t)"
 proof cases
   assume "tag = B1"
   then show ?thesis
-    using assms no_cap_load_translation_events
+    using assms(1,2) no_cap_load_translation_events
     unfolding read_memt_def maybe_fail_def Capability_of_tag_word_def
     by (auto simp: cap_of_mem_bytes_def bind_eq_Some_conv split: option.splits
-             elim!: Run_bindE read_memt_bytes_derivable)
+             intro: assms(3) elim!: Run_bindE read_memt_bytes_derivable)
 next
   assume "tag \<noteq> B1"
   then show ?thesis
-    using assms
+    using assms(1,2)
     by auto
 qed
 
 lemma ReadTaggedMem_single_derivable:
-  assumes "Run (ReadTaggedMem desc 16 accdesc) t (tag, data)"
+  assumes *: "Run (ReadTaggedMem desc 16 accdesc) t (tag, data)"
+    and **: "use_mem_caps"
   shows "Capability_of_tag_word (tag !! 0) data \<in> derivable_caps (run s t)"
-  using assms
+  using *
   unfolding ReadTaggedMem_def
-  by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_derivable)
+  by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_derivable intro: ** )
 
 lemma ReadTaggedMem_lower_derivable:
-  assumes "Run (ReadTaggedMem desc sz accdesc) t (tag, data :: 'a::len word)"
-    and "LENGTH('a) = nat sz * 8" and "sz = 16 \<or> sz = 32"
+  assumes t: "Run (ReadTaggedMem desc sz accdesc) t (tag, data :: 'a::len word)"
+    and sz: "LENGTH('a) = nat sz * 8" "sz = 16 \<or> sz = 32"
+    and *: "use_mem_caps"
   shows "Capability_of_tag_word (tag !! 0) (ucast data) \<in> derivable_caps (run s t)"
-  using assms
+  using t sz
   unfolding ReadTaggedMem_def
   by (auto simp add: Bits_def nth_ucast nth_word_cat
-           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable)
+           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable intro: * )
 
 lemma ReadTaggedMem_upper_derivable:
-  assumes "Run (ReadTaggedMem desc sz accdesc) t (tag :: 2 word, data :: 256 word)"
-    and "sz = 32"
+  assumes t: "Run (ReadTaggedMem desc sz accdesc) t (tag :: 2 word, data :: 256 word)"
+    and sz: "sz = 32"
+    and *: "use_mem_caps"
   shows "Capability_of_tag_word (tag !! Suc 0) (Word.slice 128 data) \<in> derivable_caps (run s t)"
-  using assms
+  using t sz
   unfolding ReadTaggedMem_def
   by (auto simp add: Bits_def nth_ucast nth_word_cat slice_128_cat_cap_pair
-           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable[THEN derivable_caps_run_imp])
+           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable[THEN derivable_caps_run_imp]
+           intro: *)
 
 lemma ReadTaggedMem_lower_prod_derivable[derivable_capsE]:
-  assumes "Run (ReadTaggedMem desc sz accdesc) t a"
-    and "LENGTH('a) = nat sz * 8" and "sz = 16 \<or> sz = 32"
+  assumes t: "Run (ReadTaggedMem desc sz accdesc) t a"
+    and sz: "LENGTH('a) = nat sz * 8" "sz = 16 \<or> sz = 32"
+    and *: "use_mem_caps"
   shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \<in> derivable_caps (run s t)"
-  using assms
-  by (cases a) (auto simp: test_bit_of_bl elim: ReadTaggedMem_lower_derivable)
+  using t sz
+  by (cases a) (auto simp: test_bit_of_bl elim: ReadTaggedMem_lower_derivable intro: * )
+
 
 lemma AArch64_TaggedMemSingle_lower_derivable[derivable_capsE]:
-  assumes "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
-    and "LENGTH('a) = nat sz * 8"
-    and "use_mem_caps"
+  assumes t: "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
+    and sz: "LENGTH('a) = nat sz * 8"
+    and *: "use_mem_caps"
   shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \<in> derivable_caps (run s t)"
-  using assms(1,2)
+  using t sz
   unfolding AArch64_TaggedMemSingle_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp] intro: assms(3))
+  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp] intro: * )
 
 lemma AArch64_TaggedMemSingle_upper_derivable[derivable_capsE]:
-  assumes "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
-    and "sz = 32"
+  assumes t: "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
+    and sz: "sz = 32"
+    and *: "use_mem_caps"
   shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a :: 2 word) 1] !! 0) (slice (snd a :: 256 word) CAPABILITY_DBITS 128) \<in> derivable_caps (run s t)"
-  using assms
+  using t sz
   unfolding AArch64_TaggedMemSingle_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_upper_derivable[THEN derivable_caps_run_imp])
+  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_upper_derivable[THEN derivable_caps_run_imp] intro: * )
 
 (* Common patterns of capability/data conversions in memory access helpers *)
 lemma Capability_of_tag_word_pairE[derivable_capsE]:
@@ -1540,9 +1555,8 @@ declare Run_letE[where thesis = "VA_derivable va s" and a = va for va s, derivab
 
 thm derivable_caps_combinators
 
-lemma Run_return_VA_derivable[derivable_caps_combinators]:
-  "Run (return va') t va \<Longrightarrow> VA_derivable va' s \<Longrightarrow> VA_derivable va s"
-  by auto
+lemmas Run_return_VA_derivable[derivable_caps_combinators] =
+   Run_return_resultE[where P = "\<lambda>va. VA_derivable va s" for s]
 
 lemma VAFromPCC_derivable[derivable_capsE]:
   "Run (VAFromPCC offset) t va \<Longrightarrow> VA_derivable va s"
@@ -1615,9 +1629,10 @@ fun ev_assms :: "register_value event \<Rightarrow> bool" where
   "ev_assms (E_read_reg r v) = ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and> (\<forall>n c. R_name n = r \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps))"
 | "ev_assms _ = True"
 
-sublocale Write_Cap_Assm_Automaton where CC = CC and ISA = ISA and ev_assms = ev_assms ..
+sublocale Write_Cap_Assm_Automaton
+  where CC = CC and ISA = ISA and ev_assms = ev_assms and invokes_mem_caps = invokes_mem_caps ..
 
-sublocale Morello_Axiom_Automaton where enabled = enabled ..
+sublocale Morello_Axiom_Automaton where enabled = enabled and use_mem_caps = "\<not>invokes_mem_caps" ..
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
@@ -1763,6 +1778,8 @@ locale Morello_Mem_Automaton =
     and is_translation_event = "\<lambda>_. False"
     and translation_assms = "\<lambda>_. True" +
   fixes ex_traces :: bool
+    and invoked_caps :: "Capability set"
+    and invokes_mem_caps :: bool
 begin
 
 sublocale Mem_Assm_Automaton
@@ -1770,12 +1787,15 @@ sublocale Mem_Assm_Automaton
     and translation_assms = "\<lambda>_. True"
     and is_fetch = "False"
     and extra_assms = "\<lambda>e. True" \<comment> \<open>TODO\<close>
+    and invoked_caps = invoked_caps
+    and invokes_mem_caps = invokes_mem_caps
   ..
 
 sublocale Morello_Axiom_Automaton
   where translate_address = "\<lambda>addr _ _. translate_address addr"
     and enabled = enabled
     and is_translation_event = "\<lambda>_. False"
+    and use_mem_caps = "\<not>invokes_mem_caps"
   ..
 
 lemma translate_address_ISA[simp]:
