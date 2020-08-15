@@ -1368,6 +1368,15 @@ lemma ReadTaggedMem_lower_prod_derivable[derivable_capsE]:
   using assms
   by (cases a) (auto simp: test_bit_of_bl elim: ReadTaggedMem_lower_derivable)
 
+lemma AArch64_TaggedMemSingle_lower_derivable[derivable_capsE]:
+  assumes "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
+    and "LENGTH('a) = nat sz * 8"
+    and "use_mem_caps"
+  shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \<in> derivable_caps (run s t)"
+  using assms(1,2)
+  unfolding AArch64_TaggedMemSingle_def
+  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp] intro: assms(3))
+
 lemma AArch64_TaggedMemSingle_upper_derivable[derivable_capsE]:
   assumes "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
     and "sz = 32"

@@ -258,6 +258,9 @@
       }
     },
     "MemC_read": {
+      "derivable_caps": {
+        "stmts": ["Run (MemC_read arg0 arg1) t c \<Longrightarrow> use_mem_caps \<Longrightarrow> c \<in> derivable_caps (run s t)"]
+      },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True"],
         "proof": "(traces_enabledI assms: assms)"
