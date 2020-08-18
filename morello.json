@@ -299,6 +299,7 @@
         "proof": "- (derivable_capsI assms: assms(2) intro: assms(3))"
       },
       "traces_enabled": {
+        "assms": ["arg2 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
@@ -327,6 +328,7 @@
         "proof": "- (derivable_capsI assms: assms(2-4) intro: assms(5))"
       },
       "traces_enabled": {
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
@@ -552,6 +554,43 @@
       }
     }
   },
+  "invoked_regs": {
+    "execute_BLRR_C_C": ["arg1"],
+    "decode_BLRR_C_C": ["uint arg1"],
+    "execute_BLRS_C_C": ["arg1"],
+    "decode_BLRS_C_C": ["uint arg1"],
+    "execute_BLRS_C_C_C": ["arg1", "arg2"],
+    "decode_BLRS_C_C_C": ["uint arg0", "uint arg2"],
+    "execute_BLR_C_C": ["arg1"],
+    "decode_BLR_C_C": ["uint arg1"],
+    "execute_BRR_C_C": ["arg1"],
+    "decode_BRR_C_C": ["uint arg1"],
+    "execute_BRS_C_C": ["arg1"],
+    "decode_BRS_C_C": ["uint arg1"],
+    "execute_BRS_C_C_C": ["arg1", "arg2"],
+    "decode_BRS_C_C_C": ["uint arg0", "uint arg2"],
+    "execute_BR_C_C": ["arg1"],
+    "decode_BR_C_C": ["uint arg1"],
+    "execute_RETR_C_C": ["arg1"],
+    "decode_RETR_C_C": ["uint arg1"],
+    "execute_RETS_C_C": ["arg1"],
+    "decode_RETS_C_C": ["uint arg1"],
+    "execute_RETS_C_C_C": ["arg1", "arg2"],
+    "decode_RETS_C_C_C": ["uint arg0", "uint arg2"],
+    "execute_RET_C_C": ["arg1"],
+    "decode_RET_C_C": ["uint arg1"]
+  },
+  "invokes_mem_caps": [
+    "execute_BLR_CI_C",
+    "decode_BLR_CI_C",
+    "execute_BR_CI_C",
+    "decode_BR_CI_C",
+    "execute_LDPBLR_C_C_C",
+    "decode_LDPBLR_C_C_C",
+    "execute_LDPBR_C_C_C",
+    "decode_LDPBR_C_C_C"
+  ],
+  "cap_load_funs": ["_ReadTaggedMem"],
   "skips": [
     "__ReadRAM",
     "__WriteRAM",
