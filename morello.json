@@ -378,9 +378,14 @@
         "proof": "- (* TODO: takes very long *)"
       }
     },
-    "DC_ZVA": {
-      "traces_enabled_mem": {
-        "proof": "- (* needs fixing in ASL *)"
+    "CAP_DC_CVAU": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_bind)"
+      }
+    },
+    "CAP_IC_IVAU": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_bind)"
       }
     },
     "VAToCapability": {

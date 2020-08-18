@@ -1690,6 +1690,11 @@ lemma leq_cap_CapSetFlags:
   using assms leq_perms_cap_permits_imp[of "CapSetFlags c flags" c]
   by (auto simp: leq_cap_def intro: leq_bounds_CapSetFlags)
 
+lemma CapSetFlags_CapWithTagClear_commute[simp]:
+  "CapSetFlags (CapWithTagClear c) flags = CapWithTagClear (CapSetFlags c flags)"
+  by (intro word_eqI)
+     (auto simp: CapSetFlags_def CapWithTagClear_def test_bit_set_gen update_subrange_vec_dec_test_bit)
+
 lemma BranchAddr_leq_cap:
   assumes "Run (BranchAddr c el) t c'"
   shows "leq_cap CC c' c"
@@ -1723,9 +1728,7 @@ lemma BranchAddr_not_sealed:
   shows "\<not>CapIsSealed c" and "CapIsTagSet c"
   using assms
   unfolding BranchAddr_def
-  apply (auto elim!: Run_bindE Run_letE split: if_splits)
-  (* TODO: Should be fixed in the ASL *)
-  sorry
+  by (auto elim!: Run_bindE Run_letE split: if_splits)
 
 lemma C_read_branch_caps_invoked_caps[derivable_capsE]:
   assumes "Run (C_read n) t c" and "trace_assms t"

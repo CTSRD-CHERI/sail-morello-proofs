@@ -31,45 +31,85 @@ lemma Run_VAToBits64_vatype_Bits64[simp]:
   using assms
   by (auto simp: VAToBits64_def VAIsBits64_def)
 
+lemma VAFromCapability_not_pcc_relative[simp]:
+  assumes "Run (VAFromCapability c) t va"
+  shows "VAIsPCCRelative va \<longleftrightarrow> False"
+  using assms
+  unfolding VAFromCapability_def
+  by (auto simp: VAIsPCCRelative_def)
+
+lemma VAFromBits64_not_pcc_relative[simp]:
+  assumes "Run (VAFromBits64 c) t va"
+  shows "VAIsPCCRelative va \<longleftrightarrow> False"
+  using assms
+  unfolding VAFromBits64_def
+  by (auto simp: VAIsPCCRelative_def)
+
+lemma BaseReg_read_not_pcc_relative[simp]:
+  assumes "Run (BaseReg_read n is_prefetch) t va"
+  shows "VAIsPCCRelative va \<longleftrightarrow> False"
+  using assms
+  by (auto simp: BaseReg_read_def elim!: Run_bindE Run_ifE)
+
+lemma BaseReg_read_not_pcc_relative'[derivable_capsE]:
+  assumes "Run (BaseReg_read n is_prefetch) t va"
+  shows "\<not>VAIsPCCRelative va"
+  using assms
+  by auto
+
+lemma BaseReg_read__1_not_pcc_relative[simp]:
+  assumes "Run (BaseReg_read__1 n) t va"
+  shows "VAIsPCCRelative va \<longleftrightarrow> False"
+  using assms
+  by (auto simp: BaseReg_read__1_def)
+
+lemma BaseReg_read__1_not_pcc_relative'[derivable_capsE]:
+  assumes "Run (BaseReg_read__1 n) t va"
+  shows "\<not>VAIsPCCRelative va"
+  using assms
+  by auto
+
 lemma VADeref_VAIsSealedCap_False[simp]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr"
+  assumes "Run (VACheckAddress va addr sz perms acctype) t u" and "\<not>VAIsPCCRelative va"
   shows "VAIsSealedCap va \<longleftrightarrow> False"
   using assms
-  unfolding VADeref_def
-  by (auto simp: VAIsSealedCap_def VAIsCapability_def CheckCapability_CapIsSealed_False elim!: Run_bindE Run_ifE)
+  unfolding VACheckAddress_def
+  by (auto simp: VAIsSealedCap_def VAIsCapability_def VAIsBits64_def CheckCapability_CapIsSealed_False elim!: Run_bindE Run_ifE)
 
 lemma VADeref_not_sealed[derivable_capsE]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr"
+  assumes "Run (VACheckAddress va addr sz perms acctype) t u" and "\<not>VAIsPCCRelative va"
   shows "\<not>VAIsSealedCap va"
   using assms
   by auto
 
 lemma if_VADerefs_VAIsSealedCap_False[derivable_capsE]:
-  assumes "Run (if b then VADeref va sz perms acctype else VADeref va sz' perms' acctype') t vaddr"
+  assumes "Run (if b then VACheckAddress va vaddr sz perms acctype else VACheckAddress va vaddr sz' perms' acctype') t u" and "\<not>VAIsPCCRelative va"
   shows "\<not>VAIsSealedCap va"
   using assms
   by (auto split: if_splits)
 
-lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap[derivable_capsE]:
-  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VADeref va sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VADeref va sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> return ()) t a"
+(*lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap[derivable_capsE]:
+  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VACheckAddress va addr sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VACheckAddress va addr' sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> return ()) t a"
     and "memop \<noteq> MemOp_PREFETCH"
+    and "\<not>VAIsPCCRelative va"
   shows "\<not>VAIsSealedCap va"
   using assms
   by (cases memop) (auto elim!: Run_bindE)
 
 lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_pre_idx[derivable_capsE]:
-  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VADeref va sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VADeref va sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> return ()) t a"
+  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VACheckAddress va addr sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VACheckAddress va addr' sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> return ()) t a"
     and "memop \<noteq> MemOp_PREFETCH"
+    and "\<not>VAIsPCCRelative va"
     and "VAIsSealedCap va = VAIsSealedCap va'"
   shows "\<not>VAIsSealedCap va'"
   using assms
-  by (cases memop) (auto elim!: Run_bindE)
+  by (cases memop) (auto elim!: Run_bindE)*)
 
-lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_generic:
-  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VADeref va sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VADeref va sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> m'') t a"
-    and "memop \<noteq> MemOp_PREFETCH"
-    and "VAIsSealedCap va = VAIsSealedCap va'"
-  shows "\<not>VAIsSealedCap va'"
+lemma Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_generic[derivable_capsE]:
+  assumes "Run (case memop of MemOp_LOAD \<Rightarrow> VACheckAddress va addr sz perms acctype \<bind> m | MemOp_STORE \<Rightarrow> VACheckAddress va addr' sz' perms' acctype' \<bind> m' | MemOp_PREFETCH \<Rightarrow> m'') t a"
+    and "memop = MemOp_PREFETCH \<longrightarrow> Run m'' t a \<longrightarrow> \<not>VAIsSealedCap va"
+    and "\<not>VAIsPCCRelative va"
+  shows "\<not>VAIsSealedCap va"
   using assms
   by (cases memop) (auto elim!: Run_bindE)
 
@@ -219,7 +259,7 @@ definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value)
 
 lemma traces_enabled_PCC_set:
   assumes "enabled_pcc c s"
-  shows "traces_enabled (PCC_set c) s"
+  shows "traces_enabled (write_reg PCC_ref c) s"
   using assms
   unfolding PCC_set_def enabled_pcc_def derivable_caps_def
   by (intro traces_enabled_write_reg) (auto simp: register_defs is_sentry_def invokable_def CapIsSealed_def)
@@ -1088,16 +1128,16 @@ next
 qed
 
 lemma VADeref_addr_l2p64[intro, simp, derivable_capsE]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
-  shows "uint vaddr + sz \<le> 2^64"
+  assumes "Run (VACheckAddress base addr sz perms acctype) t u" "trace_assms t"
+  shows "uint addr + sz \<le> 2^64"
   (* TODO: Add capability validness assumption to trace_assms, and prove
      that it is an invariant of the derivable caps *)
   sorry
 
 lemma VADeref_addr_l2p64_nat[intro, simp, derivable_capsE]:
-  assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress base addr sz perms acctype) t u" "trace_assms t"
     and "0 \<le> sz"
-  shows "unat vaddr + nat sz \<le> 2^64"
+  shows "unat addr + nat sz \<le> 2^64"
   using VADeref_addr_l2p64[OF assms(1,2)] assms(3)
   by (auto simp add: unat_def simp flip: nat_add_distrib)
 
@@ -1115,7 +1155,7 @@ lemma Run_VAToCapability_iff:
   by auto
 
 lemma VADeref_load_enabled:
-  assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz perms acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included CAP_PERM_LOAD perms"
@@ -1128,7 +1168,7 @@ proof (cases "VAIsPCCRelative va \<or> VAIsBits64 va")
   case True
   then show ?thesis
     using assms(1,2)
-    unfolding VADeref_def
+    unfolding VACheckAddress_def
     by - (derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
                           elim: CheckCapability_load_enabled)
 next
@@ -1152,7 +1192,7 @@ qed
 text \<open>Common patterns\<close>
 
 lemma VADeref_data_load_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz CAP_PERM_LOAD acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz CAP_PERM_LOAD acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1162,7 +1202,7 @@ lemma VADeref_data_load_enabled[derivable_capsE]:
   by (elim VADeref_load_enabled) auto
 
 lemma VADeref_data_load_enabled'[derivable_capsE]:
-  assumes "Run (VADeref va sz (CAP_PERM_LOAD OR perms) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz CAP_PERM_LOAD acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1172,7 +1212,7 @@ lemma VADeref_data_load_enabled'[derivable_capsE]:
   by (elim VADeref_load_enabled) auto
 
 lemma VADeref_cap_load_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP) acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "nat sz' = 16 \<and> aligned vaddr' 16"
@@ -1183,7 +1223,7 @@ lemma VADeref_cap_load_enabled[derivable_capsE]:
   by (elim VADeref_load_enabled) auto
 
 lemma VADeref_cap_load_enabled'[derivable_capsE]:
-  assumes "Run (VADeref va sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP OR perms) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP OR perms) acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "nat sz' = 16 \<and> aligned vaddr' 16"
@@ -1194,8 +1234,8 @@ lemma VADeref_cap_load_enabled'[derivable_capsE]:
   by (elim VADeref_load_enabled) auto
 
 lemma VADeref_load_data_access_enabled'[derivable_capsE]:
-  assumes "Run (VADeref va sz (CAP_PERM_LOAD OR perms) acctype) t vaddr" "trace_assms t"
-    and "sz > 0 \<and> sz' > 0"
+  assumes "Run (VACheckAddress va vaddr sz CAP_PERM_LOAD acctype) t u" "trace_assms t"
+    and "sz > 0"
     and "translate_address (unat vaddr) = Some paddr"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
@@ -1212,7 +1252,7 @@ lemmas store_enabled_combinators[derivable_caps_combinators] =
   Run_case_prodE[where thesis = "store_enabled (run s t) addr sz data tag" and t = t for s addr sz data tag t]
 
 lemma VADeref_store_enabled:
-  assumes "Run (VADeref va sz perms acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz perms acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included CAP_PERM_STORE perms"
@@ -1250,7 +1290,7 @@ qed
 text \<open>Common patterns\<close>
 
 lemma VADeref_store_data_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz CAP_PERM_STORE acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz CAP_PERM_STORE acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1260,7 +1300,7 @@ lemma VADeref_store_data_enabled[derivable_capsE]:
   by (elim VADeref_store_enabled) auto
 
 lemma VADeref_store_data_enabled'[derivable_capsE]:
-  assumes "Run (VADeref va sz (perms OR CAP_PERM_STORE) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz (perms OR CAP_PERM_STORE) acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1277,7 +1317,7 @@ abbreviation cap_store_perms where
         or_vec CAP_PERM_STORE CAP_PERM_STORE_CAP)"
 
 lemma VADeref_store_cap_enabled[derivable_capsE]:
-  assumes "Run (VADeref va CAPABILITY_DBYTES (cap_store_perms c) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr CAPABILITY_DBYTES (cap_store_perms c) acctype) t u" "trace_assms t"
     and "aligned (unat vaddr) 16"
     and "Capability_of_tag_word tag data = c"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1287,7 +1327,7 @@ lemma VADeref_store_cap_enabled[derivable_capsE]:
   by (elim VADeref_store_enabled) (auto split: if_splits)
 
 lemma VADeref_store_cap_enabled'[derivable_capsE]:
-  assumes "Run (VADeref va CAPABILITY_DBYTES (perms OR cap_store_perms c) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr CAPABILITY_DBYTES (perms OR cap_store_perms c) acctype) t u" "trace_assms t"
     and "aligned (unat vaddr) 16"
     and "Capability_of_tag_word tag data = c"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1297,7 +1337,7 @@ lemma VADeref_store_cap_enabled'[derivable_capsE]:
   by (elim VADeref_store_enabled) (auto split: if_splits)
 
 lemma VADeref_store_data_access_enabled[derivable_capsE]:
-  assumes "Run (VADeref va sz CAP_PERM_STORE acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz CAP_PERM_STORE acctype) t u" "trace_assms t"
     and "sz > 0"
     and "translate_address (unat vaddr) = Some paddr"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1307,7 +1347,7 @@ lemma VADeref_store_data_access_enabled[derivable_capsE]:
   by (auto intro: VADeref_store_data_enabled)
 
 lemma VADeref_store_data_access_enabled'[derivable_capsE]:
-  assumes "Run (VADeref va sz (perms OR CAP_PERM_STORE) acctype) t vaddr" "trace_assms t"
+  assumes "Run (VACheckAddress va vaddr sz (perms OR CAP_PERM_STORE) acctype) t u" "trace_assms t"
     and "sz > 0"
     and "translate_address (unat vaddr) = Some paddr"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
@@ -1316,11 +1356,11 @@ lemma VADeref_store_data_access_enabled'[derivable_capsE]:
   using assms
   by (auto intro: VADeref_store_data_enabled')
 
-lemma traces_enabled_bind_VADeref_Let[traces_enabled_combinatorI]:
+(*lemma traces_enabled_bind_VADeref_Let[traces_enabled_combinatorI]:
   assumes "traces_enabled (VADeref va sz perms acctype \<bind> (\<lambda>addr. f addr y)) s"
   shows "traces_enabled (VADeref va sz perms acctype \<bind> (\<lambda>addr. let x = y in f addr x)) s"
   using assms
-  by auto
+  by auto*)
 
 text \<open>Work around a problem with a common pattern of VirtualAddress dereference
   in the ASL, where there are two calls to VADeref with the same address and size,
@@ -1331,7 +1371,7 @@ text \<open>Work around a problem with a common pattern of VirtualAddress derefe
   register reads, so we'll have to add an assumption on traces that consecutive
   reads from the same register (without writes in between) read the same values.\<close>
 
-lemma traces_enabled_bind_VADeref_pair_ignore_second[traces_enabled_combinatorI]:
+(*lemma traces_enabled_bind_VADeref_pair_ignore_second[traces_enabled_combinatorI]:
   assumes "traces_enabled (VADeref va sz perms1 acctype1) s"
     and "\<And>t1. traces_enabled (VADeref va sz perms2 acctype2) (run s t1)"
     and "\<And>t1 t2 addr. Run (VADeref va sz (perms1 OR perms2) acctype1) t1 addr \<Longrightarrow> trace_assms t1  \<Longrightarrow> trace_assms t2 \<Longrightarrow> traces_enabled (f addr) (run (run s t1) t2)"
@@ -1351,7 +1391,7 @@ lemma traces_enabled_bind_VADeref_pair_add[traces_enabled_combinatorI]:
     and "\<And>t1 t2 va'. traces_enabled (VADeref va' sz perms2 acctype2) (run (run s t1) t2)"
     and "\<And>t1 t2 t3 addr va'. Run (VADeref va (sz * 2) (perms1 OR perms2) acctype1) t1 addr \<Longrightarrow> trace_assms t1  \<Longrightarrow> trace_assms t2 \<Longrightarrow> trace_assms t3 \<Longrightarrow> traces_enabled (f addr) (run (run (run s t1) t2) t3)"
   shows "traces_enabled (VADeref va sz perms1 acctype1 \<bind> (\<lambda>addr. VAAdd va (integer_subrange sz 63 0) \<bind> (\<lambda>va'. VADeref va' sz perms2 acctype2 \<bind> (\<lambda>_. f addr)))) s"
-  sorry
+  sorry*)
 
 text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
   using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
