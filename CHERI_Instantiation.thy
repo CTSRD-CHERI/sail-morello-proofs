@@ -276,16 +276,15 @@ lemma AND_NOT_eq_0_iff:
 context Cap_Axiom_Automaton
 begin
 
-lemma read_memt_bytes_derivable:
+lemma read_memt_bytes_accessed_mem_cap:
   assumes "Run (read_memt_bytes BCa BCb rk addr sz) t (bytes, tag)"
     and "cap_of_mem_bytes_method CC bytes tag = Some c"
     and "\<forall>addr'. nat_of_bv BCa addr = Some addr' \<longrightarrow> \<not>is_translation_event ISA (E_read_memt rk addr' (nat sz) (bytes, tag))"
-    and "use_mem_caps"
-  shows "c \<in> derivable_caps (run s t)"
-  using assms(1-3)
-  unfolding read_memt_bytes_def
+  shows "accessed_mem_cap_of_trace_if_tagged c t"
+  using assms
+  unfolding read_memt_bytes_def accessed_mem_cap_of_trace_if_tagged_def
   by (auto simp: derivable_caps_def maybe_fail_def accessed_caps_def
-           split: option.splits intro: derivable.Copy assms(4)
+           split: option.splits intro: derivable.Copy
            elim!: Run_bindE Traces_cases[of "Read_memt _ _ _ _"])
 
 lemma Run_bindE':
@@ -363,9 +362,10 @@ declare Run_letE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, deriv
 declare Run_case_prodE[where thesis = "fst (snd (snd (snd a))) \<in> xs" and a = a for a xs, derivable_caps_combinators]
 declare Run_case_prodE[where thesis = "snd (snd a) \<in> xs" and a = a for a xs, derivable_caps_combinators]
 
-declare Run_bindE[where thesis = "a \<in> xs" and a = a for a xs, derivable_caps_combinators]
-declare Run_ifE[where thesis = "a \<in> xs" and a = a for a xs, derivable_caps_combinators]
-declare Run_letE[where thesis = "a \<in> xs" and a = a for a xs, derivable_caps_combinators]
+lemmas Run_int_set_member_combinators[derivable_caps_combinators] =
+  Run_bindE[where thesis = "a \<in> insert x xs" and a = a for a x :: int and xs :: "int set"]
+  Run_ifE[where thesis = "a \<in> insert x xs" and a = a for a x :: int and xs :: "int set"]
+  Run_letE[where thesis = "a \<in> insert x xs" and a = a for a x :: int and xs :: "int set"]
 
 lemma Run_return_resultE:
   assumes "Run (return x) t a"
@@ -1234,29 +1234,37 @@ lemma CapSetFlags_derivable[derivable_capsI]:
   thm CapSetFlags_def
   sorry
 
-lemma clear_perm_derivable[derivable_capsI]:
-  assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "clear_perm perms c \<in> derivable_caps s"
-    (is "?c' \<in> derivable_caps s")
+lemma clear_perm_leq_cap:
+  assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "leq_cap CC (clear_perm perms c) c"
 proof -
   have perms: "leq_perms (to_bl (CapGetPermissions (clear_perm perms c))) (to_bl (CapGetPermissions c))"
     unfolding leq_perms_def leq_bools_iff CapGetPermissions_def CapClearPerms_def
     by (auto simp: to_bl_nth nth_slice update_subrange_vec_dec_test_bit word_ops_nth_size)
-  moreover have "cap_permits CAP_PERM_GLOBAL ?c' \<longrightarrow> cap_permits CAP_PERM_GLOBAL c"
+  moreover have "cap_permits CAP_PERM_GLOBAL (clear_perm perms c) \<longrightarrow> cap_permits CAP_PERM_GLOBAL c"
     using perms
     by (auto simp: leq_perms_to_bl_iff CapCheckPermissions_def word_eq_iff word_ops_nth_size)
-  moreover have tag: "CapIsTagSet ?c' \<longleftrightarrow> CapIsTagSet c"
-    and "CapIsSealed ?c' \<longleftrightarrow> CapIsSealed c"
+  moreover have tag: "CapIsTagSet (clear_perm perms c) \<longleftrightarrow> CapIsTagSet c"
+    and "CapIsSealed (clear_perm perms c) \<longleftrightarrow> CapIsSealed c"
     unfolding CapClearPerms_def CapIsSealed_def CapGetObjectType_def
     by (auto simp: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above)
-  ultimately have "leq_cap CC (clear_perm perms c) c"
-    using assms(2)
+  ultimately show "leq_cap CC (clear_perm perms c) c"
+    using assms
     by (auto simp: leq_cap_def leq_bounds_def get_bounds_CapClearPerms_eq)
-  from derivable.Restrict[OF _ this]
-  show ?thesis
-    using assms(1) tag
-    by (auto simp: derivable_caps_def)
 qed
+
+lemma clear_perm_derivable:
+  assumes "c \<in> derivable C" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "clear_perm perms c \<in> derivable C"
+  using assms
+  by (blast intro: derivable.Restrict clear_perm_leq_cap)
+
+lemma clear_perm_derivable_caps[derivable_capsI]:
+  assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "clear_perm perms c \<in> derivable_caps s"
+  using assms
+  unfolding derivable_caps_def
+  by (auto elim: clear_perm_derivable)
 
 lemma set_bit_0_derivable[derivable_capsI]:
   assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
@@ -1325,80 +1333,117 @@ lemma ucast_derivable[intro, simp]:
   using assms
   by (auto simp: derivable_caps_def nth_ucast dest: test_bit_len)
 
-lemma read_memt_derivable:
+lemma read_memt_accessed_mem_cap:
   assumes "Run (read_memt BC_mword BC_mword rk addr sz) t (data, tag)"
     and "tag' \<longleftrightarrow> tag = B1"
-    and "use_mem_caps"
-  shows "Capability_of_tag_word tag' data \<in> derivable_caps (run s t)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word tag' data) t"
 proof cases
   assume "tag = B1"
   then show ?thesis
     using assms(1,2) no_cap_load_translation_events
     unfolding read_memt_def maybe_fail_def Capability_of_tag_word_def
     by (auto simp: cap_of_mem_bytes_def bind_eq_Some_conv split: option.splits
-             intro: assms(3) elim!: Run_bindE read_memt_bytes_derivable)
+             elim!: Run_bindE read_memt_bytes_accessed_mem_cap)
 next
   assume "tag \<noteq> B1"
   then show ?thesis
     using assms(1,2)
-    by auto
+    by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
 qed
 
-lemma ReadTaggedMem_single_derivable:
-  assumes *: "Run (ReadTaggedMem desc 16 accdesc) t (tag, data)"
-    and **: "use_mem_caps"
-  shows "Capability_of_tag_word (tag !! 0) data \<in> derivable_caps (run s t)"
-  using *
+lemma ReadTaggedMem_single_accessed_mem_cap:
+  assumes "Run (ReadTaggedMem desc 16 accdesc) t (tag, data)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word (tag !! 0) data) t"
+  using assms
   unfolding ReadTaggedMem_def
-  by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_derivable intro: ** )
+  by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_accessed_mem_cap)
 
-lemma ReadTaggedMem_lower_derivable:
+lemma (in Cap_Axiom_Automaton) accessed_mem_cap_of_trace_if_tagged_append[simp]:
+  "accessed_mem_cap_of_trace_if_tagged c (t @ t') \<longleftrightarrow>
+   accessed_mem_cap_of_trace_if_tagged c t \<or> accessed_mem_cap_of_trace_if_tagged c t'"
+  by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
+
+lemma (in Cap_Axiom_Automaton) untagged_accessed_mem_cap_of_trace[simp]:
+  assumes "\<not>is_tagged_method CC c"
+  shows "accessed_mem_cap_of_trace_if_tagged c t"
+  using assms
+  by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
+
+lemma ReadTaggedMem_lower_accessed_mem_cap:
   assumes t: "Run (ReadTaggedMem desc sz accdesc) t (tag, data :: 'a::len word)"
     and sz: "LENGTH('a) = nat sz * 8" "sz = 16 \<or> sz = 32"
-    and *: "use_mem_caps"
-  shows "Capability_of_tag_word (tag !! 0) (ucast data) \<in> derivable_caps (run s t)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word (tag !! 0) (ucast data)) t"
   using t sz
   unfolding ReadTaggedMem_def
-  by (auto simp add: Bits_def nth_ucast nth_word_cat
-           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable intro: * )
+  by (auto simp add: Bits_def nth_ucast nth_word_cat elim!: Run_bindE Run_letE Run_ifE
+           intro: read_memt_accessed_mem_cap)
 
-lemma ReadTaggedMem_upper_derivable:
+lemma ReadTaggedMem_upper_accessed_mem_cap:
   assumes t: "Run (ReadTaggedMem desc sz accdesc) t (tag :: 2 word, data :: 256 word)"
     and sz: "sz = 32"
-    and *: "use_mem_caps"
-  shows "Capability_of_tag_word (tag !! Suc 0) (Word.slice 128 data) \<in> derivable_caps (run s t)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word (tag !! Suc 0) (Word.slice 128 data)) t"
   using t sz
   unfolding ReadTaggedMem_def
   by (auto simp add: Bits_def nth_ucast nth_word_cat slice_128_cat_cap_pair
-           elim!: Run_bindE Run_letE Run_ifE read_memt_derivable[THEN derivable_caps_run_imp]
-           intro: *)
+           elim!: Run_bindE Run_letE Run_ifE intro: read_memt_accessed_mem_cap)
 
-lemma ReadTaggedMem_lower_prod_derivable[derivable_capsE]:
+lemma ReadTaggedMem_lower_prod_accessed_mem_cap:
   assumes t: "Run (ReadTaggedMem desc sz accdesc) t a"
     and sz: "LENGTH('a) = nat sz * 8" "sz = 16 \<or> sz = 32"
-    and *: "use_mem_caps"
-  shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \<in> derivable_caps (run s t)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128)) t"
   using t sz
-  by (cases a) (auto simp: test_bit_of_bl elim: ReadTaggedMem_lower_derivable intro: * )
+  by (cases a) (auto simp: test_bit_of_bl intro: ReadTaggedMem_lower_accessed_mem_cap)
 
-
-lemma AArch64_TaggedMemSingle_lower_derivable[derivable_capsE]:
+lemma AArch64_TaggedMemSingle_lower_accessed_mem_cap:
   assumes t: "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
     and sz: "LENGTH('a) = nat sz * 8"
-    and *: "use_mem_caps"
-  shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128) \<in> derivable_caps (run s t)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a) 0] !! 0) (slice (snd a :: 'a::len word) 0 128)) t"
   using t sz
   unfolding AArch64_TaggedMemSingle_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp] intro: * )
+  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_accessed_mem_cap)
 
-lemma AArch64_TaggedMemSingle_upper_derivable[derivable_capsE]:
+lemma AArch64_TaggedMemSingle_upper_accessed_mem_cap:
   assumes t: "Run (AArch64_TaggedMemSingle addr sz acctype wasaligned) t a"
     and sz: "sz = 32"
-    and *: "use_mem_caps"
-  shows "Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a :: 2 word) 1] !! 0) (slice (snd a :: 256 word) CAPABILITY_DBITS 128) \<in> derivable_caps (run s t)"
+  shows "accessed_mem_cap_of_trace_if_tagged (Capability_of_tag_word (vec_of_bits [access_vec_dec (fst a :: 2 word) 1] !! 0) (slice (snd a :: 256 word) CAPABILITY_DBITS 128)) t"
   using t sz
   unfolding AArch64_TaggedMemSingle_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_upper_derivable[THEN derivable_caps_run_imp] intro: * )
+  by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_upper_accessed_mem_cap)
+
+lemma MemC_read_accessed_mem_cap:
+  assumes "Run (MemC_read addr acctype) t c"
+  shows "accessed_mem_cap_of_trace_if_tagged c t"
+  using assms
+  unfolding MemC_read_def CapabilityFromData_def
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap)
+
+lemma MemCP_fst_accessed_mem_cap:
+  assumes "Run (MemCP addr acctype) t a"
+  shows "accessed_mem_cap_of_trace_if_tagged (fst a) t"
+  using assms
+  unfolding MemCP_def CapabilityFromData_def
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap)
+
+lemma MemCP_snd_accessed_mem_cap:
+  assumes "Run (MemCP addr acctype) t a"
+  shows "accessed_mem_cap_of_trace_if_tagged (snd a) t"
+  using assms
+  unfolding MemCP_def CapabilityFromData_def
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_upper_accessed_mem_cap)
+
+lemmas tagged_mem_primitives_accessed_mem_caps =
+  ReadTaggedMem_lower_prod_accessed_mem_cap
+  AArch64_TaggedMemSingle_lower_accessed_mem_cap
+  AArch64_TaggedMemSingle_upper_accessed_mem_cap
+  MemC_read_accessed_mem_cap
+  MemCP_fst_accessed_mem_cap
+  MemCP_snd_accessed_mem_cap
+
+lemmas tagged_mem_primitives_derivable_mem_caps[derivable_capsE] =
+  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_derivable_mem_cap]
+
+lemmas tagged_mem_primitives_derivable_caps[derivable_capsE] =
+  tagged_mem_primitives_derivable_mem_caps[THEN derivable_mem_caps_derivable_caps]
 
 (* Common patterns of capability/data conversions in memory access helpers *)
 lemma Capability_of_tag_word_pairE[derivable_capsE]:
@@ -1624,9 +1669,18 @@ definition branch_caps :: "Capability \<Rightarrow> Capability set" where
       set_bit c 0 False, normalise_cursor_flags (set_bit c 0 False) (CapGetValue c !! 55),
       normalise_cursor_flags (set_bit c 0 False) False}"
 
+abbreviation mutable_permissions where
+  "mutable_permissions \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
+
+definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
+  "mem_branch_caps c \<equiv>
+     (if CapGetObjectType c = CAP_SEAL_TYPE_RB then branch_caps (CapUnseal c)
+      else branch_caps c \<union> branch_caps (clear_perm mutable_permissions c))"
+
 (* TODO *)
 fun ev_assms :: "register_value event \<Rightarrow> bool" where
   "ev_assms (E_read_reg r v) = ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and> (\<forall>n c. R_name n = r \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps))"
+| "ev_assms (E_read_memt rk addr sz (bytes, tag)) = (invokes_mem_caps \<longrightarrow> (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps))"
 | "ev_assms _ = True"
 
 sublocale Write_Cap_Assm_Automaton
@@ -1752,6 +1806,31 @@ lemma C_read_invoked_caps[derivable_capsE]:
   shows "CapUnseal c \<in> invoked_caps"
   using C_read_branch_caps_invoked_caps[OF assms]
   by (auto simp: branch_caps_def)
+
+lemma accessed_mem_cap_of_trace_sealed_invoked_caps:
+  assumes "accessed_mem_cap_of_trace_if_tagged c t"
+    and "trace_assms t"
+    and "CapIsTagSet c" and "CapGetObjectType c = CAP_SEAL_TYPE_RB"
+    and "invokes_mem_caps"
+  shows "branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+  using assms(1-4)
+  by (induction t)
+     (auto intro: assms(5) simp: accessed_mem_cap_of_trace_if_tagged_def mem_branch_caps_def)
+
+lemmas tagged_mem_primitives_sealed_invoked_caps[derivable_capsE] =
+  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_sealed_invoked_caps]
+
+lemma accessed_mem_cap_of_trace_invoked_caps:
+  assumes "accessed_mem_cap_of_trace_if_tagged c t"
+    and "trace_assms t"
+    and "CapIsTagSet c"
+    and "invokes_mem_caps"
+  shows "mem_branch_caps c \<subseteq> invoked_caps"
+  using assms(1-3)
+  by (induction t) (auto intro: assms(4) simp: accessed_mem_cap_of_trace_if_tagged_def)
+
+lemmas tagged_mem_primitives_invoked_caps[derivable_capsE] =
+  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_invoked_caps]
 
 end
 

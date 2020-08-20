@@ -59,7 +59,7 @@
     "CapabilityFromData": {
       "derivable_caps": {
         "stmts": ["Run (CapabilityFromData n arg1 arg2) t c \\<Longrightarrow> n = 128 \\<Longrightarrow> Capability_of_tag_word (arg1 !! 0) arg2 \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, auto simp: CapabilityFromData_def)"
+        "proof": "(auto simp: CapabilityFromData_def)"
       }
     },
     "CheckCapability": {

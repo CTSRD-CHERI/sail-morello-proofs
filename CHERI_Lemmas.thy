@@ -255,14 +255,24 @@ definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value)
        (\<exists>cc cd.
           cc \<in> derivable_caps s \<and> cd \<in> derivable_caps s \<and>
           invokable CC cc cd \<and>
-          leq_cap CC c (CapUnseal cc))))"
+          leq_cap CC c (CapUnseal cc)) \<or>
+       (\<exists>c' \<in> derivable_mem_caps s.
+          invokes_mem_caps \<and>
+          (leq_cap CC c c' \<or> leq_cap CC c (CapUnseal c') \<and> CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB))))"
+
+lemma derivable_mem_caps_run_imp:
+  assumes "c \<in> derivable_mem_caps s"
+  shows "c \<in> derivable_mem_caps (run s t)"
+  using assms derivable_mono[OF accessed_mem_caps_run_mono]
+  by (auto simp: derivable_mem_caps_def)
 
 lemma traces_enabled_PCC_set:
   assumes "enabled_pcc c s"
   shows "traces_enabled (write_reg PCC_ref c) s"
   using assms
-  unfolding PCC_set_def enabled_pcc_def derivable_caps_def
-  by (intro traces_enabled_write_reg) (auto simp: register_defs is_sentry_def invokable_def CapIsSealed_def)
+  unfolding PCC_set_def enabled_pcc_def derivable_caps_def derivable_mem_caps_def
+  by (intro traces_enabled_write_reg)
+     (auto simp: register_defs is_sentry_def invokable_def CapIsSealed_def leq_cap_tag_imp[of CC, simplified])
 
 definition enabled_branch_target :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
   "enabled_branch_target c s \<equiv>
@@ -287,7 +297,8 @@ lemma enabled_pcc_run_imp:
   assumes "enabled_pcc c s"
   shows "enabled_pcc c (run s t)"
   using assms
-  by (auto simp: enabled_pcc_def intro: derivable_caps_run_imp)
+  unfolding enabled_pcc_def
+  by (blast intro: derivable_caps_run_imp derivable_mem_caps_run_imp)
 
 lemma enabled_branch_target_run_imp[derivable_caps_runI]:
   assumes "enabled_branch_target c s"
@@ -333,6 +344,16 @@ next
     by (auto simp: enabled_pcc_def derivable_caps_def)
 qed
 
+lemma invokable_enabled_pccI:
+  assumes "invokable CC cc cd"
+    and "cc \<in> derivable_caps s" and "cd \<in> derivable_caps s"
+    and "leq_cap CC c (CapUnseal cc)"
+    and "c \<in> invoked_caps"
+  shows "enabled_pcc c s"
+  using assms
+  unfolding enabled_pcc_def
+  by auto
+
 lemma branch_sealed_pair_enabled_pcc:
   assumes "CapGetObjectType cc = CapGetObjectType cd"
     and "CapIsTagSet cc" and "CapIsTagSet cd"
@@ -343,8 +364,8 @@ lemma branch_sealed_pair_enabled_pcc:
     and "branch_caps (CapUnseal cc) \<subseteq> invoked_caps"
   shows "\<forall>c' \<in> branch_caps (CapUnseal cc). enabled_pcc c' s"
   using assms
-  unfolding enabled_pcc_def
-  by (fastforce simp: invokable_def CapIsSealed_def is_sentry_def intro: branch_caps_leq)
+  by (auto simp: invokable_def CapIsSealed_def is_sentry_def
+           intro!: branch_caps_leq invokable_enabled_pccI[of cc cd])
 
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
   assumes "c \<in> invoked_caps" and "invokable CC cc cd"
@@ -1266,9 +1287,9 @@ proof (cases "VAIsPCCRelative va \<or> VAIsBits64 va")
   case True
   then show ?thesis
     using assms(1,2)
-    unfolding VADeref_def
-    by - (derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
-                          elim: CheckCapability_store_enabled)
+    unfolding VACheckAddress_def
+    by - (*derivable_capsI assms: assms(3-) VADeref_addr_l2p64_nat[OF assms(1,2)]
+                          elim: CheckCapability_store_enabled*)
 next
   case False
   let ?c = "VirtualAddress_base va"
