@@ -318,6 +318,16 @@ lemma enabled_branch_target_CapWithTagClear[derivable_capsI]:
   "enabled_branch_target (CapWithTagClear c) s"
   by (auto simp: enabled_branch_target_def enabled_pcc_def derivable_caps_def branch_caps_128th_iff)
 
+lemma if_CapWithTagClear_128th_iff[simp]:
+  "(if clear then CapWithTagClear c else c) !! 128 \<longleftrightarrow> \<not>clear \<and> c !! 128"
+  by auto
+
+lemma enabled_branch_target_CapUnseal_if_clear:
+  assumes "CapIsTagSet c \<longrightarrow> (\<forall>c' \<in> branch_caps (CapUnseal c). enabled_pcc c' s)"
+  shows "enabled_branch_target (CapUnseal (if clear then CapWithTagClear c else c)) s"
+  using assms
+  by (auto simp: enabled_branch_target_def)
+
 lemma derivable_enabled_branch_target:
   assumes "c \<in> derivable_caps s"
   shows "enabled_branch_target c s"
@@ -354,8 +364,16 @@ lemma invokable_enabled_pccI:
   unfolding enabled_pcc_def
   by auto
 
+lemma CapGetObjectType_CapWithTagClear_eq[simp]:
+  "CapGetObjectType (CapWithTagClear c) = CapGetObjectType c"
+  by (auto simp: CapGetObjectType_def CapWithTagClear_def slice_set_bit_above)
+
+lemma CapGetObjectType_if_CapWithTagClear_eq:
+  "CapGetObjectType (if clear then CapWithTagClear c else c) = CapGetObjectType c"
+  by auto
+
 lemma branch_sealed_pair_enabled_pcc:
-  assumes "CapGetObjectType cc = CapGetObjectType cd"
+  assumes "CapGetObjectType (if clear then CapWithTagClear cc else cc) = CapGetObjectType cd"
     and "CapIsTagSet cc" and "CapIsTagSet cd"
     and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
     and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cc" and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cd"
@@ -364,7 +382,8 @@ lemma branch_sealed_pair_enabled_pcc:
     and "branch_caps (CapUnseal cc) \<subseteq> invoked_caps"
   shows "\<forall>c' \<in> branch_caps (CapUnseal cc). enabled_pcc c' s"
   using assms
-  by (auto simp: invokable_def CapIsSealed_def is_sentry_def
+  unfolding CapGetObjectType_if_CapWithTagClear_eq
+  by (auto simp: invokable_def CapIsSealed_def is_sentry_def split: if_splits
            intro!: branch_caps_leq invokable_enabled_pccI[of cc cd])
 
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
@@ -372,14 +391,14 @@ lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
     and "cc \<in> derivable (accessed_caps (\<not>invokes_mem_caps) s)"
     and "cd \<in> derivable (accessed_caps (\<not>invokes_mem_caps) s)"
-    and "name r \<in> isa.IDC ISA"
+    and "name r \<in> IDC ISA"
     and "leq_cap CC c (unseal_method CC cd)"
   shows "traces_enabled (write_reg r v) s"
   using assms
   by (intro traces_enabled_write_reg) auto
 
-lemma branch_sealed_pair_C_set_29:
-  assumes "CapGetObjectType cc = CapGetObjectType cd"
+lemma traces_enabled_C_set_29_branch_sealed_pair:
+  assumes "CapGetObjectType (if clear then CapWithTagClear cc else cc) = CapGetObjectType cd"
     and "CapIsTagSet cc" and "CapIsTagSet cd"
     and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
     and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cc" and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cd"
@@ -388,8 +407,194 @@ lemma branch_sealed_pair_C_set_29:
     and "CapUnseal cd \<in> invoked_caps"
   shows "traces_enabled (C_set 29 (CapUnseal cd)) s"
   using assms
+  unfolding CapGetObjectType_if_CapWithTagClear_eq
   by (fastforce simp: C_set_def R_set_def  derivable_caps_def invokable_def CapIsSealed_def is_sentry_def register_defs
                 intro: traces_enabled_write_IDC_CCall[of "CapUnseal cd" cc cd])
+
+lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_sentry:
+  assumes "c \<in> invoked_caps"
+    and "isa.caps_of_regval ISA (regval_of r v) = {c}"
+    and "cs \<in> derivable (accessed_caps (\<not>invokes_mem_caps) s)"
+    and "is_sentry_method CC cs" and "is_sealed_method CC cs"
+    and "leq_cap CC c (unseal_method CC cs)"
+    and "name r \<in> IDC ISA"
+  shows "traces_enabled (write_reg r v) s"
+  using assms
+  by (intro traces_enabled_write_reg) auto
+
+lemma traces_enabled_C_set_29:
+  assumes "c \<in> derivable_caps s"
+  shows "traces_enabled (C_set 29 c) s"
+  using assms
+  by (auto simp: C_set_def R_set_def register_defs derivable_caps_def intro!: traces_enabled_write_reg)
+
+lemma enabled_branch_target_CapUnseal_mem_cap:
+  assumes "c \<in> derivable_mem_caps s"
+    and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+    and "invokes_mem_caps"
+  shows "enabled_branch_target (CapUnseal (if clear then CapWithTagClear c else c)) s"
+  using assms(1,2) branch_caps_leq
+  by (auto simp: enabled_branch_target_def enabled_pcc_def intro: assms(3))
+
+(*lemma CapSquashMutablePermissions_sealed_eq:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "CapIsSealed c"
+  shows "c' = c"
+  using assms
+  by (auto simp: CapSquashPostLoadCap_def elim!: Run_bindE Run_ifE)*)
+
+lemma CapGetObjectType_CapClearPerms_eq[simp]:
+  "CapGetObjectType (CapClearPerms c perms) = CapGetObjectType c"
+  by (auto simp: CapGetObjectType_def CapClearPerms_def slice_update_subrange_vec_dec_above)
+
+lemma CapIsSealed_CapClearPerms_iff[simp]:
+  "CapIsSealed (CapClearPerms c perms) \<longleftrightarrow> CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
+(*lemma CapSquashMutablePermissions_CapIsSealed_iff:
+  assumes "Run (CapSquashMutablePermissions c base) t c'"
+  shows "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+  using assms
+  by (auto simp: CapSquashMutablePermissions_def elim!: Run_bindE split: if_splits)
+
+lemma CapSquashMutablePermissions_CapIsTagSet_iff:
+  assumes "Run (CapSquashMutablePermissions c base) t c'"
+  shows "CapIsTagSet c' \<longleftrightarrow> CapIsTagSet c"
+  using assms
+  by (auto simp: CapSquashMutablePermissions_def elim!: Run_bindE split: if_splits)*)
+
+lemma CapSquashPostLoadCap_cases:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+  obtains "c' = c"
+  | "c' = CapWithTagClear c"
+  | "c' = CapClearPerms c mutable_perms" and "\<not>CapIsSealed c"
+  using assms
+  by (auto simp: CapSquashPostLoadCap_def elim!: Run_bindE split: if_splits)
+
+lemma CapSquashPostLoadCap_sealed_branch_caps_invoked_caps[derivable_capsE]:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "CapIsTagSet c'"
+    and "(c' = c \<or> c' = CapClearPerms c mutable_perms) \<longrightarrow> CapIsSealed c \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+  shows "branch_caps (CapUnseal c') \<subseteq> invoked_caps"
+  using assms
+  by (cases rule: CapSquashPostLoadCap_cases) auto
+
+lemma invokes_mem_cap_leq_enabled_pccI:
+  assumes "c' \<in> derivable_mem_caps s" and "leq_cap CC c c'"
+    and "c \<in> invoked_caps"
+    and "invokes_mem_caps"
+  shows "enabled_pcc c s"
+  using assms
+  unfolding enabled_pcc_def
+  by blast
+
+lemma enabled_branch_target_CapSquashPostLoadCap:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "(CapIsTagSet c \<and> \<not>CapIsSealed c) \<longrightarrow> (c \<in> derivable_mem_caps s \<and> mem_branch_caps c \<subseteq> invoked_caps)"
+    and "invokes_mem_caps"
+  shows "enabled_branch_target c' s"
+proof -
+  note leqI = branch_caps_leq leq_cap_trans[OF branch_caps_leq clear_perm_leq_cap]
+  show ?thesis
+    using assms(1,2)
+    by (cases rule: CapSquashPostLoadCap_cases)
+       (auto simp: enabled_branch_target_def mem_branch_caps_def CapIsSealed_def
+             elim!: invokes_mem_cap_leq_enabled_pccI leqI intro: assms(3))
+qed
+
+lemma clear_perm_derivable_mem_caps[derivable_capsI]:
+  assumes "c \<in> derivable_mem_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "clear_perm perms c \<in> derivable_mem_caps s"
+  using assms
+  unfolding derivable_mem_caps_def
+  by (auto elim: clear_perm_derivable)
+
+declare Run_ifE[where thesis = "c \<in> derivable_mem_caps s" and a = c for c s, derivable_caps_combinators]
+declare Run_letE[where thesis = "c \<in> derivable_mem_caps s" and a = c for c s, derivable_caps_combinators]
+declare Run_return_resultE[where P = "\<lambda>c. c \<in> derivable_mem_caps s" for s, derivable_caps_combinators]
+declare Run_bindE'[where P = "\<lambda>t. c \<in> derivable_mem_caps (run s t)" for c s, simplified, derivable_caps_combinators]
+declare Run_bindE[where thesis = "c \<in> derivable_mem_caps s" and a = c for c s, derivable_caps_combinators]
+declare if_split[where P = "\<lambda>c. c \<in> derivable_mem_caps s" for s, THEN iffD2, derivable_capsI]
+declare Run_case_prodE[where thesis = "c \<in> derivable_mem_caps s" and a = c for c s, derivable_caps_combinators]
+
+lemma bind_derivable_caps[derivable_caps_combinators]:
+  assumes "Run (m \<bind> f) t a"
+    and "\<And>tm am tf. Run m tm am \<Longrightarrow> Run (f am) tf a \<Longrightarrow> t = tm @ tf \<Longrightarrow> c \<in> derivable_mem_caps (run (run s tm) tf)"
+  shows "c \<in> derivable_mem_caps (run s t)"
+  using assms
+  by (auto elim: Run_bindE)
+
+lemma CapWithTagClear_derivable_mem_caps[intro, simp, derivable_capsI]:
+  "CapWithTagClear c \<in> derivable_mem_caps s"
+  by (auto simp: derivable_mem_caps_def)
+
+lemma CapSquashPostLoadCap_derivable_mem_caps[derivable_capsE]:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "c \<in> derivable_mem_caps s"
+  shows "c' \<in> derivable_mem_caps s"
+  using assms
+  by (cases rule: CapSquashPostLoadCap_cases) (auto intro: clear_perm_derivable_mem_caps)
+
+lemma CapabilityFromData_derivable_mem_caps[derivable_capsE]:
+  fixes s :: "(Capability, register_value) axiom_state"
+  shows "Run (CapabilityFromData n arg1 arg2) t c \<Longrightarrow> n = 128 \<Longrightarrow> Capability_of_tag_word (arg1 !! 0) arg2 \<in> derivable_mem_caps s \<Longrightarrow> c \<in> derivable_mem_caps s"
+  by (auto simp: CapabilityFromData_def)
+
+(* Common patterns of capability/data conversions in memory access helpers *)
+lemma Capability_of_tag_word_derivable_mem_caps_pairE[derivable_capsE]:
+  assumes "x = (tag, data)"
+    and "Capability_of_tag_word ((vec_of_bits [access_vec_dec (fst x) i] :: 1 word) !! 0) (slice (snd x) j 128) \<in> derivable_mem_caps s"
+  shows "Capability_of_tag_word ((vec_of_bits [access_vec_dec tag i] :: 1 word) !! 0) (slice data j 128) \<in> derivable_mem_caps s"
+  using assms
+  by auto
+
+lemma Capability_of_tag_word_derivable_mem_caps_rev_pairE[derivable_capsE]:
+  assumes "x = (data, tag)"
+    and "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_mem_caps s"
+  shows "Capability_of_tag_word ((vec_of_bits [access_vec_dec tag i] :: 1 word) !! 0) (slice data j 128) \<in> derivable_mem_caps s"
+  using assms
+  by auto
+
+declare Run_case_prodE[where thesis = "Capability_of_tag_word tag word \<in> derivable_mem_caps s" for tag word s, derivable_capsE]
+
+lemma Capability_of_tag_word_return_rev_derivable_mem_caps_pairE[derivable_capsE]:
+  assumes "Run (return (data, tag)) t x"
+    and "t = [] \<longrightarrow> Capability_of_tag_word ((vec_of_bits [access_vec_dec tag i] :: 1 word) !! 0) (slice data j 128) \<in> derivable_mem_caps s"
+  shows "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_mem_caps s"
+  using assms
+  by auto
+
+declare derivable_mem_caps_run_imp[derivable_caps_runI]
+
+lemma traces_enabled_C_set_if_sentry:
+  fixes c :: Capability and n :: int
+  defines "sentry \<equiv> ((CapIsTagSet c \<and> CapIsSealed c) \<and> n = 29) \<and> CapGetObjectType c = CAP_SEAL_TYPE_LB"
+  assumes "sentry \<longrightarrow> c \<in> derivable_caps s \<and> CapUnseal c \<in> invoked_caps"
+    and "\<not>sentry \<longrightarrow> traces_enabled (C_set n c) s"
+  shows "traces_enabled (C_set n (if sentry then CapUnseal c else c)) s"
+proof cases
+  assume sentry
+  then show ?thesis
+    using assms
+    unfolding C_set_def R_set_def sentry_def
+    by (auto simp: register_defs derivable_caps_def CapIsSealed_def is_sentry_def
+             intro!: traces_enabled_write_IDC_sentry)
+next
+  assume "\<not>sentry"
+  then show ?thesis
+    using assms(3)
+    by auto
+qed
+
+(* declare Run_ifE[where thesis = "CapUnseal c \<in> invoked_caps" and a = c for c, derivable_caps_combinators] *)
+
+lemma Run_CSP_or_C_read_invoked_caps:
+  assumes "Run (if n = 31 then CSP_read () else C_read n) t c"
+    and "n \<noteq> 31"
+    and "Run (C_read n) t c \<longrightarrow> CapUnseal c \<in> invoked_caps"
+  shows "CapUnseal c \<in> invoked_caps"
+  using assms
+  by auto
 
 lemma traces_enabled_BranchToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"

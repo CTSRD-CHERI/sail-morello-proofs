@@ -1669,13 +1669,13 @@ definition branch_caps :: "Capability \<Rightarrow> Capability set" where
       set_bit c 0 False, normalise_cursor_flags (set_bit c 0 False) (CapGetValue c !! 55),
       normalise_cursor_flags (set_bit c 0 False) False}"
 
-abbreviation mutable_permissions where
-  "mutable_permissions \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
+abbreviation mutable_perms where
+  "mutable_perms \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
 
 definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
   "mem_branch_caps c \<equiv>
      (if CapGetObjectType c = CAP_SEAL_TYPE_RB then branch_caps (CapUnseal c)
-      else branch_caps c \<union> branch_caps (clear_perm mutable_permissions c))"
+      else branch_caps c \<union> branch_caps (clear_perm mutable_perms c))"
 
 (* TODO *)
 fun ev_assms :: "register_value event \<Rightarrow> bool" where
