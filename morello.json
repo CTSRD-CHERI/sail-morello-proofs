@@ -68,6 +68,12 @@
         "proof": "(traces_enabledI)"
       }
     },
+    "VACheckAddress": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      }
+    },
     "CapSetValue": {
       "derivable_caps": {
         "stmts": ["Run (CapSetValue arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
@@ -95,6 +101,11 @@
       "derivable_caps": {
         "stmts": ["Run (CapSetBounds arg0 arg1 arg2) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
         "proof": "- (* TODO *)"
+      }
+    },
+    "CapSquashPostLoadCap": {
+      "derivable_caps": {
+        "stmts": ["Run (CapSquashPostLoadCap arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps (run s t)"]
       }
     },
     "X_set": {
@@ -410,7 +421,7 @@
     },
     "execute_BLR_CI_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_caps)"
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
       }
     },
     "execute_BRS_C_C_C": {
@@ -420,7 +431,29 @@
     },
     "execute_BR_CI_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_caps)"
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+      }
+    },
+    "execute_LDPBLR_C_C_C": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> arg2", "arg2 \\<le> 31", "0 \\<le> arg1", "arg1 \\<le> 31", "arg2 = 29 \\<longrightarrow> arg1 \\<in> invoked_indirect_regs", "arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_mem_cap[where n = arg2] elim: enabled_branch_target_CapSquashPostLoadCap)"
+      }
+    },
+    "decode_LDPBLR_C_C_C": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint arg2 = 29 \\<longrightarrow> uint arg1 \\<in> invoked_indirect_regs", "uint arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+      }
+    },
+    "execute_LDPBR_C_C_C": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> arg2", "arg2 \\<le> 31", "0 \\<le> arg1", "arg1 \\<le> 31", "arg2 = 29 \\<longrightarrow> arg1 \\<in> invoked_indirect_regs", "arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_mem_cap[where n = arg2] elim: enabled_branch_target_CapSquashPostLoadCap)"
+      }
+    },
+    "decode_LDPBR_C_C_C": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint arg2 = 29 \\<longrightarrow> uint arg1 \\<in> invoked_indirect_regs", "uint arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
       }
     },
     "execute_RETS_C_C_C": {
@@ -580,8 +613,6 @@
     "decode_BLRS_C_C": ["uint arg1"],
     "execute_BLRS_C_C_C": ["arg1", "arg2"],
     "decode_BLRS_C_C_C": ["uint arg0", "uint arg2"],
-    "execute_BLR_CI_C": ["arg1"],
-    "decode_BLR_CI_C": ["uint arg1"],
     "execute_BLR_C_C": ["arg1"],
     "decode_BLR_C_C": ["uint arg1"],
     "execute_BRR_C_C": ["arg1"],
@@ -590,8 +621,6 @@
     "decode_BRS_C_C": ["uint arg1"],
     "execute_BRS_C_C_C": ["arg1", "arg2"],
     "decode_BRS_C_C_C": ["uint arg0", "uint arg2"],
-    "execute_BR_CI_C": ["arg1"],
-    "decode_BR_CI_C": ["uint arg1"],
     "execute_BR_C_C": ["arg1"],
     "decode_BR_C_C": ["uint arg1"],
     "execute_RETR_C_C": ["arg1"],
@@ -603,16 +632,16 @@
     "execute_RET_C_C": ["arg1"],
     "decode_RET_C_C": ["uint arg1"]
   },
-  "invokes_mem_caps": [
-    "execute_BLR_CI_C",
-    "decode_BLR_CI_C",
-    "execute_BR_CI_C",
-    "decode_BR_CI_C",
-    "execute_LDPBLR_C_C_C",
-    "decode_LDPBLR_C_C_C",
-    "execute_LDPBR_C_C_C",
-    "decode_LDPBR_C_C_C"
-  ],
+  "invoked_indirect_regs": {
+    "execute_BLR_CI_C": ["arg1"],
+    "decode_BLR_CI_C": ["uint arg1"],
+    "execute_BR_CI_C": ["arg1"],
+    "decode_BR_CI_C": ["uint arg1"],
+    "execute_LDPBLR_C_C_C": ["arg1"],
+    "decode_LDPBLR_C_C_C": ["uint arg1"],
+    "execute_LDPBR_C_C_C": ["arg1"],
+    "decode_LDPBR_C_C_C": ["uint arg1"]
+  },
   "cap_load_funs": ["_ReadTaggedMem"],
   "skips": [
     "__ReadRAM",
