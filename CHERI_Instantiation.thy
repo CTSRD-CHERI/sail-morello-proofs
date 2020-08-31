@@ -991,16 +991,132 @@ lemma bitvector_129_Some_iff[simp]:
 
 end
 
+locale Morello_Bounds_Address_Calculation =
+  fixes translation_el :: "AccType \<Rightarrow> 2 word"
+    and s1_enabled :: "AccType \<Rightarrow> bool"
+    and tbi_enabled :: "AccType \<Rightarrow> nat \<Rightarrow> bool"
+    and in_host :: "AccType \<Rightarrow> bool"
+  assumes tbi_enabled_cong: "\<And>acctype addr1 addr2. bin_nth (int addr1) 55 = bin_nth (int addr2) 55 \<Longrightarrow> tbi_enabled acctype addr1 \<longleftrightarrow> tbi_enabled acctype addr2"
+begin
+
+definition has_ttbr1 :: "AccType \<Rightarrow> bool" where
+  "has_ttbr1 acctype = (translation_el acctype \<in> {EL0, EL1} \<or> in_host acctype)"
+
+definition bounds_address :: "AccType \<Rightarrow> nat \<Rightarrow> nat" where
+  "bounds_address acctype addr =
+     (if tbi_enabled acctype addr then
+        (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
+         then addr mod 2 ^ 56 + (255 * 2 ^ 56) \<comment> \<open>sign extension of addr[55..0]\<close>
+         else addr mod 2 ^ 56)                 \<comment> \<open>zero extension of addr[55..0]\<close>
+      else addr)"
+
+definition valid_address :: "AccType \<Rightarrow> nat \<Rightarrow> bool" where
+  "valid_address acctype addr \<equiv>
+     (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
+      then (if tbi_enabled acctype addr
+            then addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52 \<comment> \<open>addr[55..52] = 0xF\<close>
+            else addr \<ge> 4095 * 2 ^ 52)         \<comment> \<open>addr[63..52] = 0xFFF\<close>
+      else (if tbi_enabled acctype addr
+            then addr mod 2 ^ 56 < 2 ^ 52      \<comment> \<open>addr[55..52] = 0x0\<close>
+            else addr < 2 ^ 52))"              \<comment> \<open>addr[63..52] = 0x000\<close>
+
+lemma bin_nth_eq_mod_div:
+  "bin_nth w n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
+proof -
+  have "bin_nth w n = odd (w div 2 ^ n)"
+    by (auto simp: bin_nth_eq_mod)
+  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + w div 2 ^ (Suc n) * 2 ^ (Suc n)) div 2 ^ n)"
+    unfolding mod_div_mult_eq
+    ..
+  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + (2 ^ n) * (2 * (w div 2 ^ (Suc n)))) div 2 ^ n)"
+    by (auto simp only: mult_ac power_Suc)
+  also have "\<dots> = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
+    by auto
+  finally show ?thesis
+    .
+qed
+
+lemma bin_nth_int_eq_mod_div:
+  "bin_nth (int w) n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
+proof -
+  have "even (nat (int w mod 2 ^ (Suc n) div 2 ^ n)) = even (int w mod 2 ^ (Suc n) div 2 ^ n)"
+    by (intro even_nat_iff) (auto simp: pos_imp_zdiv_nonneg_iff)
+  then show ?thesis
+    unfolding bin_nth_eq_mod_div nat_mod_as_int
+    by (auto simp: nat_div_distrib nat_power_eq)
+qed
+
+lemma bounds_address_offset:
+  assumes "valid_address acctype (addr + offset)"
+    and "valid_address acctype addr"
+    and "offset < 2 ^ 52"
+    and "bounds_address acctype addr + offset < 2 ^ 64"
+  shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
+proof -
+  have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55
+        \<and> (addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+  proof (cases "s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55")
+    case True
+    let ?baddr = "bounds_address acctype addr"
+    have "?baddr = (?baddr mod 2 ^ 56) + (?baddr div 2 ^ 56 * 2 ^ 56)"
+      unfolding mod_div_mult_eq
+      ..
+    also have "\<dots> = addr mod 2 ^ 56 + 255 * 2 ^ 56"
+      using True assms(2,4)
+      by (intro arg_cong2[where f = "(+)"])
+         (auto simp add: bounds_address_def valid_address_def simp flip: mod_add_eq)
+    finally have "addr mod 2 ^ 56 + offset < 2 ^ 56" and *: "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
+      using True assms(2,4)
+      by (auto simp: bounds_address_def valid_address_def split: if_splits)
+    then have **: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
+      by auto
+    moreover have "bin_nth (int (addr + offset)) 55"
+      using assms(1) * **
+      by (auto simp: valid_address_def split: if_splits)
+    ultimately show ?thesis
+      using True
+      by auto
+  next
+    case False
+    then have 1: "addr mod 2 ^ 56 < 2 ^ 52"
+      using \<open>valid_address acctype addr\<close>
+      by (auto simp: valid_address_def split: if_splits)
+    then have 2: "addr mod 2 ^ 56 + offset < 2 ^ 53"
+      using \<open>offset < 2 ^ 52\<close>
+      by auto
+    then have 3: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
+      by auto
+    moreover have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55"
+      using 1 2 3
+      unfolding bin_nth_int_eq_mod_div
+      by auto
+    ultimately show ?thesis
+      by auto
+  qed
+  then show ?thesis
+    using tbi_enabled_cong[of addr "addr + offset" acctype]
+    unfolding bounds_address_def
+    by auto
+qed
+
+end
+
 locale Morello_Fixed_Address_Translation =
-  fixes translate_address :: "nat \<Rightarrow> nat option"
+  Morello_Bounds_Address_Calculation +
+  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
+    (* TODO: Let assumptions refer to a trace (and possibly a state) instead of just events,
+       allowing us to make assumptions about register values/fields that might change over time,
+       e.g. PSTATE.EL *)
     and translation_assms :: "register_value event \<Rightarrow> bool"
   assumes translate_correct:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
           Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
           FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
           \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
-          translate_address (unat vaddress) =
+          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) =
             Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
     and is_translation_event_correct:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
@@ -1009,9 +1125,116 @@ locale Morello_Fixed_Address_Translation =
           e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
           is_translation_event e"
     and no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
+    (*and current_el: "\<And>t acctype el. Run (AArch64_AccessUsesEL acctype) t el \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> translation_el acctype = el"
+    and s1_enabled: "\<And>t acctype s1e. Run (AArch64_IsStageOneEnabled acctype) t s1e \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> s1_enabled acctype = s1e"
+    and tbi_enabled: "\<And>t acctype addr top. Run (AddrTop addr (translation_el acctype)) t top \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> tbi_enabled acctype (unat addr) = (top \<noteq> 63)"
+    and in_host: "\<And>t acctype ih. Run (ELIsInHost (translation_el acctype)) t ih \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> in_host acctype = ih"*)
+    and translate_address_valid: "\<And>vaddr acctype acctype' paddr. translate_address vaddr acctype' = Some paddr \<Longrightarrow> valid_address acctype vaddr"
 begin
 
-sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
+(*definition has_ttbr1 :: "AccType \<Rightarrow> bool" where
+  "has_ttbr1 acctype = (translation_el acctype \<in> {EL0, EL1} \<or> in_host acctype)"
+
+definition bounds_address :: "AccType \<Rightarrow> nat \<Rightarrow> nat" where
+  "bounds_address acctype addr =
+     (if tbi_enabled acctype addr then
+        (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
+         then addr mod 2 ^ 56 + (255 * 2 ^ 56) \<comment> \<open>sign extension of addr[55..0]\<close>
+         else addr mod 2 ^ 56)                 \<comment> \<open>zero extension of addr[55..0]\<close>
+      else addr)"
+
+definition valid_address :: "AccType \<Rightarrow> nat \<Rightarrow> bool" where
+  "valid_address acctype addr \<equiv>
+     (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
+      then (if tbi_enabled acctype addr
+            then addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52 \<comment> \<open>addr[55..52] = 0xF\<close>
+            else addr \<ge> 4095 * 2 ^ 52)         \<comment> \<open>addr[63..52] = 0xFFF\<close>
+      else (if tbi_enabled acctype addr
+            then addr mod 2 ^ 56 < 2 ^ 52      \<comment> \<open>addr[55..52] = 0x0\<close>
+            else addr < 2 ^ 52))"              \<comment> \<open>addr[63..52] = 0x000\<close>
+
+lemma bin_nth_eq_mod_div:
+  "bin_nth w n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
+proof -
+  have "bin_nth w n = odd (w div 2 ^ n)"
+    by (auto simp: bin_nth_eq_mod)
+  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + w div 2 ^ (Suc n) * 2 ^ (Suc n)) div 2 ^ n)"
+    unfolding mod_div_mult_eq
+    ..
+  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + (2 ^ n) * (2 * (w div 2 ^ (Suc n)))) div 2 ^ n)"
+    by (auto simp only: mult_ac power_Suc)
+  also have "\<dots> = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
+    by auto
+  finally show ?thesis
+    .
+qed
+
+lemma bin_nth_int_eq_mod_div:
+  "bin_nth (int w) n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
+proof -
+  have "even (nat (int w mod 2 ^ (Suc n) div 2 ^ n)) = even (int w mod 2 ^ (Suc n) div 2 ^ n)"
+    by (intro even_nat_iff) (auto simp: pos_imp_zdiv_nonneg_iff)
+  then show ?thesis
+    unfolding bin_nth_eq_mod_div nat_mod_as_int
+    by (auto simp: nat_div_distrib nat_power_eq)
+qed
+
+lemma bounds_address_offset:
+  assumes "valid_address acctype (addr + offset)"
+    and "valid_address acctype addr"
+    and "offset < 2 ^ 52"
+    and "bounds_address acctype addr + offset < 2 ^ 64"
+  shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
+proof -
+  have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55
+        \<and> (addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+  proof (cases "s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55")
+    case True
+    let ?baddr = "bounds_address acctype addr"
+    have "?baddr = (?baddr mod 2 ^ 56) + (?baddr div 2 ^ 56 * 2 ^ 56)"
+      unfolding mod_div_mult_eq
+      ..
+    also have "\<dots> = addr mod 2 ^ 56 + 255 * 2 ^ 56"
+      using True assms(2,4)
+      by (intro arg_cong2[where f = "(+)"])
+         (auto simp add: bounds_address_def valid_address_def simp flip: mod_add_eq)
+    finally have "addr mod 2 ^ 56 + offset < 2 ^ 56" and *: "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
+      using True assms(2,4)
+      by (auto simp: bounds_address_def valid_address_def split: if_splits)
+    then have **: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
+      by auto
+    moreover have "bin_nth (int (addr + offset)) 55"
+      using assms(1) * **
+      by (auto simp: valid_address_def split: if_splits)
+    ultimately show ?thesis
+      using True
+      by auto
+  next
+    case False
+    then have 1: "addr mod 2 ^ 56 < 2 ^ 52"
+      using \<open>valid_address acctype addr\<close>
+      by (auto simp: valid_address_def split: if_splits)
+    then have 2: "addr mod 2 ^ 56 + offset < 2 ^ 53"
+      using \<open>offset < 2 ^ 52\<close>
+      by auto
+    then have 3: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
+      by auto
+    moreover have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55"
+      using 1 2 3
+      unfolding bin_nth_int_eq_mod_div
+      by auto
+    ultimately show ?thesis
+      by auto
+  qed
+  then show ?thesis
+    using tbi_enabled_cong[of addr "addr + offset" acctype]
+    unfolding bounds_address_def
+    by auto
+qed *)
+
+sublocale Morello_ISA where translate_address = "\<lambda>addr acctype _. translate_address addr acctype"
   using no_cap_load_translation_events
   by unfold_locales auto
 
@@ -1022,8 +1245,8 @@ end
 
 text \<open>Instantiation of translate_address for version of spec with translation stubs\<close>
 
-definition translate_address :: "nat \<Rightarrow> nat option" where
-  "translate_address addr \<equiv> Some (addr mod 2^48)"
+definition translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" where
+  "translate_address addr acctype \<equiv> Some (addr mod 2^48)"
 
 lemmas TranslateAddress_defs =
   AArch64_TranslateAddress_def AArch64_TranslateAddressWithTag_def AArch64_FullTranslateWithTag_def
@@ -1921,30 +2144,30 @@ lemma AddrTop_63_or_55:
 (* Assume stubbed out address translation for now *)
 locale Morello_Mem_Automaton =
   Morello_Fixed_Address_Translation
-  where translate_address = translate_address
+  (*where translate_address = translate_address
     and is_translation_event = "\<lambda>_. False"
-    and translation_assms = "\<lambda>_. True" +
+    and translation_assms = "\<lambda>_. True"*) +
   fixes ex_traces :: bool
     and invoked_indirect_caps :: "Capability set"
 begin
 
 sublocale Mem_Assm_Automaton
   where CC = CC and ISA = ISA
-    and translation_assms = "\<lambda>_. True"
+    (* and translation_assms = "\<lambda>_. True" *)
     and is_fetch = "False"
-    and extra_assms = "\<lambda>e. True" \<comment> \<open>TODO\<close>
+    (* and extra_assms = "\<lambda>e. True" \<comment> \<open>TODO\<close> *)
     and invoked_indirect_caps = invoked_indirect_caps
   ..
 
 sublocale Morello_Axiom_Automaton
-  where translate_address = "\<lambda>addr _ _. translate_address addr"
+  where translate_address = "\<lambda>addr acctype _. translate_address addr acctype"
     and enabled = enabled
-    and is_translation_event = "\<lambda>_. False"
+    (* and is_translation_event = "\<lambda>_. False" *)
     and use_mem_caps = "invoked_indirect_caps = {}"
   ..
 
 lemma translate_address_ISA[simp]:
-  "isa.translate_address ISA addr acctype t = translate_address addr"
+  "isa.translate_address ISA addr acctype t = translate_address addr acctype"
   by (auto simp: ISA_def)
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
