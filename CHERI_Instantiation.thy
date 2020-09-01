@@ -1046,9 +1046,17 @@ proof -
     by (auto simp: nat_div_distrib nat_power_eq)
 qed
 
+lemma
+  assumes "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
+    and "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+    and "addr mod 2 ^ 56 + offset < 2 ^ 56"
+  shows "bin_nth (int (addr + offset)) 55"
+  using assms
+  unfolding bin_nth_int_eq_mod_div
+  by (auto dest: even_two_times_div_two)
+
 lemma bounds_address_offset:
-  assumes "valid_address acctype (addr + offset)"
-    and "valid_address acctype addr"
+  assumes "valid_address acctype addr"
     and "offset < 2 ^ 52"
     and "bounds_address acctype addr + offset < 2 ^ 64"
   shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
@@ -1062,18 +1070,19 @@ proof -
       unfolding mod_div_mult_eq
       ..
     also have "\<dots> = addr mod 2 ^ 56 + 255 * 2 ^ 56"
-      using True assms(2,4)
+      using True assms(1,3)
       by (intro arg_cong2[where f = "(+)"])
          (auto simp add: bounds_address_def valid_address_def simp flip: mod_add_eq)
-    finally have "addr mod 2 ^ 56 + offset < 2 ^ 56" and *: "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
-      using True assms(2,4)
+    finally have 1: "addr mod 2 ^ 56 + offset < 2 ^ 56" and 2: "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
+      using True assms(1,3)
       by (auto simp: bounds_address_def valid_address_def split: if_splits)
-    then have **: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
+    then have 3: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
       unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
       by auto
     moreover have "bin_nth (int (addr + offset)) 55"
-      using assms(1) * **
-      by (auto simp: valid_address_def split: if_splits)
+      using 1 2 3
+      unfolding bin_nth_int_eq_mod_div
+      by (auto dest: even_two_times_div_two)
     ultimately show ?thesis
       using True
       by auto
@@ -1125,12 +1134,31 @@ locale Morello_Fixed_Address_Translation =
           e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
           is_translation_event e"
     and no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
-    (*and current_el: "\<And>t acctype el. Run (AArch64_AccessUsesEL acctype) t el \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> translation_el acctype = el"
+    and translation_el: "\<And>t acctype el. Run (AArch64_AccessUsesEL acctype) t el \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> translation_el acctype = el"
     and s1_enabled: "\<And>t acctype s1e. Run (AArch64_IsStageOneEnabled acctype) t s1e \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> s1_enabled acctype = s1e"
     and tbi_enabled: "\<And>t acctype addr top. Run (AddrTop addr (translation_el acctype)) t top \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> tbi_enabled acctype (unat addr) = (top \<noteq> 63)"
-    and in_host: "\<And>t acctype ih. Run (ELIsInHost (translation_el acctype)) t ih \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> in_host acctype = ih"*)
+    and in_host: "\<And>t acctype ih. Run (ELIsInHost (translation_el acctype)) t ih \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> in_host acctype = ih"
     and translate_address_valid: "\<And>vaddr acctype acctype' paddr. translate_address vaddr acctype' = Some paddr \<Longrightarrow> valid_address acctype vaddr"
+    and translate_bounds_address: "\<And>vaddr acctype acctype'. valid_address acctype vaddr \<Longrightarrow> translate_address (bounds_address acctype vaddr) acctype' = translate_address vaddr acctype'"
+    (* Memory pages are at least 4KB in AArch64 *)
+    and translate_address_paged: "\<And>vaddr vaddr' acctype paddr. translate_address vaddr acctype = Some paddr \<Longrightarrow> vaddr' div 2^12 = vaddr div 2^12 \<Longrightarrow> translate_address vaddr' acctype = Some (2^12 * (paddr div 2^12) + vaddr' mod 2^12)"
+    (*and translate_address_paged: "\<And>vaddr vaddr' acctype paddr paddr'. translate_address vaddr acctype = Some paddr \<Longrightarrow> translate_address vaddr' acctype = Some paddr' \<Longrightarrow> vaddr div 2^12 = vaddr' div 2^12 \<Longrightarrow> paddr div 2^12 = paddr' div 2^12"
+    and translate_address_page_offset: "\<And>vaddr acctype paddr. translate_address vaddr acctype = Some paddr \<Longrightarrow> paddr mod 2^12 = vaddr mod 2^12"*)
 begin
+
+lemma translate_address_page_offset:
+  assumes "translate_address vaddr acctype = Some paddr"
+  shows "paddr mod 2^12 = vaddr mod 2^12"
+proof -
+  have *: "2^12 * (paddr div 2^12) + vaddr mod 2^12 = paddr"
+    using assms translate_address_paged[of vaddr acctype paddr vaddr]
+    by auto
+  have "(2^12 * (paddr div 2^12) + vaddr mod 2^12) mod 2^12 = vaddr mod 2^12"
+    by simp
+  then show ?thesis
+    unfolding *
+    .
+qed
 
 (*definition has_ttbr1 :: "AccType \<Rightarrow> bool" where
   "has_ttbr1 acctype = (translation_el acctype \<in> {EL0, EL1} \<or> in_host acctype)"
@@ -2149,13 +2177,14 @@ locale Morello_Mem_Automaton =
     and translation_assms = "\<lambda>_. True"*) +
   fixes ex_traces :: bool
     and invoked_indirect_caps :: "Capability set"
+    and extra_assms :: "register_value event \<Rightarrow> bool"
 begin
 
 sublocale Mem_Assm_Automaton
   where CC = CC and ISA = ISA
     (* and translation_assms = "\<lambda>_. True" *)
     and is_fetch = "False"
-    (* and extra_assms = "\<lambda>e. True" \<comment> \<open>TODO\<close> *)
+    and extra_assms = extra_assms
     and invoked_indirect_caps = invoked_indirect_caps
   ..
 
