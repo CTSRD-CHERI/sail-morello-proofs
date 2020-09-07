@@ -198,6 +198,8 @@ lemma unat_le_unat_add_iff:
   shows "unat x \<le> unat (x + y) \<longleftrightarrow> unat x + unat y < 2^LENGTH('a)"
   using no_olen_add_nat word_le_nat_alt by blast
 
+lemmas unat_lt2p64[simp, intro] = unat_lt2p[of w for w :: "64 word", simplified]
+
 lemma aligned_unat_plus_distrib:
   fixes addr offset :: "'a::len word"
   assumes "aligned (unat addr) sz" and "unat offset < sz" and "sz dvd 2^LENGTH('a)"
@@ -1114,7 +1116,7 @@ end
 
 locale Morello_Fixed_Address_Translation =
   Morello_Bounds_Address_Calculation +
-  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option"
+  fixes translate_address :: "nat \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     (* TODO: Let assumptions refer to a trace (and possibly a state) instead of just events,
        allowing us to make assumptions about register values/fields that might change over time,
@@ -1125,8 +1127,7 @@ locale Morello_Fixed_Address_Translation =
           Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
           FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
           \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
-          translate_address (unat vaddress) (acctype_of_AccType acctype iswrite) =
-            Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+          translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
     and is_translation_event_correct:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
           Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
@@ -1138,20 +1139,20 @@ locale Morello_Fixed_Address_Translation =
     and s1_enabled: "\<And>t acctype s1e. Run (AArch64_IsStageOneEnabled acctype) t s1e \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> s1_enabled acctype = s1e"
     and tbi_enabled: "\<And>t acctype addr top. Run (AddrTop addr (translation_el acctype)) t top \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> tbi_enabled acctype (unat addr) = (top \<noteq> 63)"
     and in_host: "\<And>t acctype ih. Run (ELIsInHost (translation_el acctype)) t ih \<Longrightarrow> \<forall>e \<in> set t. translation_assms e \<Longrightarrow> in_host acctype = ih"
-    and translate_address_valid: "\<And>vaddr acctype acctype' paddr. translate_address vaddr acctype' = Some paddr \<Longrightarrow> valid_address acctype vaddr"
-    and translate_bounds_address: "\<And>vaddr acctype acctype'. valid_address acctype vaddr \<Longrightarrow> translate_address (bounds_address acctype vaddr) acctype' = translate_address vaddr acctype'"
+    and translate_address_valid: "\<And>vaddr acctype paddr. translate_address vaddr = Some paddr \<Longrightarrow> valid_address acctype vaddr"
+    and translate_bounds_address: "\<And>vaddr acctype. valid_address acctype vaddr \<Longrightarrow> translate_address (bounds_address acctype vaddr) = translate_address vaddr"
     (* Memory pages are at least 4KB in AArch64 *)
-    and translate_address_paged: "\<And>vaddr vaddr' acctype paddr. translate_address vaddr acctype = Some paddr \<Longrightarrow> vaddr' div 2^12 = vaddr div 2^12 \<Longrightarrow> translate_address vaddr' acctype = Some (2^12 * (paddr div 2^12) + vaddr' mod 2^12)"
+    and translate_address_paged: "\<And>vaddr vaddr' paddr. translate_address vaddr = Some paddr \<Longrightarrow> vaddr' div 2^12 = vaddr div 2^12 \<Longrightarrow> translate_address vaddr' = Some (2^12 * (paddr div 2^12) + vaddr' mod 2^12)"
     (*and translate_address_paged: "\<And>vaddr vaddr' acctype paddr paddr'. translate_address vaddr acctype = Some paddr \<Longrightarrow> translate_address vaddr' acctype = Some paddr' \<Longrightarrow> vaddr div 2^12 = vaddr' div 2^12 \<Longrightarrow> paddr div 2^12 = paddr' div 2^12"
     and translate_address_page_offset: "\<And>vaddr acctype paddr. translate_address vaddr acctype = Some paddr \<Longrightarrow> paddr mod 2^12 = vaddr mod 2^12"*)
 begin
 
 lemma translate_address_page_offset:
-  assumes "translate_address vaddr acctype = Some paddr"
+  assumes "translate_address vaddr = Some paddr"
   shows "paddr mod 2^12 = vaddr mod 2^12"
 proof -
   have *: "2^12 * (paddr div 2^12) + vaddr mod 2^12 = paddr"
-    using assms translate_address_paged[of vaddr acctype paddr vaddr]
+    using assms translate_address_paged[of vaddr paddr vaddr]
     by auto
   have "(2^12 * (paddr div 2^12) + vaddr mod 2^12) mod 2^12 = vaddr mod 2^12"
     by simp
@@ -1262,7 +1263,7 @@ proof -
     by auto
 qed *)
 
-sublocale Morello_ISA where translate_address = "\<lambda>addr acctype _. translate_address addr acctype"
+sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
   using no_cap_load_translation_events
   by unfold_locales auto
 
@@ -1273,8 +1274,8 @@ end
 
 text \<open>Instantiation of translate_address for version of spec with translation stubs\<close>
 
-definition translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" where
-  "translate_address addr acctype \<equiv> Some (addr mod 2^48)"
+definition translate_address :: "nat \<Rightarrow> nat option" where
+  "translate_address addr \<equiv> Some (addr mod 2^48)"
 
 lemmas TranslateAddress_defs =
   AArch64_TranslateAddress_def AArch64_TranslateAddressWithTag_def AArch64_FullTranslateWithTag_def
@@ -2189,14 +2190,14 @@ sublocale Mem_Assm_Automaton
   ..
 
 sublocale Morello_Axiom_Automaton
-  where translate_address = "\<lambda>addr acctype _. translate_address addr acctype"
+  where translate_address = "\<lambda>addr _ _. translate_address addr"
     and enabled = enabled
     (* and is_translation_event = "\<lambda>_. False" *)
     and use_mem_caps = "invoked_indirect_caps = {}"
   ..
 
 lemma translate_address_ISA[simp]:
-  "isa.translate_address ISA addr acctype t = translate_address addr acctype"
+  "isa.translate_address ISA addr acctype t = translate_address addr"
   by (auto simp: ISA_def)
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
