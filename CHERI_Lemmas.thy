@@ -1951,10 +1951,10 @@ lemma VADeref_store_data_enabled'[derivable_capsE]:
 
 abbreviation cap_store_perms where
   "cap_store_perms c \<equiv>
-     (if CapIsLocal c \<and> CapIsTagSet c then
-        or_vec (or_vec CAP_PERM_STORE CAP_PERM_STORE_CAP) CAP_PERM_STORE_LOCAL
-      else
-        or_vec CAP_PERM_STORE CAP_PERM_STORE_CAP)"
+     (if CapIsTagSet c
+      then let req_perms = or_vec CAP_PERM_STORE CAP_PERM_STORE_CAP
+           in if CapIsLocal c then or_vec req_perms CAP_PERM_STORE_LOCAL else req_perms
+      else CAP_PERM_STORE)"
 
 lemma VADeref_store_cap_enabled[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr CAPABILITY_DBYTES (cap_store_perms c) acctype) t u" "trace_assms t"
