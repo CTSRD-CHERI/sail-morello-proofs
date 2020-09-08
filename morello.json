@@ -364,20 +364,6 @@
         "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
       }
     },
-    "AArch64_AutoGen_ArchitectureReset": {
-      "traces_enabled": {
-        "unfolding": [],
-        "proof": "- (* TODO: takes very long *)"
-      },
-      "no_reg_writes_to": {
-        "proof": "- (* TODO: takes very long *)"
-      }
-    },
-    "AArch64_IMPDEFResets": {
-      "no_reg_writes_to": {
-        "proof": "- (* TODO: takes very long *)"
-      }
-    },
     "AArch64_AutoGen_SysRegRead": {
       "traces_enabled": {
         "unfolding": [],
@@ -653,6 +639,15 @@
     "_ReadTags",
     "_WriteMem",
     "_WriteTaggedMem",
-    "_WriteTags"
+    "_WriteTags",
+    "AArch32_AutoGen_ArchitectureReset",
+    "AArch64_AutoGen_ArchitectureReset",
+    "AArch64_IMPDEFResets",
+    "__Reset",
+    "ResetControlRegisters",
+    "AArch64_ResetControlRegisters",
+    "AArch64_ResetSpecialRegisters",
+    "TakeReset",
+    "AArch64_TakeReset"
   ]
 }
