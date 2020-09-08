@@ -1227,6 +1227,53 @@ lemma AArch64_MemSingle_set_translate_address_Some:
   unfolding AArch64_MemSingle_set_def AArch64_TranslateAddress_def
   by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct)
 
+lemma AArch64_MemSingle_read_valid_address[derivable_capsE]:
+  assumes "Run (AArch64_MemSingle_read vaddr sz acctype wasaligned) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using AArch64_MemSingle_read_translate_address_Some[OF assms]
+  by (auto intro: translate_address_valid)
+
+lemma AArch64_TaggedMemSingle_valid_address[derivable_capsE]:
+  assumes "Run (AArch64_TaggedMemSingle vaddr sz acctype wasaligned) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding AArch64_TaggedMemSingle_def AArch64_TranslateAddress_def bind_assoc
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_valid)
+
+lemma MemC_read_valid_address[derivable_capsE]:
+  assumes "Run (MemC_read vaddr acctype) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding MemC_read_def
+  by (auto elim!: Run_bindE Run_ifE derivable_capsE)
+
+lemma Mem_read0_valid_address[derivable_capsE]:
+  assumes "Run (Mem_read0 vaddr sz acctype) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding Mem_read0_def
+  by (auto elim!: Run_bindE Run_ifE intro: AArch64_MemSingle_read_valid_address)
+
+lemma Mem_read0_plus_0_valid_address[derivable_capsE]:
+  assumes "Run (Mem_read0 (add_vec_int vaddr 0) sz acctype) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding Mem_read0_def
+  by (auto elim!: Run_bindE Run_ifE intro: AArch64_MemSingle_read_valid_address)
+
+lemma Mem_set0_valid_address[derivable_capsE]:
+  assumes "Run (Mem_set0 vaddr sz acctype data) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding Mem_set0_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE dest: AArch64_MemSingle_set_translate_address_Some intro: translate_address_valid)
+
+lemma Mem_set0_plus_0_valid_address[derivable_capsE]:
+  assumes "Run (Mem_set0 (add_vec_int vaddr 0) sz acctype data) t a" and "trace_assms t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  by (auto intro: Mem_set0_valid_address)
+
 (* TODO *)
 (*lemma
   assumes "load_enabled s (vaddr + offset) acctype sz tagged"
