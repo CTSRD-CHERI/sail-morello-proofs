@@ -13,6 +13,9 @@ SMT_FLAGS = # -mono_rewrites
 
 EXTRA_GEN_FLAGS = -splice ${MORELLO_DIR}/patches/translation_stubs.sail -splice ${MORELLO_DIR}/patches/archex_stubs.sail
 
+isail: $(SMT_SAIL_BASE_PATHS) properties.sail
+	$(SAIL) -i $(SAIL_FLAGS) $^
+
 smt: $(SMT_SAIL_BASE_PATHS) properties.sail
 	$(SAIL) -smt $(SAIL_FLAGS) $(SMT_FLAGS) $^
 
