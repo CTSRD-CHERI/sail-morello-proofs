@@ -51,11 +51,6 @@
         "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
       }
     },
-    "FPRoundBase": {
-      "runs_no_reg_writes_to": {
-        "proof": "- (* TODO *)"
-      }
-    },
     "CapabilityFromData": {
       "derivable_caps": {
         "stmts": ["Run (CapabilityFromData n arg1 arg2) t c \\<Longrightarrow> n = 128 \\<Longrightarrow> Capability_of_tag_word (arg1 !! 0) arg2 \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps s"],
@@ -130,6 +125,21 @@
     "BranchXToCapability": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_set_0th derivable_enabled_branch_target)"
+      }
+    },
+    "decode_ALDAR_C_R_C": {
+      "traces_enabled": {
+        "assms": ["invoked_indirect_caps = {}", "{''PCC'', ''_R29''} ⊆ accessible_regs s"]
+      }
+    },
+     "execute_ALDAR_C_R_C": {
+      "traces_enabled": {
+        "assms": ["invoked_indirect_caps = {}", "{''PCC'', ''_R29''} ⊆ accessible_regs s"]
+      }
+    },
+    "DDC_EL2_CapSysRegRead_0d45f0beb99400e0": {
+      "derivable_caps": {
+        "proof": "- (* TODO: impossible EL case *)"
       }
     },
     "execute_aarch64_instrs_system_register_cpsr": {
@@ -364,19 +374,29 @@
         "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
       }
     },
-    "AArch64_AutoGen_SysRegRead": {
-      "traces_enabled": {
-        "unfolding": [],
-        "proof": "- (* TODO: takes very long *)"
-      }
-    },
-    "AArch64_AutoGen_SysRegWrite": {
+    "AArch64_AutoGen_ArchitectureReset": {
       "traces_enabled": {
         "unfolding": [],
         "proof": "- (* TODO: takes very long *)"
       },
-      "runs_no_reg_writes_to": {
-        "proof": "- (* TODO: takes very long *)"
+      "no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_ArchitectureReset_def bind_assoc, simp only: fold_trio_bind_ignore, no_reg_writes_toI simp: register_defs)"
+      }
+    },
+    "AArch64_IMPDEFResets": {
+      "no_reg_writes_to": {
+        "proof": "(unfold AArch64_IMPDEFResets_def bind_assoc, simp only: fold_trio_bind_ignore, no_reg_writes_toI simp: register_defs)"
+      }
+    },
+    "AArch64_AutoGen_SysRegRead": {
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "(unfold AArch64_AutoGen_SysRegRead_def, traces_enabledI intro: assms[THEN subset_trans[rotated]])"
+      }
+    },
+    "AArch64_AutoGen_SysRegWrite": {
+      "traces_enabled": {
+        "proof": "by (traces_enabled_step intro: assms)+"
       }
     },
     "CAP_DC_CVAU": {
