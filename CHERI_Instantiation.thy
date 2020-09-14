@@ -2177,9 +2177,14 @@ locale Morello_Mem_Automaton =
     and is_translation_event = "\<lambda>_. False"
     and translation_assms = "\<lambda>_. True"*) +
   fixes ex_traces :: bool
-    and invoked_indirect_caps :: "Capability set"
-    and extra_assms :: "register_value event \<Rightarrow> bool"
+    and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
 begin
+
+fun extra_assms :: "register_value event \<Rightarrow> bool" where
+  "extra_assms (E_read_reg r v) =
+    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and>
+     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps))"
+| "extra_assms _ = True"
 
 sublocale Mem_Assm_Automaton
   where CC = CC and ISA = ISA
@@ -2201,6 +2206,48 @@ lemma translate_address_ISA[simp]:
   by (auto simp: ISA_def)
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
+
+lemma C_read_unseal_invoked_indirect_caps[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "trace_assms t"
+    and "n \<in> invoked_indirect_regs"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  shows "CapUnseal c \<in> invoked_indirect_caps"
+proof -
+  obtain r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
+    using assms(1,4)
+    unfolding C_read_def R_read_def
+    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
+  with assms(2-)
+  show ?thesis
+    by (auto simp: is_indirect_sentry_def ev_assms_def)
+qed
+
+lemma CSP_read_invoked_indirect_caps[derivable_capsE]:
+  assumes "Run (CSP_read u) t c" and "trace_assms t"
+    and "31 \<in> invoked_indirect_regs"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  shows "CapUnseal c \<in> invoked_indirect_caps"
+proof -
+  obtain r where "E_read_reg r (Regval_bitvector_129_dec c) \<in> set t" and "r \<in> R_name 31"
+    using assms(1,4)
+    unfolding CSP_read_def
+    by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE Run_read_regE;
+        fastforce simp: R_name_def register_defs)
+  then show ?thesis
+    using assms(2-)
+    by (induction t) (auto split: if_splits simp: is_indirect_sentry_def CapIsSealed_def ev_assms_def)
+qed
+
+lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
+  assumes "Run (if n = 31 then CSP_read () else C_read n) t c" and "trace_assms t"
+    and "n \<in> invoked_indirect_regs"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  shows "CapUnseal c \<in> invoked_indirect_caps"
+  using assms
+  by (auto elim!: derivable_capsE split: if_splits)
 
 end
 

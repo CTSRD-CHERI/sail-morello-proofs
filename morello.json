@@ -127,16 +127,6 @@
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_set_0th derivable_enabled_branch_target)"
       }
     },
-    "decode_ALDAR_C_R_C": {
-      "traces_enabled": {
-        "assms": ["invoked_indirect_caps = {}", "{''PCC'', ''_R29''} ⊆ accessible_regs s"]
-      }
-    },
-     "execute_ALDAR_C_R_C": {
-      "traces_enabled": {
-        "assms": ["invoked_indirect_caps = {}", "{''PCC'', ''_R29''} ⊆ accessible_regs s"]
-      }
-    },
     "DDC_EL2_CapSysRegRead_0d45f0beb99400e0": {
       "derivable_caps": {
         "proof": "- (* TODO: impossible EL case *)"
@@ -428,6 +418,9 @@
     "execute_BLR_CI_C": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+      },
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
       }
     },
     "execute_BRS_C_C_C": {
@@ -438,12 +431,18 @@
     "execute_BR_CI_C": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+      },
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
       }
     },
     "execute_LDPBLR_C_C_C": {
       "traces_enabled": {
         "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> arg2", "arg2 \\<le> 31", "0 \\<le> arg1", "arg1 \\<le> 31", "arg2 = 29 \\<longrightarrow> arg1 \\<in> invoked_indirect_regs", "arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_mem_cap[where n = arg2] elim: enabled_branch_target_CapSquashPostLoadCap)"
+      },
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
       }
     },
     "decode_LDPBLR_C_C_C": {
@@ -455,6 +454,9 @@
       "traces_enabled": {
         "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> arg2", "arg2 \\<le> 31", "0 \\<le> arg1", "arg1 \\<le> 31", "arg2 = 29 \\<longrightarrow> arg1 \\<in> invoked_indirect_regs", "arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_mem_cap[where n = arg2] elim: enabled_branch_target_CapSquashPostLoadCap)"
+      },
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
       }
     },
     "decode_LDPBR_C_C_C": {

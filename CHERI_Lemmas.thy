@@ -1532,7 +1532,7 @@ lemma CheckCapability_load_enabled:
     and "perm_bits_included CAP_PERM_LOAD req_perms"
     and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP req_perms"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
-    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s"
+    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
   shows "load_enabled (run s t) acctype vaddr' sz' tagged"
 proof (unfold load_enabled_def, intro conjI allI impI)
@@ -1553,24 +1553,33 @@ next
   from t obtain t' bvaddr
     where t': "Run (CapIsRangeInBounds c bvaddr (word_of_int sz)) t' True" "trace_assms t'"
       and bvaddr: "bounds_address acctype (unat vaddr) = unat bvaddr"
-      and tagged: "CapIsTagSet c" and not_sealed: "\<not>CapIsSealed c"
+      and "CapIsTagSet c" and"\<not>CapIsSealed c"
       and "cap_permits req_perms c"
-    unfolding CheckCapability_def bounds_address_def has_ttbr1_def
+    unfolding CheckCapability_def bounds_address_def has_ttbr1_def \<open>acctype' = acctype\<close>
     by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E
              split: if_splits dest!: translation_el s1_enabled tbi_enabled' in_host)
   have aligned: "nat sz' = 16 \<and> aligned paddr' 16" if "tagged"
     using assms paddr' that
     by auto
-  from not_sealed have c: "c \<in> derivable_caps s"
-    using assms
+  obtain c' where c': "c' \<in> derivable_caps s"
+    and c: "c = c' \<or> (is_indirect_sentry c' \<and> c = CapUnseal c' \<and> c \<in> invoked_indirect_caps)"
+    using assms \<open>\<not>CapIsSealed c\<close>
     by blast
-  then have c_limit: "get_limit c \<le> 2 ^ 64"
+  then have tagged: "CapIsTagSet c'"
+    and sentry_if_sealed: "CapIsSealed c' \<longrightarrow> is_indirect_sentry c' \<and> CapUnseal c' \<in> invoked_indirect_caps"
+    using \<open>CapIsTagSet c\<close> \<open>\<not>CapIsSealed c\<close>
+    by auto
+  from c' have c_limit: "get_limit c' \<le> 2 ^ 64"
     (* TODO: Add global assumptions that accessible capabilities have a limit of at most 2^64, by
        adding assumptions on register/memory read events as well as an invariant on the state *)
     sorry
-  from CapIsRangeInBounds_in_get_mem_region[OF t']
-  have mem_region: "set (address_range ?bvaddr (nat sz)) \<subseteq> get_mem_region CC c"
+  from c have perms': "cap_permits p c' \<longleftrightarrow> cap_permits p c" for p
+    by (auto simp: CapCheckPermissions_def CapGetPermissions_CapUnseal_eq)
+  from c have "get_mem_region CC c' = get_mem_region CC c"
+    by (auto simp: get_mem_region_def get_bounds_CapUnseal_eq)
+  with CapIsRangeInBounds_in_get_mem_region[OF t']
+  have mem_region: "set (address_range ?bvaddr (nat sz)) \<subseteq> get_mem_region CC c'"
     using sz bvaddr
     by auto
   with c_limit have mem_region_2p64: "?bvaddr + nat sz \<le> 2 ^ 64"
@@ -1589,20 +1598,20 @@ next
   then show "?bvaddr' + nat sz' \<le> 2 ^ 64"
     using mem_region_2p64 offset
     by auto
-  have "addrs_in_mem_region c Load ?bvaddr' paddr' (nat sz')"
+  have "addrs_in_mem_region c' Load ?bvaddr' paddr' (nat sz')"
     using mem_region offset paddr'
     using translate_address_valid[OF paddr', THEN translate_bounds_address, of acctype]
     unfolding bvaddr' addrs_in_mem_region_def
     by (auto intro!: translate_bounds_address translate_address_valid)
-  moreover have "\<forall>is_local_cap. has_access_permission c Load ?is_cap is_local_cap"
+  moreover have "\<forall>is_local_cap. has_access_permission c' Load ?is_cap is_local_cap"
     using assms cap_perm_bits_included_trans[OF \<open>cap_permits req_perms c\<close>]
     unfolding has_access_permission_def
-    by (auto simp: CC_def)
-  ultimately have "\<forall>is_local_cap. authorises_access c Load ?is_cap is_local_cap ?bvaddr' paddr' (nat sz')"
-    using assms tagged not_sealed
+    by (auto simp: CC_def perms')
+  ultimately have "\<forall>is_local_cap. authorises_access c' Load ?is_cap is_local_cap ?bvaddr' paddr' (nat sz')"
+    using assms tagged sentry_if_sealed
     by (auto simp: authorises_access_def)
   then show "access_enabled (run s t) Load ?bvaddr' paddr' (nat sz') data ?tag"
-    using derivable_caps_run_imp[OF c, where t = t] aligned tagged
+    using derivable_caps_run_imp[OF c', where t = t] aligned tagged
     by (fastforce simp: access_enabled_def derivable_caps_def)
 qed
 
@@ -1835,6 +1844,26 @@ lemma Run_VAToCapability_iff:
   unfolding VAToCapability_def
   by auto
 
+abbreviation
+  "derivable_or_invoked c s \<equiv>
+     c \<in> derivable_caps s
+     \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
+
+definition
+  "VA_derivable_or_invoked va s \<equiv> VAIsCapability va \<longrightarrow> derivable_or_invoked (VirtualAddress_base va) s"
+
+lemma VA_derivable_imp_VA_derivable_or_invoked[intro]:
+  "VA_derivable va s \<Longrightarrow> VA_derivable_or_invoked va s"
+  by (auto simp: VA_derivable_def VA_derivable_or_invoked_def VAIsCapability_def)
+
+lemma VAFromCapability_derivable_or_invoked[derivable_capsE]:
+  assumes "Run (VAFromCapability (if sentry then CapUnseal c else c)) t va"
+    and "c \<in> derivable_caps s"
+    and "sentry \<longrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB} \<and> CapUnseal c \<in> invoked_indirect_caps"
+  shows "VA_derivable_or_invoked va s"
+  using assms
+  by (auto simp: VA_derivable_or_invoked_def is_indirect_sentry_def)
+
 lemma VADeref_load_enabled:
   assumes "Run (VACheckAddress va vaddr sz perms acctype) t u" "trace_assms t"
     and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
@@ -1842,32 +1871,40 @@ lemma VADeref_load_enabled:
     and "perm_bits_included CAP_PERM_LOAD perms"
     and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP perms"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
-    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
   shows "load_enabled (run s t) acctype vaddr' sz' tagged"
-proof (cases "VAIsPCCRelative va \<or> VAIsBits64 va")
-  case True
-  then show ?thesis
+proof -
+  have PCC: "c \<in> derivable_caps (run (run s t') t'')"
+    if "Run (read_reg PCC_ref) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)"
+    for c c' t' t''
+    using that \<open>{''PCC''} \<subseteq> accessible_regs s\<close>
+    by - (derivable_capsI)
+  have DDC: "c \<in> derivable_caps (run (run s t') t'')"
+    if "Run (DDC_read ()) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)"
+    for c c' t' t''
+    using that \<open>{''PCC''} \<subseteq> accessible_regs s\<close>
+    by - (derivable_capsI)
+  have VA: "derivable_or_invoked c (run (run s t') t'')"
+    if "Run (VAToCapability va) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)"
+      and "\<not>CapIsSealed c"
+    for c c' t' t''
+    using that \<open>\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s\<close>
+    unfolding VAToCapability_def VA_derivable_or_invoked_def VAIsSealedCap_def VAIsCapability_def
+    by (auto intro: derivable_caps_run_imp)
+  obtain c t1 t2 t3 addr
+    where "Run (CheckCapability c vaddr sz perms acctype) t3 addr"
+      and "trace_assms t3"
+      and "derivable_or_invoked c (run s (t1 @ t2))"
+      and "t = t1 @ t2 @ t3"
     using assms(1,2)
     unfolding VACheckAddress_def
-    by - (derivable_capsI assms: assms(3-) elim: CheckCapability_load_enabled)
-next
-  case False
-  let ?c = "VirtualAddress_base va"
-  obtain t' t'' addr
-    where "Run (CheckCapability ?c vaddr sz perms acctype) t'' addr"
-      and "trace_assms t''"
-      and "VirtualAddress_vatype va = VA_Capability"
-      and "t = t' @ t''"
-    using False assms(1,2)
-    unfolding VACheckAddress_def
-    by (auto elim!: Run_bindE Run_ifE)
+    by (fastforce simp: CheckCapability_CapIsSealed_False dest!: PCC DDC VA elim!: Run_bindE Run_ifE)
   then show ?thesis
-    using assms(3-) (*VADeref_addr_l2p64_nat[OF assms(1,2)]*)
-    unfolding \<open>t = t' @ t''\<close> foldl_append
-    by (elim CheckCapability_load_enabled)
-       (auto simp: VA_derivable_def VAIsSealedCap_def intro: derivable_caps_run_imp)
+    using assms(3-)
+    unfolding \<open>t = t1 @ t2 @ t3\<close> foldl_append
+    by (elim CheckCapability_load_enabled) auto
 qed
 
 text \<open>Common patterns\<close>
