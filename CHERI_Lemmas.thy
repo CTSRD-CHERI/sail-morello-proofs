@@ -1301,6 +1301,8 @@ lemma perm_bits_included_OR[simp, intro]:
   using assms
   by (auto simp: perm_bits_included_def word_ao_nth)
 
+lemmas perm_bits_included_if[simp] = if_split[where P = "\<lambda>p. perm_bits_included p' p" for p']
+
 lemma tag_granule_16[simp]: "tag_granule ISA = 16"
   by (auto simp: ISA_def)
 
@@ -2060,6 +2062,17 @@ lemma VADeref_store_cap_enabled[derivable_capsE]:
   shows "store_enabled (run s t) acctype (unat vaddr) 16 (data :: 128 word) tag"
   using assms
   by (elim VADeref_store_enabled) (auto split: if_splits)
+
+lemma VADeref_store_cap_pair_snd_enabled[derivable_capsE]:
+  assumes "Run (VACheckAddress va (add_vec vaddr (integer_subrange CAPABILITY_DBYTES 63 0)) CAPABILITY_DBYTES (cap_store_perms c) acctype') t u" "trace_assms t"
+    and "aligned (unat vaddr) 32"
+    and "Capability_of_tag_word tag data = c"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
+    and "{''PCC''} \<subseteq> accessible_regs s"
+    and "acctype' = acctype"
+  shows "store_enabled (run s t) acctype (unat vaddr + 16) 16 (data :: 128 word) tag"
+  using assms
+  by (elim VADeref_store_enabled) (auto split: if_splits simp: aligned_unat_plus_distrib)
 
 lemma VADeref_store_cap_enabled'[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr CAPABILITY_DBYTES (perms OR cap_store_perms c) acctype') t u" "trace_assms t"
