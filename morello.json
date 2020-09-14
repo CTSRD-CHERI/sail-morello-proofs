@@ -66,6 +66,15 @@
         "proof": "(traces_enabledI)"
       }
     },
+    "VACheckAddressAuth": {
+      "derivable_caps": {
+        "stmts": ["Run (VACheckAddressAuth base addr sz req_perms acctype) t c \\<Longrightarrow> {''PCC''} \\<subseteq> accessible_regs s \\<Longrightarrow> VA_derivable base s \\<Longrightarrow> c \\<in> derivable_caps (run s t)"]
+      },
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI)"
+      }
+    },
     "VACheckAddress": {
       "traces_enabled": {
         "assms": [],
@@ -278,7 +287,7 @@
     },
     "MemC_read": {
       "derivable_caps": {
-        "stmts": ["Run (MemC_read arg0 arg1) t c \\<Longrightarrow> use_mem_caps \\<Longrightarrow> c \\<in> derivable_caps (run s t)"],
+        "stmts": ["Run (MemC_read arg0 arg1 arg2) t c \\<Longrightarrow> use_mem_caps \\<Longrightarrow> c \\<in> derivable_caps (run s t)"],
         "proof": "(derivable_capsI)"
       },
       "traces_enabled": {
@@ -286,7 +295,7 @@
         "proof": "(traces_enabledI)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg1 (unat arg0) 16 True"],
+        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg1 (unat arg0) 16 arg2"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
@@ -316,7 +325,7 @@
     },
     "MemAtomicC": {
       "derivable_caps": {
-        "assms": ["Run (MemAtomicC arg0 arg1 arg2 arg3 arg4) t c", "arg2 \\<in> derivable_caps s", "use_mem_caps"],
+        "assms": ["Run (MemAtomicC arg0 arg1 arg2 arg3 arg4 arg5) t c", "arg2 \\<in> derivable_caps s", "use_mem_caps"],
         "stmts": ["c \\<in> derivable_caps (run s t)"],
         "using": ["assms(1)"],
         "unfolding": ["MemAtomicC_def"],
@@ -327,7 +336,7 @@
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg3 (unat arg0) 16 True", "aligned (unat arg0) 16 \\<longrightarrow> store_enabled s arg4 (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
+        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg3 (unat arg0) 16 arg5", "aligned (unat arg0) 16 \\<longrightarrow> store_enabled s arg4 (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
         "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
         "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else IsFault_def translate_correct)"
       }
@@ -345,7 +354,7 @@
     },
     "MemAtomicCompareAndSwapC": {
       "derivable_caps": {
-        "assms": ["Run (MemAtomicCompareAndSwapC arg0 arg1 arg2 arg3 arg4 arg5) t c", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s", "{''PCC''} \\<subseteq> accessible_regs s", "use_mem_caps"],
+        "assms": ["Run (MemAtomicCompareAndSwapC arg0 arg1 arg2 arg3 arg4 arg5 arg6) t c", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s", "{''PCC''} \\<subseteq> accessible_regs s", "use_mem_caps"],
         "stmts": ["c \\<in> derivable_caps (run s t)"],
         "using": ["assms(1)"],
         "unfolding": ["MemAtomicCompareAndSwapC_def"],
@@ -356,8 +365,8 @@
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat addr) 16 \\<longrightarrow> load_enabled s ldacctype (unat addr) 16 True", "aligned (unat addr) 16 \\<longrightarrow> store_enabled s stacctype (unat addr) 16 (ucast newcap :: 128 word) (CapIsTagSet newcap)", "newcap \\<in> derivable_caps s"],
-        "stmts": ["traces_enabled (MemAtomicCompareAndSwapC va addr expcap newcap ldacctype stacctype) s"],
+        "assms": ["aligned (unat addr) 16 \\<longrightarrow> load_enabled s ldacctype (unat addr) 16 tagged", "aligned (unat addr) 16 \\<longrightarrow> store_enabled s stacctype (unat addr) 16 (ucast newcap :: 128 word) (CapIsTagSet newcap)", "newcap \\<in> derivable_caps s"],
+        "stmts": ["traces_enabled (MemAtomicCompareAndSwapC va addr expcap newcap ldacctype stacctype tagged) s"],
         "unfolding": ["MemAtomicCompareAndSwapC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def bind_assoc"],
         "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct update_subrange_vec_dec_test_bit)"
       }

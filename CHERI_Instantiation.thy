@@ -1677,25 +1677,30 @@ lemma AArch64_TaggedMemSingle_upper_accessed_mem_cap:
   by (auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_upper_accessed_mem_cap)
 
 lemma MemC_read_accessed_mem_cap:
-  assumes "Run (MemC_read addr acctype) t c"
+  assumes "Run (MemC_read addr acctype tagged) t c"
   shows "accessed_mem_cap_of_trace_if_tagged c t"
   using assms
   unfolding MemC_read_def CapabilityFromData_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap)
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap split: if_splits)
+
+lemma accessed_mem_cap_of_trace_if_tagged_clear_tag[intro, simp]:
+  "accessed_mem_cap_of_trace_if_tagged (set_bit c 128 False) t"
+  unfolding accessed_mem_cap_of_trace_if_tagged_def
+  by (auto simp: test_bit_set)
 
 lemma MemCP_fst_accessed_mem_cap:
-  assumes "Run (MemCP addr acctype) t a"
+  assumes "Run (MemCP addr acctype tagged) t a"
   shows "accessed_mem_cap_of_trace_if_tagged (fst a) t"
   using assms
   unfolding MemCP_def CapabilityFromData_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap)
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap split: if_splits)
 
 lemma MemCP_snd_accessed_mem_cap:
-  assumes "Run (MemCP addr acctype) t a"
+  assumes "Run (MemCP addr acctype tagged) t a"
   shows "accessed_mem_cap_of_trace_if_tagged (snd a) t"
   using assms
   unfolding MemCP_def CapabilityFromData_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_upper_accessed_mem_cap)
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_upper_accessed_mem_cap split: if_splits)
 
 lemmas tagged_mem_primitives_accessed_mem_caps =
   ReadTaggedMem_lower_prod_accessed_mem_cap

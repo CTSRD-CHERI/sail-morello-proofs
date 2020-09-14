@@ -5,13 +5,13 @@ begin
 context Morello_Axiom_Automaton
 begin
 
-lemma MemCP_fst_derivable[derivable_capsE]:
+(*lemma MemCP_fst_derivable[derivable_capsE]:
   "Run (MemCP address acctype) t a \<Longrightarrow> use_mem_caps \<Longrightarrow> fst a \<in> derivable_caps (run s t)"
   by (unfold MemCP_def, derivable_capsI)
 
 lemma MemCP_snd_derivable[derivable_capsE]:
   "Run (MemCP address acctype) t a \<Longrightarrow> use_mem_caps \<Longrightarrow> snd a \<in> derivable_caps (run s t)"
-  by (unfold MemCP_def, derivable_capsI)
+  by (unfold MemCP_def, derivable_capsI)*)
 
 definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
@@ -69,11 +69,30 @@ lemma BaseReg_read__1_not_pcc_relative'[derivable_capsE]:
   using assms
   by auto
 
+lemma VACheckAddressAuth_VAIsSealedCap_False[simp]:
+  assumes "Run (VACheckAddressAuth va addr sz perms acctype) t u" and "\<not>VAIsPCCRelative va"
+  shows "VAIsSealedCap va \<longleftrightarrow> False"
+  using assms
+  unfolding VACheckAddress_def VACheckAddressAuth_def
+  by (auto simp: VAIsSealedCap_def VAIsCapability_def VAIsBits64_def CheckCapability_CapIsSealed_False elim!: Run_bindE Run_ifE)
+
+lemma VACheckAddressAuth_not_sealed[derivable_capsE]:
+  assumes "Run (VACheckAddressAuth va addr sz perms acctype) t u" and "\<not>VAIsPCCRelative va"
+  shows "\<not>VAIsSealedCap va"
+  using assms
+  by auto
+
+lemma if_VACheckAddressAuth_VAIsSealedCap_False[derivable_capsE]:
+  assumes "Run (if b then VACheckAddressAuth va vaddr sz perms acctype else VACheckAddressAuth va vaddr sz' perms' acctype') t u" and "\<not>VAIsPCCRelative va"
+  shows "\<not>VAIsSealedCap va"
+  using assms
+  by (auto split: if_splits)
+
 lemma VADeref_VAIsSealedCap_False[simp]:
   assumes "Run (VACheckAddress va addr sz perms acctype) t u" and "\<not>VAIsPCCRelative va"
   shows "VAIsSealedCap va \<longleftrightarrow> False"
   using assms
-  unfolding VACheckAddress_def
+  unfolding VACheckAddress_def VACheckAddressAuth_def
   by (auto simp: VAIsSealedCap_def VAIsCapability_def VAIsBits64_def CheckCapability_CapIsSealed_False elim!: Run_bindE Run_ifE)
 
 lemma VADeref_not_sealed[derivable_capsE]:
@@ -1241,7 +1260,7 @@ lemma AArch64_TaggedMemSingle_valid_address[derivable_capsE]:
   by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_valid)
 
 lemma MemC_read_valid_address[derivable_capsE]:
-  assumes "Run (MemC_read vaddr acctype) t a" and "trace_assms t"
+  assumes "Run (MemC_read vaddr acctype tagged) t a" and "trace_assms t"
   shows "valid_address acctype (unat vaddr)"
   using assms
   unfolding MemC_read_def
@@ -1532,7 +1551,7 @@ lemma CheckCapability_load_enabled:
     and sz: "sz > 0" "sz < 2^52" (*"unat vaddr + nat sz \<le> 2^64"*)
     and sz': "sz' > 0" "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included CAP_PERM_LOAD req_perms"
-    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP req_perms"
+    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP req_perms \<or> cap_permits CAP_PERM_LOAD_CAP c"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
@@ -1869,11 +1888,11 @@ lemma VAFromCapability_derivable_or_invoked[derivable_capsE]:
   by (auto simp: VA_derivable_or_invoked_def is_indirect_sentry_def)
 
 lemma VADeref_load_enabled:
-  assumes "Run (VACheckAddress va vaddr sz perms acctype') t u" "trace_assms t"
+  assumes "Run (VACheckAddressAuth va vaddr sz perms acctype') t c" "trace_assms t"
     and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included CAP_PERM_LOAD perms"
-    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP perms"
+    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP perms \<or> cap_permits CAP_PERM_LOAD_CAP c"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
@@ -1898,19 +1917,26 @@ proof -
     using that \<open>\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s\<close>
     unfolding VAToCapability_def VA_derivable_or_invoked_def VAIsSealedCap_def VAIsCapability_def
     by (auto intro: derivable_caps_run_imp)
-  obtain c t1 t2 t3 addr
+  obtain t1 t2 t3 addr
     where "Run (CheckCapability c vaddr sz perms acctype) t3 addr"
       and "trace_assms t3"
       and "derivable_or_invoked c (run s (t1 @ t2))"
       and "t = t1 @ t2 @ t3"
     using assms(1,2)
-    unfolding VACheckAddress_def \<open>acctype' = acctype\<close>
+    unfolding VACheckAddress_def VACheckAddressAuth_def \<open>acctype' = acctype\<close>
     by (fastforce simp: CheckCapability_CapIsSealed_False dest!: PCC DDC VA elim!: Run_bindE Run_ifE)
   then show ?thesis
     using assms(3-)
     unfolding \<open>t = t1 @ t2 @ t3\<close> foldl_append
     by (elim CheckCapability_load_enabled) auto
 qed
+
+lemma VACheckAddressE:
+  assumes "Run (VACheckAddress va vaddr sz perms acctype) t u"
+  obtains c where "Run (VACheckAddressAuth va vaddr sz perms acctype) t c"
+  using assms
+  unfolding VACheckAddress_def
+  by auto
 
 text \<open>Common patterns\<close>
 
@@ -1924,7 +1950,7 @@ lemma VADeref_data_load_enabled[derivable_capsE]:
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' False"
   using assms
-  by (elim VADeref_load_enabled) auto
+  by (elim VACheckAddressE VADeref_load_enabled) auto
 
 lemma VADeref_data_load_enabled'[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr sz CAP_PERM_LOAD acctype') t u" "trace_assms t"
@@ -1936,7 +1962,7 @@ lemma VADeref_data_load_enabled'[derivable_capsE]:
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' False"
   using assms
-  by (elim VADeref_load_enabled) auto
+  by (elim VACheckAddressE VADeref_load_enabled) auto
 
 lemma VADeref_cap_load_enabled[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP) acctype') t u" "trace_assms t"
@@ -1949,7 +1975,7 @@ lemma VADeref_cap_load_enabled[derivable_capsE]:
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' True"
   using assms
-  by (elim VADeref_load_enabled) auto
+  by (elim VACheckAddressE VADeref_load_enabled) auto
 
 lemma VADeref_cap_load_enabled'[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP OR perms) acctype') t u" "trace_assms t"
@@ -1961,6 +1987,19 @@ lemma VADeref_cap_load_enabled'[derivable_capsE]:
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' True"
+  using assms
+  by (elim VACheckAddressE VADeref_load_enabled) auto
+
+lemma VADeref_cap_load_enabled''[derivable_capsE]:
+  assumes "Run (VACheckAddressAuth va vaddr sz CAP_PERM_LOAD acctype') t c" "trace_assms t"
+    and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
+    and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
+    and "nat sz' = 16 \<and> aligned vaddr' 16"
+    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
+    and "{''PCC''} \<subseteq> accessible_regs s"
+    and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
+    and "acctype' = acctype"
+  shows "load_enabled (run s t) acctype vaddr' sz' (cap_permits CAP_PERM_LOAD_CAP c)"
   using assms
   by (elim VADeref_load_enabled) auto
 
@@ -1999,7 +2038,7 @@ proof (cases "VAIsPCCRelative va \<or> VAIsBits64 va")
   case True
   then show ?thesis
     using assms(1,2)
-    unfolding VACheckAddress_def
+    unfolding VACheckAddress_def VACheckAddressAuth_def
     by - (derivable_capsI assms: assms(3-) elim: CheckCapability_store_enabled)
 next
   case False
@@ -2010,7 +2049,7 @@ next
       and "VirtualAddress_vatype va = VA_Capability"
       and "t = t' @ t''"
     using False assms(1,2)
-    unfolding VACheckAddress_def \<open>acctype' = acctype\<close>
+    unfolding VACheckAddress_def VACheckAddressAuth_def \<open>acctype' = acctype\<close>
     by (auto elim!: Run_bindE Run_ifE)
   then show ?thesis
     using assms(3-)
