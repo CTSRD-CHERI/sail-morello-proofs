@@ -61,8 +61,8 @@ function propCapSetFlagsBoundsEq(c : Capability, flags : bits(8)) -> bool = {
 }
 
 $counterexample
-function propSetLSBsMono(c : Capability, bits : bits(CAP_MW - 2)) -> bool = {
-  let c' = [c with (CAP_MW - 3) .. 0 = bits];
+function propSetLSBsMono(c : Capability, bits : bits(CAP_MW - 3)) -> bool = {
+  let c' = [c with (CAP_MW - 4) .. 0 = bits];
   let (origBase, origLimit, origValid) = CapGetBounds(c);
   let (newBase, newLimit, newValid) = CapGetBounds(c');
   (origBase == newBase & origLimit == newLimit)
