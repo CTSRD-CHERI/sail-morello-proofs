@@ -464,6 +464,21 @@
         "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint arg2 = 29 \\<longrightarrow> uint arg1 \\<in> invoked_indirect_regs", "uint arg2 \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
       }
     },
+    "execute_LDP_CC_RIAW_C": {
+      "traces_enabled_mem": {
+        "extra_assms": ["arg0 = AccType_NORMAL"]
+      }
+    },
+    "execute_LDP_C_RIBW_C": {
+      "traces_enabled_mem": {
+        "extra_assms": ["arg0 = AccType_NORMAL"]
+      }
+    },
+    "execute_LDP_C_RIB_C": {
+      "traces_enabled_mem": {
+        "extra_assms": ["arg0 = AccType_NORMAL"]
+      }
+    },
     "execute_RETS_C_C_C": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
