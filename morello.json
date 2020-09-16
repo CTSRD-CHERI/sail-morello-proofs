@@ -52,7 +52,7 @@
         "proof": "(cases arg0; simp; non_cap_expI)"
       },
       "no_reg_writes_to": {
-        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
+        "proof": "(cases arg0; simp; no_reg_writes_toI)"
       }
     },
     "CapabilityFromData": {
@@ -134,7 +134,7 @@
         "proof": "(cases arg0; simp; non_cap_expI)"
       },
       "no_reg_writes_to": {
-        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
+        "proof": "(cases arg0; simp; no_reg_writes_toI)"
       }
     },
     "execute_aarch64_instrs_system_register_system": {
@@ -151,7 +151,7 @@
         "proof": "(cases arg0; simp; non_mem_expI)"
       },
       "runs_no_reg_writes_to": {
-        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
+        "proof": "(cases arg0; simp; no_reg_writes_toI)"
       }
     },
     "Reduce": {
@@ -367,14 +367,6 @@
       "traces_enabled": {
         "unfolding": [],
         "proof": "- (* TODO: takes very long *)"
-      },
-      "no_reg_writes_to": {
-        "proof": "(unfold AArch64_AutoGen_ArchitectureReset_def bind_assoc, simp only: fold_trio_bind_ignore, no_reg_writes_toI simp: register_defs)"
-      }
-    },
-    "AArch64_IMPDEFResets": {
-      "no_reg_writes_to": {
-        "proof": "(unfold AArch64_IMPDEFResets_def bind_assoc, simp only: fold_trio_bind_ignore, no_reg_writes_toI simp: register_defs)"
       }
     },
     "AArch64_AutoGen_SysRegRead": {
