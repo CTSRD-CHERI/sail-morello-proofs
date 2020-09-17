@@ -37,12 +37,13 @@
         "proof": "(auto simp: runs_no_reg_writes_to_def)"
       },
       "traces_enabled": {
-	"proof": "- (* TODO *)"
+	"unfolding": [],
+	"proof": "(rule exp_fails_traces_enabled, simp, unfold AArch64_TakeException_def bind_assoc, traces_enabledI assms: assms elim: CapSetValue_exception_target_enabled_branch_target)"
       }
     },
     "AArch64_ExceptionReturnToCapability": {
       "traces_enabled": {
-        "assms": ["arg0 \\<in> derivable_caps s"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg0 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms intro: derivable_enabled_branch_target)"
       }
     },
@@ -62,20 +63,13 @@
     },
     "CheckCapability": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
-      }
-    },
-    "VACheckAddress": {
-      "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       }
     },
     "CapSetValue": {
       "derivable_caps": {
         "stmts": ["Run (CapSetValue arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, unfold CapSetValue_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentable_derivable intro: update_subrange_if_derivable update_subrange_addr_CapWithTagClear_derivable)"
+        "proof": "(non_cap_exp_insert_run s, unfold CapSetValue_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentable_derivable_caps intro: update_subrange_if_derivable update_subrange_addr_CapWithTagClear_derivable)"
       }
     },
     "CapAdd": {
@@ -162,14 +156,14 @@
     },
     "Reduce": {
       "traces_enabled": {
-        "assms": ["arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
         "stmts": ["traces_enabled (Reduce arg0 arg1 arg2 :: 'esize::len word M) s"]
       }
     },
     "execute_aarch64_instrs_system_hints": {
       "traces_enabled": {
         "unfolding": [],
-        "proof": "(cases arg0; simp; traces_enabledI)"
+        "proof": "(cases arg0; simp; traces_enabledI assms: assms)"
       },
       "non_mem_exp": {
         "proof": "(cases arg0; simp; non_mem_expI)"
@@ -177,8 +171,7 @@
     },
     "AArch64_MemSingle_read": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> load_enabled s arg2 (unat arg0) arg1 False"],
@@ -188,8 +181,7 @@
     },
     "AArch64_MemSingle_set": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> store_enabled s arg2 (unat arg0) arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
@@ -207,8 +199,7 @@
         "proof": "(auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp])"
       },
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) (nat arg1)", "load_enabled s arg2 (unat arg0) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s arg2 (unat arg0 + 16) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s arg2 (unat arg0) 32 False"],
@@ -218,7 +209,7 @@
     },
     "AArch64_TaggedMemSingle__1": {
       "traces_enabled": {
-        "assms": ["Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
         "proof": "(traces_enabledI assms: assms)"
       },
@@ -237,7 +228,7 @@
     },
     "AArch64_CapabilityTag_set": {
       "traces_enabled": {
-        "assms": ["arg2 = 0"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 = 0"],
         "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
@@ -256,8 +247,8 @@
     },
     "Mem_read": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
       },
       "traces_enabled_mem": {
         "assms": ["load_enabled s acctype (unat vaddr) sz False"],
@@ -267,8 +258,8 @@
     },
     "Mem_set": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
       },
       "traces_enabled_mem": {
         "assms": ["store_enabled s acctype (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz", "sz \\<le> 16"],
@@ -282,8 +273,7 @@
         "proof": "(derivable_capsI)"
       },
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg1 (unat arg0) 16 True"],
@@ -323,7 +313,7 @@
         "proof": "- (derivable_capsI assms: assms(2) intro: assms(3))"
       },
       "traces_enabled": {
-        "assms": ["arg2 \\<in> derivable_caps s"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
@@ -334,7 +324,7 @@
     },
     "MemAtomicCompareAndSwap": {
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
@@ -352,7 +342,7 @@
         "proof": "- (derivable_capsI assms: assms(2-4) intro: assms(5))"
       },
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
@@ -364,7 +354,7 @@
     },
     "MemAtomic": {
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
@@ -619,7 +609,7 @@
     },
     "execute_SEAL_C_CI_C": {
       "traces_enabled": {
-        "assms": ["{''_R29''} \\<subseteq> accessible_regs s", "arg1 \\<in> {0, 1, 2, 3}"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg1 \\<in> {0, 1, 2, 3}"],
         "proof": "(traces_enabledI assms: assms intro: CapSetObjectType_sentry_derivable)"
       }
     },

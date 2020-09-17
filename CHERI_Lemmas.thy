@@ -248,6 +248,7 @@ text \<open>Capability invocation\<close>
 definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
   "enabled_pcc c s \<equiv>
      c \<in> derivable_caps s \<or>
+     (c \<in> exception_targets (read_from_KCC s) \<and> ex_traces) \<or>
      (c \<in> invoked_caps \<and>
       ((\<exists>c' \<in> derivable_caps s.
           CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB \<and>
@@ -293,12 +294,29 @@ lemma enabled_branch_targetI:
   using assms
   by (auto simp: enabled_branch_target_def)
 
+lemma exception_targets_mono:
+  assumes "C \<subseteq> C'"
+  shows "exception_targets C \<subseteq> exception_targets C'"
+  using assms derivable_mono[of "\<Union>(caps_of_regval ` C)" "\<Union>(caps_of_regval ` C')"]
+  by (auto simp: exception_targets_def)
+
+lemma read_from_KCC_mono:
+  "read_from_KCC s \<subseteq> read_from_KCC (run s t)"
+  by (induction t rule: rev_induct) auto
+
+lemma exception_targets_read_from_KCC_run_imp[derivable_caps_runI]:
+  assumes "c \<in> exception_targets (read_from_KCC s)"
+  shows "c \<in> exception_targets (read_from_KCC (run s t))"
+  using assms exception_targets_mono[OF read_from_KCC_mono]
+  by auto
+
 lemma enabled_pcc_run_imp:
   assumes "enabled_pcc c s"
   shows "enabled_pcc c (run s t)"
   using assms derivable_caps_run_imp[of _ s t] derivable_mem_caps_run_imp[of _ s t]
+  using exception_targets_read_from_KCC_run_imp
   unfolding enabled_pcc_def
-  by blast
+  by fastforce
 
 lemma enabled_branch_target_run_imp[derivable_caps_runI]:
   assumes "enabled_branch_target c s"
@@ -352,6 +370,53 @@ next
   assume "\<not>CapIsTagSet c'"
   then show ?thesis
     by (auto simp: enabled_pcc_def derivable_caps_def)
+qed
+
+lemma CVBAR_read_in_read_from_KCC:
+  assumes "Run (CVBAR_read el) t c"
+  shows "Regval_bitvector_129_dec c \<in> read_from_KCC (run s t)"
+  using assms
+  by (auto simp: CVBAR_read_def register_defs elim!: Run_bindE Run_ifE Run_read_regE)
+
+lemma CVBAR_read__1_in_read_from_KCC:
+  assumes "Run (CVBAR_read__1 u) t c"
+  shows "Regval_bitvector_129_dec c \<in> read_from_KCC (run s t)"
+  using assms
+  by (auto simp: CVBAR_read__1_def elim!: Run_bindE CVBAR_read_in_read_from_KCC)
+
+lemma CVBAR_read__1_exception_target[derivable_capsE]:
+  assumes "Run (CVBAR_read__1 u) t c"
+  shows "c \<in> exception_targets (read_from_KCC (run s t))"
+  using CVBAR_read__1_in_read_from_KCC[OF assms, where s = s]
+  by (auto simp: exception_targets_def intro!: derivable.Copy)
+
+lemma exception_target_enabled_branch_target:
+  assumes c: "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> c \<in> exception_targets (read_from_KCC s)" and ex: "ex_traces"
+  shows "enabled_branch_target c s"
+proof (unfold enabled_branch_target_def, intro impI ballI)
+  fix c'
+  assume valid: "CapIsTagSet c \<and> \<not>CapIsSealed c" and c': "c' \<in> branch_caps c"
+  have "c' \<in> exception_targets (read_from_KCC s)"
+    using branch_caps_derivable[OF c'] valid c
+    by (auto simp: exception_targets_def)
+  with ex show "enabled_pcc c' s"
+    unfolding enabled_pcc_def
+    by blast
+qed
+
+lemma CapSetValue_exception_target_enabled_branch_target:
+  assumes t: "Run (CapSetValue c addr) t c'"
+    and c: "c \<in> exception_targets (read_from_KCC s)" and ex: "ex_traces"
+  shows "enabled_branch_target c' s"
+proof -
+  from t c have "CapIsTagSet c' \<and> \<not>CapIsSealed c' \<longrightarrow> c' \<in> exception_targets (read_from_KCC s)"
+    unfolding CapSetValue_def exception_targets_def
+    by (auto simp: update_subrange_vec_dec_test_bit CapIsSealed_def
+             elim!: Run_bindE Run_letE
+             dest!: update_subrange_addr_CapIsRepresentable_derivable[where a = True and C = "\<Union>(caps_of_regval ` read_from_KCC s)"])
+  then show ?thesis
+    using ex
+    by (elim exception_target_enabled_branch_target)
 qed
 
 lemma invokable_enabled_pccI:

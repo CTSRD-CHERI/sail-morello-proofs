@@ -898,8 +898,11 @@ definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Righta
 definition fetch_raises_ex :: "register_value trace \<Rightarrow> bool" where
   "fetch_raises_ex t \<equiv> hasException t instr_fetch"
 
+text \<open>Over-approximation of allowed exception targets
+TODO: Restrict to valid branch targets of KCC caps with (small) offset?\<close>
+
 definition exception_targets :: "register_value set \<Rightarrow> Capability set" where
-  "exception_targets rvs \<equiv> \<Union>(caps_of_regval ` rvs)"
+  "exception_targets rvs \<equiv> derivable (\<Union>(caps_of_regval ` rvs))"
 
 fun acctype_of_AccType :: "AccType \<Rightarrow> bool \<Rightarrow> acctype" where
   "acctype_of_AccType AccType_PTW _ = PTW"
@@ -955,6 +958,7 @@ lemma ISA_simps[simp]:
   "isa.instr_fetch ISA = instr_fetch"
   "isa.caps_of_regval ISA = caps_of_regval"
   "isa.is_translation_event ISA = is_translation_event"
+  "isa.exception_targets ISA = exception_targets"
   by (auto simp: ISA_def)
 
 lemma no_cap_regvals[simp]:
@@ -1549,10 +1553,10 @@ lemma update_subrange_addr_CapWithTagClear_derivable:
 
 lemma update_subrange_addr_CapIsRepresentable_derivable:
   assumes "Run (CapIsRepresentable c addr) t a" and "a"
-    and "c \<in> derivable_caps s"
+    and "c \<in> derivable C"
     and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr \<in> derivable_caps s"
-    (is "?c' \<in> derivable_caps s")
+  shows "update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr \<in> derivable C"
+    (is "?c' \<in> derivable C")
 proof -
   have "get_base ?c' = get_base c" and "get_limit ?c' = get_limit c"
     using assms(1-2)
@@ -1572,11 +1576,17 @@ proof -
     using assms(4)
     unfolding derivable_caps_def
     by (auto simp: leq_cap_def)
-  from derivable.Restrict[OF _ this]
-  show ?thesis
-    using assms(3) tag
-    by (auto simp: derivable_caps_def)
+  from derivable.Restrict[OF assms(3) this]
+  show ?thesis .
 qed
+
+lemma update_subrange_addr_CapIsRepresentable_derivable_caps:
+  assumes "Run (CapIsRepresentable c addr) t a" and "a"
+    and "c \<in> derivable_caps s"
+    and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT addr \<in> derivable_caps s"
+  using assms update_subrange_addr_CapIsRepresentable_derivable[OF assms(1,2)]
+  by (auto simp: derivable_caps_def update_subrange_vec_dec_test_bit)
 
 lemmas update_subrange_if_derivable =
   if_split[where P = "\<lambda>c. update_subrange_vec_dec c hi lo v \<in> derivable_caps s" for hi lo v s, THEN iffD2]
@@ -1992,6 +2002,12 @@ next
     by (auto simp: leq_cap_def)
 qed
 
+lemma branch_caps_derivable:
+  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c" and "c \<in> derivable C"
+  shows "c' \<in> derivable C"
+  using branch_caps_leq[OF assms(1,2)] assms(3)
+  by (auto intro: derivable.Restrict)
+
 lemma branch_caps_128th_iff:
   assumes "c' \<in> branch_caps c"
   shows "c' !! 128 \<longleftrightarrow> c !! 128"
@@ -2001,8 +2017,8 @@ lemma branch_caps_128th_iff:
 lemma branch_caps_derivable_caps:
   assumes "c' \<in> branch_caps c" and "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "c' \<in> derivable_caps s"
-  using assms(2) branch_caps_leq[OF assms(1,3)] branch_caps_128th_iff[OF assms(1)]
-  by (auto simp: derivable_caps_def intro: derivable.Restrict)
+  using assms(2) branch_caps_derivable[OF assms(1,3)] branch_caps_128th_iff[OF assms(1)]
+  by (auto simp: derivable_caps_def)
 
 lemma CapSetFlags_mask_56_normalise_cursor_flags:
   "CapSetFlags c (CapGetValue c AND mask 56) = normalise_cursor_flags c False"
