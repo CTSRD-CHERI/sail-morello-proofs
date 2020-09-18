@@ -1404,6 +1404,12 @@ lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
   "no_reg_writes_to Rs (undefined_atom n)"
   by (unfold undefined_atom_def, no_reg_writes_toI)
 
+(* The following register write is used inside loops with capability effects in some instructions,
+   so we need a footprint lemma for the loop tactic to work automatically. *)
+lemma no_reg_writes_to_write_reg_FPSR[no_reg_writes_toI]:
+  "''FPSR'' \<notin> Rs \<Longrightarrow> no_reg_writes_to Rs (write_reg FPSR_ref v)"
+  by (intro no_reg_writes_to_write_reg) (auto simp: register_defs)
+
 declare datatype_splits[split]
 declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]

@@ -43,7 +43,7 @@
     },
     "AArch64_ExceptionReturnToCapability": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg0 \\<in> derivable_caps s"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg0 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms intro: derivable_enabled_branch_target)"
       }
     },
@@ -63,7 +63,7 @@
     },
     "CheckCapability": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       }
     },
     "CapSetValue": {
@@ -156,7 +156,7 @@
     },
     "Reduce": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
         "stmts": ["traces_enabled (Reduce arg0 arg1 arg2 :: 'esize::len word M) s"]
       }
     },
@@ -171,7 +171,7 @@
     },
     "AArch64_MemSingle_read": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> load_enabled s arg2 (unat arg0) arg1 False"],
@@ -181,7 +181,7 @@
     },
     "AArch64_MemSingle_set": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> store_enabled s arg2 (unat arg0) arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
@@ -199,7 +199,7 @@
         "proof": "(auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp])"
       },
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) (nat arg1)", "load_enabled s arg2 (unat arg0) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s arg2 (unat arg0 + 16) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s arg2 (unat arg0) 32 False"],
@@ -209,7 +209,7 @@
     },
     "AArch64_TaggedMemSingle__1": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
         "proof": "(traces_enabledI assms: assms)"
       },
@@ -228,7 +228,7 @@
     },
     "AArch64_CapabilityTag_set": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 = 0"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 = 0"],
         "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
@@ -247,8 +247,8 @@
     },
     "Mem_read": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"],
-	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"],
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
       },
       "traces_enabled_mem": {
         "assms": ["load_enabled s acctype (unat vaddr) sz False"],
@@ -258,8 +258,8 @@
     },
     "Mem_set": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"],
-	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"],
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
       },
       "traces_enabled_mem": {
         "assms": ["store_enabled s acctype (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz", "sz \\<le> 16"],
@@ -273,7 +273,7 @@
         "proof": "(derivable_capsI)"
       },
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg1 (unat arg0) 16 True"],
@@ -313,7 +313,7 @@
         "proof": "- (derivable_capsI assms: assms(2) intro: assms(3))"
       },
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
@@ -324,7 +324,7 @@
     },
     "MemAtomicCompareAndSwap": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
@@ -342,7 +342,7 @@
         "proof": "- (derivable_capsI assms: assms(2-4) intro: assms(5))"
       },
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 \\<in> derivable_caps s", "arg3 \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
@@ -694,6 +694,5 @@
     "AArch64_ResetSpecialRegisters",
     "TakeReset",
     "AArch64_TakeReset"
-  ],
-  "needed_footprints": ["AArch64_CapabilityTag_set"]
+  ]
 }
