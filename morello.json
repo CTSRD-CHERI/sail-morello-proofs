@@ -251,7 +251,7 @@
     "Mem_read": {
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s"],
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
+        "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
         "assms": ["load_enabled s acctype (unat vaddr) sz False"],
@@ -262,7 +262,7 @@
     "Mem_set": {
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s"],
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_inv[where P = \"\\<lambda>vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"])"
+        "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
         "assms": ["store_enabled s acctype (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz", "sz \\<le> 16"],
@@ -582,7 +582,7 @@
     },
     "execute_LDCT_R_R__": {
       "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (addr, _) s. case vars0 of (addr0, _) \\<Rightarrow> addr = addr0 + word_of_int (idx * 16)\" and vars = vars0 for vars0] simp: wi_hom_syms)"
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv2[where Inv = \"\\<lambda>idx addr _ s. addr = addr0 + word_of_int (idx * 16) \\<and> {''PCC'', ''_R29''} \\<subseteq> accessible_regs s \\<and> (idx = 0 \\<or> valid_address AccType_NORMAL (unat addr0))\" and var_a = addr0 for addr0] elim: VADeref_load_enabled AArch64_CapabilityTag_valid_address simp: wi_hom_syms)"
       }
     },
     "execute_BUILD_C_C_C": {
@@ -631,7 +631,7 @@
         "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
       },
       "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx vars s. {''PCC'', ''_R29''} \\<subseteq> accessible_regs s\"] elim: VADeref_store_enabled simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
       }
     }
   },

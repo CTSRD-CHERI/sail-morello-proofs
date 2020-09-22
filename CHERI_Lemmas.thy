@@ -171,7 +171,8 @@ next
     by (auto simp: VA_derivable_def)
 qed
 
-declare BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def, derivable_capsE]
+lemmas BaseReg_read__1_VA_derivable[derivable_capsE] =
+  BaseReg_read_VA_derivable[where is_prefetch = False, folded BaseReg_read__1_def]
 
 lemma AltBaseReg_read_VA_derivable[derivable_capsE]:
   assumes "Run (AltBaseReg_read n is_prefetch) t va"
@@ -1339,6 +1340,13 @@ lemma Mem_set0_plus_0_valid_address[derivable_capsE]:
   using assms
   by (auto intro: Mem_set0_valid_address)
 
+lemma AArch64_CapabilityTag_valid_address[derivable_capsE]:
+  assumes "Run (AArch64_CapabilityTag addr acctype) t a" and "trace_assms t"
+  shows "valid_address acctype (unat addr)"
+  using assms
+  unfolding AArch64_CapabilityTag_def AArch64_TranslateAddress_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct intro: translate_address_valid)
+
 (* TODO *)
 (*lemma
   assumes "load_enabled s (vaddr + offset) acctype sz tagged"
@@ -1932,6 +1940,15 @@ lemma VAFromCapability_derivable_or_invoked[derivable_capsE]:
   shows "VA_derivable_or_invoked va s"
   using assms
   by (auto simp: VA_derivable_or_invoked_def is_indirect_sentry_def)
+
+lemma VA_derivable_or_invoked_run_imp[derivable_caps_runI]:
+  assumes "VA_derivable_or_invoked va s"
+  shows "VA_derivable_or_invoked va (run s t)"
+  using assms
+  by (auto simp: VA_derivable_or_invoked_def intro: derivable_caps_run_imp)
+
+lemmas BaseReg_read__1_VA_derivable_or_invoked[derivable_capsE] =
+  BaseReg_read__1_VA_derivable[THEN VA_derivable_imp_VA_derivable_or_invoked]
 
 lemma VADeref_load_enabled:
   assumes "Run (VACheckAddress va vaddr sz perms acctype') t u" "trace_assms t"
