@@ -135,6 +135,9 @@
       },
       "no_reg_writes_to": {
         "proof": "(cases arg0; simp; no_reg_writes_toI)"
+      },
+      "traces_enabledI": {
+        "proof": "(traces_enabledI assms: assms elim: unat_le_add_vec_int_elim intro: unat_add_vec_int_plus_le)"
       }
     },
     "execute_aarch64_instrs_system_register_system": {

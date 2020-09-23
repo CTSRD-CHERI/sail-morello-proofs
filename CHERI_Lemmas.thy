@@ -2171,6 +2171,24 @@ lemma VADeref_store_data_access_enabled'[derivable_capsE]:
   using assms
   by (elim VADeref_store_data_enabled'[THEN store_enabled_access_enabled]) auto
 
+lemma unat_le_add_vec_int_elim:
+  "unat x + z \<le> 2 ^ N \<Longrightarrow> N = size x \<Longrightarrow> 0 \<le> n \<Longrightarrow> nat n < z \<Longrightarrow>
+    unat x \<le> unat (add_vec_int x n)"
+  apply (subgoal_tac "\<exists> i. n = int i")
+   apply (clarsimp)
+  apply (rule_tac x="nat n" in exI)
+  apply simp
+  done
+
+lemma unat_add_vec_int_plus_le:
+  "unat x + nat n + i \<le> j \<Longrightarrow> 0 \<le> n \<Longrightarrow>
+    unat (add_vec_int x n) + i \<le> j"
+  apply (erule order_trans[rotated])
+  apply (simp add: unat_word_ariths)
+  apply (rule order_trans, rule mod_less_eq_dividend)
+  apply (simp add: int_mod_le nat_mono unat_def uint_word_of_int)
+  done
+
 (*lemma traces_enabled_bind_VADeref_Let[traces_enabled_combinatorI]:
   assumes "traces_enabled (VADeref va sz perms acctype \<bind> (\<lambda>addr. f addr y)) s"
   shows "traces_enabled (VADeref va sz perms acctype \<bind> (\<lambda>addr. let x = y in f addr x)) s"
