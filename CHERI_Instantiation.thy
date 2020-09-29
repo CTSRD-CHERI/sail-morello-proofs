@@ -173,6 +173,12 @@ lemma slice_set_bit_above:
   using assms
   by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
 
+lemma slice_set_bit_below:
+  assumes "n' < n"
+  shows "Word.slice n (set_bit w n' b) = (Word.slice n w :: 'a::len word)"
+  using assms
+  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
+
 lemma of_bl_0th[simp]: "(of_bl [b] :: 1 word) !! 0 = b"
   by (auto simp: test_bit_of_bl)
 
@@ -1759,23 +1765,160 @@ lemma leq_perms_cap_permits_imp:
   using assms
   by (auto simp: CapCheckPermissions_def word_eq_iff word_ops_nth_size nth_ucast leq_perms_to_bl_iff)
 
-lemma leq_bounds_set_0th:
-  "leq_bounds CC (set_bit c 0 b) c"
-  sorry
+lemma set_bit_low_get_bounds_helpers_eq:
+  "int i < 64 \<Longrightarrow> CapGetExponent (set_bit c i b) = CapGetExponent c"
+  "int i < 64 \<Longrightarrow> CapGetBottom (set_bit c i b) = CapGetBottom c"
+  "int i < 64 \<Longrightarrow> CapGetTop (set_bit c i b) = CapGetTop c"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+    CapIsInternalExponent_def CapBoundsAddress_def
+  by (simp_all add: CAP_MW_def slice_set_bit_above slice_set_bit_below test_bit_set_gen)
+
+lemma shl_int[simp]:
+  "shl_int x y = Bits.shiftl x (nat y)"
+  sorry (* proved in sail repo, delete once propagated *)
+
+lemma shr_int[simp]:
+  "shr_int x i = Bits.shiftr x (nat i)"
+  sorry (* proved in sail repo, delete once propagated *)
+
+definition
+  I_helper :: "'a \<Rightarrow> 'a"
+  where
+  "I_helper x = x"
+
+definition
+  mask_range :: "nat \<Rightarrow> nat \<Rightarrow> ('a :: len) word \<Rightarrow> 'a word"
+  where
+  "mask_range lo_eq hi_gt x = x AND (mask hi_gt AND NOT (mask lo_eq))"
+
+lemma test_bit_mask_range:
+  "test_bit (mask_range lo_eq hi_gt x) n = (lo_eq \<le> n \<and> n < hi_gt \<and> test_bit x n)"
+  apply (cases "n < size x")
+  apply (auto simp add: mask_range_def word_ops_nth_size dest: test_bit_size)
+  done
+
+lemma mask_range_low_first:
+  "mask_range lo_eq hi_gt x = (x AND NOT (mask lo_eq)) AND mask hi_gt"
+  by (simp add: mask_range_def word_bool_alg.conj_commute word_bool_alg.conj_left_commute)
+
+lemma vector_update_subrange_from_subrange_insert_mask:
+  assumes cs: "e1 \<le> s1 \<and> 0 \<le> e1 \<and> e2 \<le> s2 \<and> 0 < e2"
+  shows "vector_update_subrange_from_subrange n v1 s1 e1 v2 s2 e2
+    = I_helper vector_update_subrange_from_subrange n v1 s1 e1
+        (mask_range (nat e2) (nat s2 + 1) v2) s2 e2"
+  using cs
+  apply (simp add: word_eq_iff I_helper_def test_bit_mask_range
+                   test_bit_vector_update_subrange_from_subrange)
+  apply (intro allI conj_cong[OF refl] impI disj_cong[OF _ refl])
+  apply (rule rev_conj_cong[where P="True", simplified, OF refl])
+  apply arith
+  done
+
+lemma mask_range_add_shift_insert:
+  fixes x :: "('a :: len) word"
+  assumes le: "l \<le> h"
+  shows
+  "mask_range l h (x + word_of_int (Bits.shiftl i l))
+    = I_helper mask_range l h (add_vec_int (mask_range l h x) (Bits.shiftl i l))"
+  (is "mask_range _ _ (_ + ?shi) = _")
+proof -
+
+  have low_pass:
+    "(x + ?shi) AND NOT (mask l) = ((x AND NOT (mask l)) + ?shi) AND NOT (mask l)"
+    apply (clarsimp simp: word_eq_iff word_ops_nth_size intro!: rev_conj_cong[OF refl])
+    apply (rule test_bit_plus_mask_zero[where k=l], simp_all)
+    apply (simp add: word_of_int_shiftl shiftl_mask_eq_0)
+    done
+
+  have low_outside:
+    "(z AND NOT (mask l)) AND mask h = (z AND mask h) AND NOT (mask l)" for z :: "'a word"
+    by (simp add: word_bool_alg.conj_commute word_bool_alg.conj_left_commute)
+
+  show ?thesis
+    apply (simp add: mask_range_low_first I_helper_def low_pass)
+    apply (simp add: mask_eqs low_outside[where z4="_ + _"])
+    done
+qed
+
+lemma let_double_refold:
+  "(let x = v in body (f x) (g x))
+    = (let f_x = f v; g_x = g v in body f_x g_x)"
+  by simp
+
+lemma let_name_weak_cong:
+  "v = w \<Longrightarrow> (\<And>x. f x = g x) \<Longrightarrow> (let x = v in f x) = Let w g"
+  by simp
+
+(* the top/bottom values, of size CAP_MW, are used to set the bounds,
+   and they are shifted up by the exponent. the bits of the cap value are
+   mostly only relevant about CAP_MW + exponent bits, but there's a
+   correction adjustment that takes in the top three bits. *)
+lemma CapGetBounds_set_bit_low_eq:
+  shows "int i < CAP_MW - 3 \<Longrightarrow> CapGetBounds (set_bit c i b) = CapGetBounds c"
+  using CapGetExponent_range[of c] [[simproc del: let_simp]]
+  unfolding CapGetBounds_def CapIsExponentOutOfRange_def
+  apply (subgoal_tac "int i < 64")
+   apply (simp add: set_bit_low_get_bounds_helpers_eq
+                     Let_def[where s="CapGetExponent _"]
+                     Let_def[where s="concat_vec _ (CapBoundsAddress (CapGetValue _))"]
+                     vector_update_subrange_from_subrange_insert_mask
+                     CAP_MW_def CAP_MAX_EXPONENT_def
+                     mask_range_add_shift_insert
+          split del: if_split cong: if_cong)
+   apply (subst let_double_refold[where f="mask_range _ _" and g="Word.slice _"])+
+   apply (intro let_name_weak_cong refl if_cong bind_cong[OF refl])
+    apply (simp_all add: CAP_MW_def word_eq_iff nth_slice word_ops_nth_size
+                         test_bit_mask_range CapBoundsAddress_def sign_extend_def
+                         nth_scast nth_ucast CapGetValue_def
+                         test_bit_set_gen)
+   apply auto
+  done
+
+lemma slice_word_update_drop:
+  "j < n \<Longrightarrow> j = i + size y - 1 \<Longrightarrow> j < size x \<Longrightarrow> 0 < size y \<Longrightarrow>
+    Word.slice n (word_update x i j y) = Word.slice n x"
+  apply (rule word_eqI)
+  apply (simp add: test_bit_word_update nth_slice)
+  done
+
+lemma CapSetFlags_get_bounds_helpers_eq:
+  "CapGetExponent (CapSetFlags c flags) = CapGetExponent c"
+  "CapGetBottom (CapSetFlags c flags) = CapGetBottom c"
+  "CapGetTop (CapSetFlags c flags) = CapGetTop c"
+  "(CapBoundsAddress (CapGetValue (CapSetFlags c flags))) = (CapBoundsAddress (CapGetValue c))"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+    CapSetFlags_def CapIsInternalExponent_def CapBoundsAddress_def
+  apply (simp_all add: update_subrange_vec_dec_def nth_slice test_bit_word_update
+                   slice_word_update_drop)
+  apply (rule word_eqI)
+  apply (simp add: nth_ucast test_bit_word_update nth_slice sign_extend_def
+                   nth_scast)
+  done
+
+lemma CapSetFlags_CapGetBounds:
+  "CapGetBounds (CapSetFlags c flags) = CapGetBounds c"
+  by (simp only: CapGetBounds_def CapSetFlags_get_bounds_helpers_eq
+        CapIsExponentOutOfRange_def)
 
 lemma leq_bounds_CapSetFlags:
   "leq_bounds CC (CapSetFlags c flags) c"
-  sorry
-
-lemma leq_cap_set_0th:
-  "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (set_bit c 0 b) c"
-  using leq_perms_cap_permits_imp[rotated]
-  by (auto simp: leq_cap_def test_bit_set_gen leq_bounds_set_0th)
+  by (simp add: leq_bounds_def get_base_def get_limit_def
+        CapSetFlags_CapGetBounds CapGetBase_def)
 
 lemma leq_cap_CapSetFlags:
   "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (CapSetFlags c flags) c"
   using leq_perms_cap_permits_imp[rotated]
   by (auto simp: leq_cap_def leq_bounds_CapSetFlags)
+
+lemma leq_bounds_set_0th:
+  "leq_bounds CC (set_bit c 0 b) c"
+  by (simp add: leq_bounds_def get_base_def get_limit_def
+        CapGetBounds_set_bit_low_eq CAP_MW_def CapGetBase_def)
+
+lemma leq_cap_set_0th:
+  "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (set_bit c 0 b) c"
+  using leq_perms_cap_permits_imp[rotated]
+  by (auto simp: leq_cap_def test_bit_set_gen leq_bounds_set_0th)
 
 lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
   "Capability_of_tag_word False data \<in> derivable_caps s"
@@ -1784,8 +1927,8 @@ lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
 lemma CapSetFlags_derivable[derivable_capsI]:
   assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "CapSetFlags c flags \<in> derivable_caps s"
-  thm CapSetFlags_def
-  sorry
+  using assms leq_cap_CapSetFlags[OF assms(2)]
+  by (auto simp: derivable_caps_def elim!: Restrict)
 
 lemma clear_perm_leq_cap:
   assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
