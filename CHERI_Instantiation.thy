@@ -1962,11 +1962,19 @@ lemma clear_perm_derivable_caps[derivable_capsI]:
   unfolding derivable_caps_def
   by (auto elim: clear_perm_derivable)
 
-lemma set_bit_0_derivable[derivable_capsI]:
+lemma set_bit_0_derivable1:
   assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "set_bit c 0 b \<in> derivable_caps s"
+  using assms
+  by (clarsimp simp: derivable_caps_def test_bit_set_gen Restrict[OF _ leq_cap_set_0th])
+
+lemma set_bit_0_derivable[derivable_capsI]:
+  assumes "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c" and BU: "b \<noteq> BU"
   shows "update_vec_dec c 0 b \<in> derivable_caps s"
-  (* TODO Changing the LSB should always be representable *)
-  sorry
+  using set_bit_0_derivable1[of c s] assms
+  unfolding update_vec_dec_def update_vec_dec_maybe_def update_mword_dec_def
+  by (simp add: update_mword_bool_dec_def bool_of_bitU_def maybe_failwith_def
+        split: bitU.split)
 
 lemma subrange_vec_dec_128_derivable[derivable_capsI]:
   "c \<in> derivable_caps s \<Longrightarrow> subrange_vec_dec c 128 0 \<in> derivable_caps s"
