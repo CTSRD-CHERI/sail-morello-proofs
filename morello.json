@@ -379,6 +379,9 @@
       }
     },
     "AArch64_AutoGen_SysRegWrite": {
+      "runs_no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_SysRegWrite_def bind_assoc, no_reg_writes_toI intro: runs_no_reg_writes_to_if_no_asm)"
+      },
       "traces_enabled": {
         "proof": "(traces_enabled_step intro: assms)+"
       }
