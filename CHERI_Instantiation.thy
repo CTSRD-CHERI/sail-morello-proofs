@@ -2025,11 +2025,112 @@ lemma update_subrange_addr_CapIsRepresentable_derivable_caps:
 lemmas update_subrange_if_derivable =
   if_split[where P = "\<lambda>c. update_subrange_vec_dec c hi lo v \<in> derivable_caps s" for hi lo v s, THEN iffD2]
 
+lemma cap_permits_word_update_drop:
+  "j = i + size y - 1 \<and> j < size x \<and> 0 < size y \<Longrightarrow>
+    i + size y < 110 \<Longrightarrow>
+    cap_permits perms (word_update x i j y) = cap_permits perms x"
+  by (simp add: CapCheckPermissions_def CapGetPermissions_def slice_word_update_drop)
+
+lemma word_update_low_get_bounds_helpers_eq:
+  assumes "j = i + size value' - 1" "j < size c" "0 < size value'" "j < 64"
+  shows
+  "CapGetExponent (word_update c i j value') = CapGetExponent c"
+  "CapGetBottom (word_update c i j value') = CapGetBottom c"
+  "CapGetTop (word_update c i j value') = CapGetTop c"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+    CapIsInternalExponent_def CapBoundsAddress_def
+  using assms
+  by (simp_all add: CAP_MW_def slice_set_bit_above slice_set_bit_below test_bit_set_gen test_bit_word_update
+                    slice_word_update_drop)
+
+lemma rev_disj_cong:
+  "Q = Q' \<Longrightarrow> (\<not> Q' \<Longrightarrow> P = P') \<Longrightarrow> (P \<or> Q) = (P' \<or> Q')"
+  by auto
+
+lemma expand_bitwise:
+  "w = of_bl (rev (map (test_bit w) [0 ..< size w]))"
+  by (simp add: word_eq_iff test_bit_of_bl)
+
+lemma update_vec_dec_bitU_of_bool:
+  "update_vec_dec x i (bitU_of_bool b) = set_bit x (nat i) b"
+  by (cases b, simp_all)
+
+lemma high_exponent_update_value_bounds_unchanged:
+  "CAP_MAX_EXPONENT - 2 \<le> CapGetExponent c \<Longrightarrow>
+    CapGetBounds (word_update c 0 63 (value' :: 64 word)) = CapGetBounds c"
+  using CapGetExponent_range[of c] [[simproc del: let_simp]]
+  unfolding CapGetBounds_def CapIsExponentOutOfRange_def
+  apply (simp add: word_update_low_get_bounds_helpers_eq
+                   Let_def[where s="CapGetExponent _"]
+                   CAP_MAX_EXPONENT_def
+        split del: if_split cong: if_cong)
+  apply (simp add: word_update_low_get_bounds_helpers_eq
+                   Let_def[where s="CapGetExponent _"]
+                   Let_def[where s="ucast (CapBoundsAddress (CapGetValue _))"]
+                   vector_update_subrange_from_subrange_insert_mask
+                   CAP_MW_def CAP_MAX_EXPONENT_def
+                   mask_range_add_shift_insert
+        split del: if_split cong: if_cong)
+  apply (subst imp_refl[where P="mask_range _ _ (ucast _) = 0", rule_format, OF word_eqI],
+    solves \<open>simp add: test_bit_mask_range nth_ucast test_bit_above_size\<close>)+
+  apply (intro let_cong[OF refl] if_cong refl bind_cong[OF refl])
+  apply (cases "CapGetExponent c \<notin> {50, 49, 48}")
+   apply (simp_all split del: if_split)
+  apply (elim disjE)
+    apply (simp_all add: Let_def[where f="\<lambda>_. _"] split del: if_split)
+   (* 49 case: only bit 65 is adjusted, and it is masked out later *)
+   apply (simp add: Let_def CAP_MW_def split del: if_split)
+   apply (rule arg_cong[where f=return])
+   apply (simp add: word_eq_iff word_ops_nth_size nth_ucast
+                    test_bit_vector_update_subrange_from_subrange
+                    I_helper_def
+         split del: if_split)
+  (* 48 case: atop is zero, so there's only a value-1 possible variation
+              at bit 64 of limit, which the final check will kill *)
+  apply (simp add: Let_def CAP_MW_def I_helper_def word_of_int_shiftl
+        split del: if_split
+             cong: if_cong)
+  apply (subst imp_refl[where P="ucast (vector_update_subrange_from_subrange _ x _ _ _ _ _) AND mask m = ucast x AND mask m" for x m],
+     solves \<open>simp add: word_eq_iff nth_ucast test_bit_vector_update_subrange_from_subrange test_bit_mask_range word_ops_nth_size
+         split del: if_split cong: rev_conj_cong\<close>)+
+  (* unpack the 2-bit words into a pair of bits *)
+  apply (simp add:
+      upt_rec[where i=0] upt_rec[where i="Suc 0"]
+      HOL.trans[where r="_ :: 2 word", OF slice_shiftr expand_bitwise]
+      nth_slice test_bit_vector_update_subrange_from_subrange test_bit_mask_range word_of_int_shiftl nth_shiftl
+      nth_ucast nth_shiftr word_ops_nth_size
+                  split del: if_split cong: if_cong)
+  apply (intro conjI impI arg_cong[where f=return] arg_cong2[where f=Pair] refl word_eqI)
+  apply (simp add: nth_ucast if_distrib[where f=test_bit] if_distribR
+                   word_ops_nth_size update_vec_dec_bitU_of_bool test_bit_set_gen
+                   test_bit_vector_update_subrange_from_subrange test_bit_mask_range
+                   nth_shiftl
+        split del: if_split cong: if_cong)
+  (* blow up into cases and solve *)
+  apply (simp add: of_bl_Cons unat_def[where w="- _"] uint_word_ariths)
+  done
+
 lemma update_subrange_addr_CapIsRepresentableFast_derivable:
   assumes "Run (CapIsRepresentableFast c incr) t a" and "a"
     and "c \<in> derivable_caps s"
     and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "update_subrange_vec_dec c CAP_VALUE_HI_BIT CAP_VALUE_LO_BIT (add_vec (CapGetValue c) incr) \<in> derivable_caps s"
+  using assms
+  apply (simp add: update_subrange_vec_dec_def CapIsRepresentableFast_def)
+  apply (clarsimp elim!: Run_elims)
+  apply (split if_split_asm)
+   apply (clarsimp simp: derivable_caps_def test_bit_word_update)
+   apply (erule Restrict)
+   apply (rule leq_cap_def[THEN iffD2, OF disjI2])
+   apply (simp add: test_bit_word_update cap_permits_word_update_drop)
+   apply (simp add: CapIsSealed_def CapGetObjectType_def slice_word_update_drop CapGetPermissions_def)
+   apply (simp add: leq_bounds_def get_base_def get_limit_def high_exponent_update_value_bounds_unchanged
+                    CapGetBase_def)
+  apply (simp add: Let_def arith_shiftr_def split: if_split_asm)
+   (* top of incr zero case *)
+   defer
+  (* top of incr ones (-1) case *)
+
   sorry
 
 lemma update_tag_bit_zero_derivable[derivable_capsI]:
