@@ -26,6 +26,7 @@
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
   "privileged_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
+  "system_access_checks": ["CapIsSystemAccessEnabled"],
   "pcc": ["PCC"],
   "idc": ["_R29"],
   "overrides": {

@@ -348,12 +348,43 @@ lemma enabled_branch_target_CapUnseal_if_clear:
   by (auto simp: enabled_branch_target_def)
 
 lemma derivable_enabled_branch_target:
-  assumes "c \<in> derivable_caps s"
+  assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s"
   shows "enabled_branch_target c s"
-  using branch_caps_derivable_caps[OF _ assms]
+  using assms branch_caps_derivable_caps[where c = c]
   by (auto simp: enabled_branch_target_def enabled_pcc_def)
 
-declare C_read_derivable[THEN derivable_enabled_branch_target, derivable_capsE]
+lemma C_read_enabled_branch_target[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "{''_R29''} \<subseteq> accessible_regs s"
+  shows "enabled_branch_target c (run s t)"
+  using assms
+  by (auto intro: derivable_enabled_branch_target C_read_derivable)
+
+lemma CapSetOffset_enabled_branch_target[derivable_capsE]:
+  assumes "Run (CapSetOffset c offset) t c'"
+    and "c \<in> derivable_caps s"
+  shows "enabled_branch_target c' s"
+proof -
+  have "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+    using assms
+    by (auto simp: CapSetOffset_def elim!: Run_bindE)
+  then show ?thesis
+    using assms
+    by (auto intro!: derivable_enabled_branch_target elim!: CapSetOffset_derivable)
+qed
+
+lemma CapSetValue_enabled_branch_target[derivable_capsE]:
+  assumes "Run (CapSetValue c addr) t c'"
+    and "c \<in> derivable_caps s"
+  shows "enabled_branch_target c' s"
+proof -
+  have "CapIsSealed c' \<longleftrightarrow> CapIsSealed c"
+    using assms
+    unfolding CapSetValue_def CapIsSealed_def CapWithTagClear_def
+    by (auto elim!: Run_bindE Run_letE split: if_splits)
+  then show ?thesis
+    using assms
+    by (auto intro!: derivable_enabled_branch_target elim!: CapSetValue_derivable)
+qed
 
 lemma BranchAddr_enabled_pcc[derivable_capsE]:
   assumes "Run (BranchAddr c el) t c'" and "enabled_branch_target c s"
@@ -587,7 +618,7 @@ next
   with assms(1) have "c' \<in> derivable_caps s"
     by (cases rule: CapSquashPostLoadCap_cases) (auto intro: clear_perm_derivable_caps)
   then show ?thesis
-    by (intro derivable_enabled_branch_target)
+    by (auto intro: derivable_enabled_branch_target)
 qed
 
 lemma CapSquashPostLoadCap_invoked_cap[derivable_capsE]:
