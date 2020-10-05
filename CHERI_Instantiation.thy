@@ -2100,17 +2100,6 @@ lemma ReadTaggedMem_single_accessed_mem_cap:
   unfolding ReadTaggedMem_def
   by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_accessed_mem_cap)
 
-lemma (in Cap_Axiom_Automaton) accessed_mem_cap_of_trace_if_tagged_append[simp]:
-  "accessed_mem_cap_of_trace_if_tagged c (t @ t') \<longleftrightarrow>
-   accessed_mem_cap_of_trace_if_tagged c t \<or> accessed_mem_cap_of_trace_if_tagged c t'"
-  by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
-
-lemma (in Cap_Axiom_Automaton) untagged_accessed_mem_cap_of_trace[simp]:
-  assumes "\<not>is_tagged_method CC c"
-  shows "accessed_mem_cap_of_trace_if_tagged c t"
-  using assms
-  by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
-
 lemma ReadTaggedMem_lower_accessed_mem_cap:
   assumes t: "Run (ReadTaggedMem desc sz accdesc) t (tag, data :: 'a::len word)"
     and sz: "LENGTH('a) = nat sz * 8" "sz = 16 \<or> sz = 32"
@@ -2380,11 +2369,6 @@ lemma PCC_sysreg_trace_assms:
   using assms
   by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def)
 
-lemma (in Cap_Axiom_Automaton) trace_allows_system_reg_access_append[simp]:
-  "trace_allows_system_reg_access (t1 @ t2) s
-  \<longleftrightarrow> trace_allows_system_reg_access t1 s \<or> trace_allows_system_reg_access t2 (run s t1)"
-  by (induction t1 arbitrary: t2 s) auto
-
 lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
   "no_reg_writes_to Rs (Halted u)"
   unfolding Halted_def
@@ -2419,13 +2403,6 @@ lemma CapIsSystemAccessEnabled_system_reg_access:
   shows "system_reg_access (run s t)"
   using CapIsSystemAccessEnabled_trace_allows_system_reg_access[OF assms]
   by (auto simp: system_reg_access_run_iff)
-
-lemma (in Cap_Axiom_Automaton) system_reg_access_accessible_regs:
-  assumes "system_reg_access s"
-    and "Rs - (privileged_regs ISA - (PCC ISA \<union> IDC ISA)) \<subseteq> accessible_regs s"
-  shows "Rs \<subseteq> accessible_regs s"
-  using assms
-  by (auto simp: accessible_regs_def)
 
 lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
   "no_reg_writes_to Rs (CapIsSystemAccessEnabled u)"

@@ -1988,17 +1988,6 @@ lemma VADeref_addr_l2p64_nat[intro, simp, derivable_capsE]:
   using VADeref_addr_l2p64[OF assms(1,2)] assms(3)
   by (auto simp add: unat_def simp flip: nat_add_distrib)*)
 
-lemma (in Cap_Axiom_Automaton) accessible_regs_no_writes_trace:
-  assumes "r \<in> PCC ISA \<union> IDC ISA \<longrightarrow> (\<forall>v. E_write_reg r v \<notin> set t)"
-    and "r \<in> accessible_regs s"
-  shows "r \<in> accessible_regs (run s t)"
-proof (use assms in \<open>induction t arbitrary: s\<close>)
-  case (Cons e t)
-  show ?case
-    using Cons.prems Cons.IH[of "axiom_step s e"]
-    by (auto simp: accessible_regs_def)
-qed simp
-
 lemma MorelloCheckForCMO_store_enabled_data[derivable_capsE]:
   assumes "Run (MorelloCheckForCMO c CAP_PERM_STORE acctype) t addr" and "trace_assms t"
     and "c \<in> derivable_caps s"
