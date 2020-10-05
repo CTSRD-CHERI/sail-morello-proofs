@@ -1284,28 +1284,60 @@ lemma aligned_mod_iff:
   unfolding aligned_def dvd_mod_iff[OF assms]
   ..
 
-lemma translate_address_aligned32_plus16:
-  assumes "translate_address vaddr = Some paddr"
-    and "aligned vaddr 32"
-  shows "translate_address (vaddr + 16) = Some (paddr + 16)"
+lemma translate_address_aligned_plus:
+  assumes paddr: "translate_address vaddr = Some paddr"
+    and vaddr: "aligned vaddr sz" and sz: "sz dvd 2^12" and offset: "offset < sz"
+  shows "translate_address (vaddr + offset) = Some (paddr + offset)"
 proof -
-  have *: "(vaddr + 16) div 2^12 = vaddr div 2^12"
-    using assms(2)
-    by (auto simp: aligned_def)
-  have "(vaddr + 16) mod 2^12 = (vaddr mod 2^12 + 16 mod 2^12) mod 2^12"
+  obtain k where k: "2^12 = sz * k"
+    using sz
+    by (auto simp: dvd_def)
+  have *: "(vaddr + offset) div 2^12 = vaddr div 2^12"
+    using assms
+    unfolding k
+    by (auto simp: aligned_def div_mult2_eq)
+  have "(vaddr + offset) mod 2^12 = (vaddr mod 2^12 + offset mod 2^12) mod 2^12"
     unfolding mod_add_eq
     ..
-  also have "\<dots> = vaddr mod 2^12 + 16 mod 2^12"
-    using assms(2) aligned_dvd_plus_lt[of "vaddr mod 2^12" 32 16 "2^12"]
+  also have "\<dots> = vaddr mod 2^12 + offset mod 2^12"
+    using vaddr sz offset aligned_dvd_plus_lt[of "vaddr mod 2^12" sz offset "2^12"]
     by (intro mod_less) (auto simp: aligned_mod_iff)
-  finally have "translate_address (vaddr + 16) = Some (2^12 * (paddr div 2^12) + vaddr mod 2^12 + 16)"
-    using translate_address_paged[OF assms(1), where vaddr' = "vaddr + 16"] assms(2) *
+  finally have "translate_address (vaddr + offset) = Some (2^12 * (paddr div 2^12) + vaddr mod 2^12 + offset)"
+    using translate_address_paged[OF assms(1), where vaddr' = "vaddr + offset"] assms(2) *
     by (auto simp: aligned_def)
-  also have "\<dots> = Some (paddr + 16)"
+  also have "\<dots> = Some (paddr + offset)"
     using translate_address_paged[OF assms(1), where vaddr' = vaddr] assms(1)
     by auto
   finally show ?thesis
     .
+qed
+
+lemma translate_address_aligned32_plus16:
+  assumes "translate_address vaddr = Some paddr"
+    and "aligned vaddr 32"
+  shows "translate_address (vaddr + 16) = Some (paddr + 16)"
+  using assms
+  by (auto intro: translate_address_aligned_plus)
+
+lemma store_enabled_data_paccess_enabled_subset:
+  assumes "store_enabled s acctype vaddr sz data tag"
+    and "\<exists>paddr offset. translate_address vaddr = Some paddr \<and> paddr' = paddr + offset \<and> offset + sz' \<le> nat sz"
+    and "aligned vaddr (nat sz)" and "nat sz dvd 2^12" and "vaddr < 2^64" and "sz' > 0"
+  shows "paccess_enabled s Store paddr' sz' (mem_bytes_of_word data') B0"
+proof -
+  obtain paddr offset
+    where paddr: "translate_address vaddr = Some paddr"
+      and offset: "paddr' = paddr + offset \<and> offset + sz' \<le> nat sz"
+    using assms(2)
+    by auto
+  moreover have paddr': "translate_address (vaddr + offset) = Some (paddr + offset)"
+    using paddr offset assms(3,4,6)
+    by (intro translate_address_aligned_plus[where sz = "nat sz"]) auto
+  moreover have "store_enabled s acctype (vaddr + offset) (int sz') data' False"
+    using paddr offset assms(1,3-6)
+    by (elim store_enabled_data_subset) (auto simp flip: zless_nat_eq_int_zless dest: dvd_imp_le)
+  ultimately show ?thesis
+    by (elim store_enabled_access_enabled) auto
 qed
 
 lemma AArch64_MemSingle_read_translate_address_Some:
@@ -1313,16 +1345,16 @@ lemma AArch64_MemSingle_read_translate_address_Some:
     and "trace_assms t"
   shows "\<exists>paddr. translate_address (unat vaddr) = Some paddr"
   using assms
-  unfolding AArch64_MemSingle_read_def AArch64_TranslateAddress_def
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct)
+  unfolding AArch64_MemSingle_read_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else)
 
 lemma AArch64_MemSingle_set_translate_address_Some:
   assumes "Run (AArch64_MemSingle_set vaddr sz acctype wasaligned data) t a"
     and "trace_assms t"
   shows "\<exists>paddr. translate_address (unat vaddr) = Some paddr"
   using assms
-  unfolding AArch64_MemSingle_set_def AArch64_TranslateAddress_def
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct)
+  unfolding AArch64_MemSingle_set_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else)
 
 lemma AArch64_MemSingle_read_valid_address[derivable_capsE]:
   assumes "Run (AArch64_MemSingle_read vaddr sz acctype wasaligned) t a" and "trace_assms t"
@@ -1334,8 +1366,8 @@ lemma AArch64_TaggedMemSingle_valid_address[derivable_capsE]:
   assumes "Run (AArch64_TaggedMemSingle vaddr sz acctype wasaligned) t a" and "trace_assms t"
   shows "valid_address acctype (unat vaddr)"
   using assms
-  unfolding AArch64_TaggedMemSingle_def AArch64_TranslateAddress_def bind_assoc
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_valid)
+  unfolding AArch64_TaggedMemSingle_def bind_assoc
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else translate_address_valid)
 
 lemma MemC_read_valid_address[derivable_capsE]:
   assumes "Run (MemC_read vaddr acctype) t a" and "trace_assms t"
@@ -1375,8 +1407,8 @@ lemma AArch64_CapabilityTag_valid_address[derivable_capsE]:
   assumes "Run (AArch64_CapabilityTag addr acctype) t a" and "trace_assms t"
   shows "valid_address acctype (unat addr)"
   using assms
-  unfolding AArch64_CapabilityTag_def AArch64_TranslateAddress_def
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else IsFault_def translate_correct intro: translate_address_valid)
+  unfolding AArch64_CapabilityTag_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else intro: translate_address_valid)
 
 (* TODO *)
 (*lemma
@@ -1466,6 +1498,23 @@ proof -
     by auto
 qed
 
+lemma aligned_Align__1[simp, intro]:
+  assumes "sz' = nat sz" and "sz > 0"
+  shows "aligned (nat (Align__1 addr sz)) sz'"
+  using assms
+  by (auto simp: Align__1_def aligned_def dvd_def nat_mult_distrib)
+
+lemma aligned_Align[simp, intro]:
+  assumes "sz' = nat sz" and "sz > 0" and "nat sz dvd 2^LENGTH('a)"
+  shows "aligned (unat (Align addr sz :: 'a::len word)) sz'"
+  using assms
+  by (auto simp: Align_woi_Align__1 Align__1_leq aligned_mod_iff nat_mod_distrib nat_power_eq)
+
+lemma Align_AND_NOT_mask:
+  "Align w (2 ^ n) = (w AND NOT (mask n))"
+  unfolding Align_def Align__1_def
+  by (intro word_eqI) (auto simp: bin_nth_prod bin_nth_div word_ops_nth_size simp flip: test_bit_def')
+
 lemma AArch64_CheckAlignment_ATOMICRW_aligned[simp]:
   assumes "Run (AArch64_CheckAlignment addr (int sz) AccType_ATOMICRW iswrite) t a" and "sz > 0"
   shows "aligned (unat addr) sz"
@@ -1481,7 +1530,7 @@ lemma AArch64_ExclusiveMonitorsPass_aligned[simp]:
 
 lemma TranslateAddress_aligned_vaddr_aligned_paddr:
   assumes "Run (AArch64_TranslateAddressWithTag vaddr acctype iswrite wasaligned sz iscapwrite) t addrdesc"
-    and "FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None"
+    and "\<not>IsFault addrdesc"
     and "aligned (unat vaddr) sz" and "sz dvd 2^12"
     and "trace_assms t"
   shows "aligned (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) sz"
@@ -1489,7 +1538,7 @@ lemma TranslateAddress_aligned_vaddr_aligned_paddr:
 proof -
   have *: "translate_address (unat vaddr) = Some ?paddr"
     using assms
-    by (auto simp: translate_correct trace_assms_def ev_assms_def)
+    by (auto simp: trace_assms_def ev_assms_def)
   show ?thesis
     using \<open>aligned (unat vaddr) sz\<close>
     unfolding translate_address_aligned_iff[OF * \<open>sz dvd 2^12\<close>] .
@@ -1939,6 +1988,107 @@ lemma VADeref_addr_l2p64_nat[intro, simp, derivable_capsE]:
   using VADeref_addr_l2p64[OF assms(1,2)] assms(3)
   by (auto simp add: unat_def simp flip: nat_add_distrib)*)
 
+lemma (in Cap_Axiom_Automaton) accessible_regs_no_writes_trace:
+  assumes "r \<in> PCC ISA \<union> IDC ISA \<longrightarrow> (\<forall>v. E_write_reg r v \<notin> set t)"
+    and "r \<in> accessible_regs s"
+  shows "r \<in> accessible_regs (run s t)"
+proof (use assms in \<open>induction t arbitrary: s\<close>)
+  case (Cons e t)
+  show ?case
+    using Cons.prems Cons.IH[of "axiom_step s e"]
+    by (auto simp: accessible_regs_def)
+qed simp
+
+lemma MorelloCheckForCMO_store_enabled_data[derivable_capsE]:
+  assumes "Run (MorelloCheckForCMO c CAP_PERM_STORE acctype) t addr" and "trace_assms t"
+    and "c \<in> derivable_caps s"
+    and "{''PCC''} \<subseteq> accessible_regs s"
+  shows "store_enabled (run s t) acctype (unat (Align addr 64)) 64 data False"
+proof (unfold store_enabled_def, intro conjI allI impI)
+  fix paddr
+  let ?tagbit = "bitU_of_bool False"
+  let ?bytes = "mem_bytes_of_word data"
+  let ?vaddr = "unat (Align addr 64)"
+  let ?bvaddr = "bounds_address acctype ?vaddr"
+  assume "translate_address ?vaddr = Some paddr"
+  then have paddr: "translate_address ?bvaddr = Some paddr"
+    by (auto simp: translate_bounds_address translate_address_valid)
+  (* We need to prove the existence of a derivable capability with certain properties in a way for
+     which our proof tactics for derivability etc are not tailored, so we use standard proof
+     methods but provide some helpful simplification rules. *)
+  note Align64 = Align_AND_NOT_mask[where n = 6, simplified]
+  note [simp] = arith_shiftr_def arith_shiftr_mword_def
+  have [simp]: "Run (if x then CapabilityFault f a i \<bind> AArch64_Abort addr else return ()) t () \<longleftrightarrow> (\<not>x \<and> t = [])" for x f a i t
+    by (cases x) (auto elim!: Run_bindE)
+  have [simp]: "(if x then Fault_CapBounds else Fault_None) = Fault_None \<longleftrightarrow> \<not>x" for x
+    by (cases x) auto
+  have [simp]: "tbi_enabled acctype (unat addr) = tbi_enabled acctype (unat (Align addr 64))"
+    by (rule tbi_enabled_cong) (auto simp: Align64 bin_nth_int_unat word_ops_nth_size)
+  have [simp]: "Align (zext_subrange 64 addr 55 0 :: 64 word) 64 = zext_subrange 64 (Align addr 64) 55 0"
+    by (intro word_eqI) (auto simp: Align64 zext_subrange_def zext_slice_def word_ops_nth_size)
+  have [simp]: "Align (sext_subrange 64 addr 55 0 :: 64 word) 64 = sext_subrange 64 (Align addr 64) 55 0"
+    by (intro word_eqI) (auto simp: Align64 sext_subrange_def sext_slice_def word_ops_nth_size nth_scast nth_sshiftr nth_shiftl)
+  have [simp]: "Align addr 64 !! 55 = addr !! 55"
+    by (auto simp: Align64 word_ops_nth_size)
+  (* The standard proof methods seem to struggle with existential quantifiers in this case,
+     in particular when associativity of list append is involved, so we define a helper predicate
+     and prove some rules. *)
+  define c_or_DDC_in where "c_or_DDC_in \<equiv> \<lambda>t c'. c' = c \<or> (\<exists>t1 t2 t3. Run (DDC_read ()) t2 c' \<and> t = t1 @ t2 @ t3)"
+  have [simp]: "c_or_DDC_in t' c" for t'
+    by (auto simp: c_or_DDC_in_def)
+  have c_or_DDC_in_append1: "c_or_DDC_in (t1 @ t2) c'" if "Run (DDC_read ()) t1 c'" for t1 t2 c'
+    using that
+    by (fastforce simp: c_or_DDC_in_def)
+  have c_or_DDC_in_append2: "c_or_DDC_in (t1 @ t2) c'" if "c_or_DDC_in t2 c'" for t1 t2 c'
+  proof -
+    from that
+    consider (c) "c' = c"
+      | (t2) t1' t2' t3' where "Run (DDC_read ()) t2' c'" and "t2 = t1' @ t2' @ t3'"
+      by (auto simp: c_or_DDC_in_def)
+    then show ?thesis
+    proof cases
+      case t2
+      then have "Run (DDC_read ()) t2' c' \<and> t1 @ t2 = (t1 @ t1') @ t2' @ t3'"
+        by auto
+      then show ?thesis
+        unfolding c_or_DDC_in_def
+        by blast
+    qed simp
+  qed
+  note Run_ifEs = Run_ifE[where f = "VAFromCapability c"]
+  from assms obtain t' c' bvaddr
+    where t': "Run (CapIsRangeInBounds c' bvaddr 64) t' True" "trace_assms t'"
+      and bvaddr: "?bvaddr = unat bvaddr"
+      and tagged: "CapIsTagSet c'" and not_sealed: "\<not>CapIsSealed c'"
+      and perms: "cap_permits CAP_PERM_STORE c'"
+      and "c_or_DDC_in t c'"
+    unfolding MorelloCheckForCMO_def VAToCapability_def bounds_address_def has_ttbr1_def
+    (* TODO: This takes extremely long (around 20 minutes, on a somewhat slow machine).
+       It also assumes that CheckCapability.patch has been applied to the ASL. *)
+    by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
+       (auto simp: bin_nth_int_unat unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def has_ttbr1_def
+             elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E Run_ifE[where f = "VAFromCapability c"]
+             dest!: translation_el s1_enabled tbi_enabled' in_host
+             simp: c_or_DDC_in_append1 c_or_DDC_in_append2)
+  have "\<forall>rv. E_write_reg ''PCC'' rv \<notin> set t"
+    using assms runs_no_reg_writes_to_MorelloCheckForCMO[of "{''PCC''}"]
+    by (fastforce simp: runs_no_reg_writes_to_def)
+  have c': "c' \<in> derivable_caps (run s t)"
+    using \<open>c_or_DDC_in t c'\<close> assms runs_no_reg_writes_to_MorelloCheckForCMO[of "{''PCC''}"]
+    unfolding runs_no_reg_writes_to_def
+    by (fastforce simp: c_or_DDC_in_def intro: derivable_caps_run_imp accessible_regs_no_writes_trace elim: derivable_capsE)
+  then have "get_limit c' \<le> 2^64"
+    (* TODO: Needs invariant on derivable capabilities *)
+    sorry
+  with t' show "?bvaddr + nat 64 \<le> 2^64"
+    using CapIsRangeInBounds_in_get_mem_region[OF t']
+    by (auto simp: bvaddr get_mem_region_def split: if_splits)
+  show "access_enabled (run s t) Store ?bvaddr paddr (nat 64) ?bytes ?tagbit"
+    using c' paddr tagged not_sealed perms CapIsRangeInBounds_in_get_mem_region[OF t']
+    unfolding access_enabled_def authorises_access_def addrs_in_mem_region_def has_access_permission_def
+    by (auto simp: bvaddr derivable_caps_def)
+qed simp
+
 text \<open>Loads enabled by VADeref\<close>
 
 lemmas load_enabled_combinators[derivable_caps_combinators] =
@@ -2304,6 +2454,14 @@ text \<open>Assume that tag setting is disabled\<close>
 lemma IsTagSettingDisabled_not_False:
   assumes "trace_assms t"
   shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
+  sorry
+
+text \<open>Assume that a cache line is 64 bytes (hardcoded in
+  MorelloCheckForCMO, and the value used by the actual hardware)\<close>
+
+lemma DCZID_EL0_assm:
+  assumes "Run (read_reg DCZID_EL0_ref) t a" and "trace_assms t"
+  shows "uint (a AND mask 4) = 4"
   sorry
 
 end

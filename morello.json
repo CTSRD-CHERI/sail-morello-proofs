@@ -179,8 +179,7 @@
       },
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> load_enabled s arg2 (unat arg0) arg1 False"],
-        "unfolding": ["AArch64_MemSingle_read_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "AArch64_MemSingle_set": {
@@ -190,8 +189,7 @@
       "traces_enabled_mem": {
         "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> store_enabled s arg2 (unat arg0) arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
         "stmts": ["traces_enabled (AArch64_MemSingle_set arg0 arg1 arg2 arg3 (arg4 :: 'a::len word)) s"],
-        "unfolding": ["AArch64_MemSingle_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else translate_address_aligned32_plus16)"
       }
     },
     "AArch64_TaggedMemSingle": {
@@ -207,8 +205,7 @@
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) (nat arg1)", "load_enabled s arg2 (unat arg0) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s arg2 (unat arg0 + 16) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s arg2 (unat arg0) 32 False"],
-        "unfolding": ["AArch64_TaggedMemSingle_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else translate_address_aligned32_plus16)"
       }
     },
     "AArch64_TaggedMemSingle__1": {
@@ -220,14 +217,13 @@
       "traces_enabled_mem": {
         "assms": ["aligned (unat addr) (nat sz)", "store_enabled s arg2 (unat addr) 16 (ucast data :: 128 word) (tags !! 0)", "sz = 32 \\<Longrightarrow> store_enabled s arg2 (unat addr + 16) 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
-        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
+        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else translate_address_aligned32_plus16)"
       }
     },
     "AArch64_CapabilityTag": {
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg1 (unat arg0) 16 True"],
-        "unfolding": ["AArch64_CapabilityTag_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "AArch64_CapabilityTag_set": {
@@ -322,8 +318,8 @@
       },
       "traces_enabled_mem": {
         "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s arg3 (unat arg0) 16 True", "aligned (unat arg0) 16 \\<longrightarrow> store_enabled s arg4 (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
-        "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else IsFault_def translate_correct)"
+        "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else)"
       }
     },
     "MemAtomicCompareAndSwap": {
@@ -333,8 +329,8 @@
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
         "stmts": ["traces_enabled (MemAtomicCompareAndSwap base expval (newval :: 'a::len word) ldacctype stacctype) s"],
-        "unfolding": ["MemAtomicCompareAndSwap_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
+        "unfolding": ["MemAtomicCompareAndSwap_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "MemAtomicCompareAndSwapC": {
@@ -352,8 +348,8 @@
       "traces_enabled_mem": {
         "assms": ["aligned (unat addr) 16 \\<longrightarrow> load_enabled s ldacctype (unat addr) 16 True", "aligned (unat addr) 16 \\<longrightarrow> store_enabled s stacctype (unat addr) 16 (ucast newcap :: 128 word) (CapIsTagSet newcap)", "newcap \\<in> derivable_caps s"],
         "stmts": ["traces_enabled (MemAtomicCompareAndSwapC va addr expcap newcap ldacctype stacctype) s"],
-        "unfolding": ["MemAtomicCompareAndSwapC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct update_subrange_vec_dec_test_bit)"
+        "unfolding": ["MemAtomicCompareAndSwapC_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else update_subrange_vec_dec_test_bit)"
       }
     },
     "MemAtomic": {
@@ -363,20 +359,26 @@
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
         "stmts": ["traces_enabled (MemAtomic base op (data :: 'a::len word) ldacctype stacctype) s"],
-        "unfolding": ["MemAtomic_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
-      }
-    },
-    "AArch64_AutoGen_ArchitectureReset": {
-      "traces_enabled": {
-        "unfolding": [],
-        "proof": "- (* TODO: takes very long *)"
+        "unfolding": ["MemAtomic_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "AArch64_AutoGen_SysRegRead": {
       "traces_enabled": {
         "unfolding": [],
         "proof": "(unfold AArch64_AutoGen_SysRegRead_def, traces_enabledI intro: assms[THEN subset_trans[rotated]])"
+      }
+    },
+    "AArch64_AutoGen_SysOpsWrite": {
+      "traces_enabled_mem": {
+	"extra_assms": ["\\<not>(CRm = 4 \\<and> CRn = 7 \\<and> op0 = 1 \\<and> op1 = 3 \\<and> op2 = 1)"],
+	"stmts": ["traces_enabled (AArch64_AutoGen_SysOpsWrite el op0 op1 CRn op2 CRm val) s"]
+      }
+    },
+    "AArch64_SysInstr": {
+      "traces_enabled_mem": {
+	"extra_assms": ["\\<not>(word_of_int CRm = (4 :: 4 word) \\<and> word_of_int CRn = (7 :: 4 word) \\<and> word_of_int op0 = (1 :: 2 word) \\<and> word_of_int op1 = (3 :: 3 word) \\<and> word_of_int op2 = (1 :: 3 word))"],
+	"stmts": ["traces_enabled (AArch64_SysInstr op0 op1 CRn CRm op2 val) s"]
       }
     },
     "AArch64_AutoGen_SysRegWrite": {
@@ -397,7 +399,13 @@
     },
     "DC_ZVA": {
       "traces_enabled_mem": {
-	"proof": "- (* TODO *)"
+	"assms": ["{''PCC''} \\<subseteq> accessible_regs s", "store_enabled s AccType_DCZVA (unat (Align arg0 64)) 64 (0 :: 512 word) False"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv2[where Inv = \"\\<lambda>idx _ memaddrdesc s. {''PCC''} \\<subseteq> accessible_regs s \\<and> FullAddress_address (AddressDescriptor_paddress memaddrdesc) = FullAddress_address (AddressDescriptor_paddress memaddrdesc0) + word_of_int idx\" and var_b = memaddrdesc0 for memaddrdesc0] store_enabled_data_paccess_enabled_subset[OF assms(2)] simp: DCZID_EL0_assm exp_fails_if_then_else aligned_unat_plus_distrib[where sz = 64] AArch64_FullTranslate_translate_address[THEN translate_address_aligned_iff] wi_hom_syms elim: Run_bindE)"
+      }
+    },
+    "DC_ZVA_SysOpsWrite_13fdcf6641be2057": {
+      "traces_enabled_mem": {
+	"extra_assms": ["store_enabled s AccType_DCZVA (unat (Align arg6 64)) 64 (0 :: 512 word) False"]
       }
     },
     "CAP_DC_CVAU": {

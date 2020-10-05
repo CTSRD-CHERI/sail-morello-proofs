@@ -15,6 +15,9 @@ adhoc_overloading bind Sail2_prompt_monad.bind
 
 section \<open>General lemmas\<close>
 
+lemma pow2_power[simp]: "pow2 n = 2 ^ nat n"
+  by (auto simp: pow2_def pow_def)
+
 lemma un_ui_lt:
   "(unat x < unat y) \<longleftrightarrow> (uint x < uint y)"
   unfolding unat_def nat_less_eq_zless[OF uint_ge_0] ..
@@ -752,6 +755,7 @@ lemma CC_simps[simp]:
   "get_top_method CC c = get_limit c"
   "get_obj_type_method CC c = unat (CapGetObjectType c)"
   "cap_of_mem_bytes_method CC = cap_of_mem_bytes"
+  "permits_store_method CC c = cap_permits CAP_PERM_STORE c"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
   "permits_unseal_method CC c = cap_permits CAP_PERM_UNSEAL c"
   "permits_ccall_method CC c = cap_permits CAP_PERM_BRANCH_SEALED_PAIR c"
@@ -1410,15 +1414,15 @@ locale Morello_Fixed_Address_Translation =
        allowing us to make assumptions about register values/fields that might change over time,
        e.g. PSTATE.EL *)
     and translation_assms :: "register_value event \<Rightarrow> bool"
-  assumes translate_correct:
+  assumes translate_correct[simp]:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
-          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
-          FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
+          Run (AArch64_FullTranslateWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          \<not>IsFault addrdesc \<Longrightarrow>
           \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
           translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
     and is_translation_event_correct:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
-          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          Run (AArch64_FullTranslateWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
           \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
           e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
           is_translation_event e"
@@ -1449,107 +1453,33 @@ proof -
     .
 qed
 
-(*definition has_ttbr1 :: "AccType \<Rightarrow> bool" where
-  "has_ttbr1 acctype = (translation_el acctype \<in> {EL0, EL1} \<or> in_host acctype)"
+lemma AArch64_FullTranslate_translate_address[simp]:
+  assumes "Run (AArch64_FullTranslate vaddress acctype iswrite wasaligned sz) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_FullTranslate_def IsFault_def elim!: Run_bindE Run_ifE)
 
-definition bounds_address :: "AccType \<Rightarrow> nat \<Rightarrow> nat" where
-  "bounds_address acctype addr =
-     (if tbi_enabled acctype addr then
-        (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
-         then addr mod 2 ^ 56 + (255 * 2 ^ 56) \<comment> \<open>sign extension of addr[55..0]\<close>
-         else addr mod 2 ^ 56)                 \<comment> \<open>zero extension of addr[55..0]\<close>
-      else addr)"
+lemma AArch64_TranslateAddressWithTag_translate_address[simp]:
+  assumes "Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned sz iswritevalidcap) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_TranslateAddressWithTag_def IsFault_def elim!: Run_bindE Run_ifE)
 
-definition valid_address :: "AccType \<Rightarrow> nat \<Rightarrow> bool" where
-  "valid_address acctype addr \<equiv>
-     (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
-      then (if tbi_enabled acctype addr
-            then addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52 \<comment> \<open>addr[55..52] = 0xF\<close>
-            else addr \<ge> 4095 * 2 ^ 52)         \<comment> \<open>addr[63..52] = 0xFFF\<close>
-      else (if tbi_enabled acctype addr
-            then addr mod 2 ^ 56 < 2 ^ 52      \<comment> \<open>addr[55..52] = 0x0\<close>
-            else addr < 2 ^ 52))"              \<comment> \<open>addr[63..52] = 0x000\<close>
+lemma AArch64_TranslateAddress_translate_address[simp]:
+  assumes "Run (AArch64_TranslateAddress vaddress acctype iswrite wasaligned sz) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_TranslateAddress_def IsFault_def elim!: Run_bindE Run_ifE)
 
-lemma bin_nth_eq_mod_div:
-  "bin_nth w n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
-proof -
-  have "bin_nth w n = odd (w div 2 ^ n)"
-    by (auto simp: bin_nth_eq_mod)
-  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + w div 2 ^ (Suc n) * 2 ^ (Suc n)) div 2 ^ n)"
-    unfolding mod_div_mult_eq
-    ..
-  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + (2 ^ n) * (2 * (w div 2 ^ (Suc n)))) div 2 ^ n)"
-    by (auto simp only: mult_ac power_Suc)
-  also have "\<dots> = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
-    by auto
-  finally show ?thesis
-    .
-qed
-
-lemma bin_nth_int_eq_mod_div:
-  "bin_nth (int w) n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
-proof -
-  have "even (nat (int w mod 2 ^ (Suc n) div 2 ^ n)) = even (int w mod 2 ^ (Suc n) div 2 ^ n)"
-    by (intro even_nat_iff) (auto simp: pos_imp_zdiv_nonneg_iff)
-  then show ?thesis
-    unfolding bin_nth_eq_mod_div nat_mod_as_int
-    by (auto simp: nat_div_distrib nat_power_eq)
-qed
-
-lemma bounds_address_offset:
-  assumes "valid_address acctype (addr + offset)"
-    and "valid_address acctype addr"
-    and "offset < 2 ^ 52"
-    and "bounds_address acctype addr + offset < 2 ^ 64"
-  shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
-proof -
-  have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55
-        \<and> (addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
-  proof (cases "s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55")
-    case True
-    let ?baddr = "bounds_address acctype addr"
-    have "?baddr = (?baddr mod 2 ^ 56) + (?baddr div 2 ^ 56 * 2 ^ 56)"
-      unfolding mod_div_mult_eq
-      ..
-    also have "\<dots> = addr mod 2 ^ 56 + 255 * 2 ^ 56"
-      using True assms(2,4)
-      by (intro arg_cong2[where f = "(+)"])
-         (auto simp add: bounds_address_def valid_address_def simp flip: mod_add_eq)
-    finally have "addr mod 2 ^ 56 + offset < 2 ^ 56" and *: "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
-      using True assms(2,4)
-      by (auto simp: bounds_address_def valid_address_def split: if_splits)
-    then have **: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
-      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
-      by auto
-    moreover have "bin_nth (int (addr + offset)) 55"
-      using assms(1) * **
-      by (auto simp: valid_address_def split: if_splits)
-    ultimately show ?thesis
-      using True
-      by auto
-  next
-    case False
-    then have 1: "addr mod 2 ^ 56 < 2 ^ 52"
-      using \<open>valid_address acctype addr\<close>
-      by (auto simp: valid_address_def split: if_splits)
-    then have 2: "addr mod 2 ^ 56 + offset < 2 ^ 53"
-      using \<open>offset < 2 ^ 52\<close>
-      by auto
-    then have 3: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
-      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
-      by auto
-    moreover have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55"
-      using 1 2 3
-      unfolding bin_nth_int_eq_mod_div
-      by auto
-    ultimately show ?thesis
-      by auto
-  qed
-  then show ?thesis
-    using tbi_enabled_cong[of addr "addr + offset" acctype]
-    unfolding bounds_address_def
-    by auto
-qed *)
+lemma AArch64_TranslateAddressForAtomicAccess_translate_address[simp]:
+  assumes "Run (AArch64_TranslateAddressForAtomicAccess vaddress sz) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_TranslateAddressForAtomicAccess_def IsFault_def elim!: Run_bindE Run_ifE Run_letE)
 
 sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
   using no_cap_load_translation_events
@@ -2409,8 +2339,6 @@ lemma VA_derivable_run_imp[derivable_caps_runI]:
 
 declare Run_ifE[where thesis = "VA_derivable va s" and a = va for va s, derivable_caps_combinators]
 declare Run_letE[where thesis = "VA_derivable va s" and a = va for va s, derivable_caps_combinators]
-
-thm derivable_caps_combinators
 
 lemmas Run_return_VA_derivable[derivable_caps_combinators] =
    Run_return_resultE[where P = "\<lambda>va. VA_derivable va s" for s]
