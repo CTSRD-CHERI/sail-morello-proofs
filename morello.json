@@ -154,6 +154,9 @@
       "non_mem_exp": {
         "proof": "(cases arg0; simp; non_mem_expI)"
       },
+      "no_reg_writes_to": {
+        "proof": "(cases arg0; simp; no_reg_writes_toI)"
+      },
       "runs_no_reg_writes_to": {
         "proof": "(cases arg0; simp; no_reg_writes_toI)"
       }
@@ -162,6 +165,14 @@
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
         "stmts": ["traces_enabled (Reduce arg0 arg1 arg2 :: 'esize::len word M) s"]
+      }
+    },
+    "FPRecipEstimate": {
+      "no_reg_writes_to": {
+        "proof": "(unfold FPRecipEstimate_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_if_no_asm)"
+      },
+      "runs_no_reg_writes_to": {
+        "proof": "(unfold FPRecipEstimate_def bind_assoc, no_reg_writes_toI intro: runs_no_reg_writes_to_if_no_asm)"
       }
     },
     "execute_aarch64_instrs_system_hints": {
@@ -382,6 +393,9 @@
       }
     },
     "AArch64_AutoGen_SysRegWrite": {
+      "no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_SysRegWrite_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_if_no_asm)"
+      },
       "runs_no_reg_writes_to": {
         "proof": "(unfold AArch64_AutoGen_SysRegWrite_def bind_assoc, no_reg_writes_toI intro: runs_no_reg_writes_to_if_no_asm)"
       },
