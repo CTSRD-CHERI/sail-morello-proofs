@@ -2062,9 +2062,8 @@ proof (unfold store_enabled_def, intro conjI allI impI)
   have "\<forall>rv. E_write_reg ''PCC'' rv \<notin> set t"
     using assms runs_no_reg_writes_to_MorelloCheckForCMO[of "{''PCC''}"]
     by (fastforce simp: runs_no_reg_writes_to_def)
-  have c': "c' \<in> derivable_caps (run s t)"
-    using \<open>c_or_DDC_in t c'\<close> assms runs_no_reg_writes_to_MorelloCheckForCMO[of "{''PCC''}"]
-    unfolding runs_no_reg_writes_to_def
+  then have c': "c' \<in> derivable_caps (run s t)"
+    using \<open>c_or_DDC_in t c'\<close> assms
     by (fastforce simp: c_or_DDC_in_def intro: derivable_caps_run_imp accessible_regs_no_writes_trace elim: derivable_capsE)
   then have "get_limit c' \<le> 2^64"
     (* TODO: Needs invariant on derivable capabilities *)
@@ -2139,7 +2138,7 @@ proof -
     using that \<open>{''PCC''} \<subseteq> accessible_regs s\<close>
     by - (derivable_capsI)
   have DDC: "c \<in> derivable_caps (run (run s t') t'')"
-    if "Run (DDC_read ()) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)"
+    if "Run (DDC_read ()) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)" and "trace_assms t''"
     for c c' t' t''
     using that \<open>{''PCC''} \<subseteq> accessible_regs s\<close>
     by - (derivable_capsI)

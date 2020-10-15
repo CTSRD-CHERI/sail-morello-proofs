@@ -25,8 +25,8 @@
   "slice": { "roots": ["__DecodeExecute", "__FetchInstr"] },
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
-  "privileged_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
-  "system_access_checks": ["CapIsSystemAccessEnabled"],
+  "privileged_regs": ["CDBGDTR_EL0", "CDLR_EL0", "VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
+  "system_access_checks": ["CapIsSystemAccessEnabled", "Halted"],
   "pcc": ["PCC"],
   "idc": ["_R29"],
   "overrides": {
@@ -143,7 +143,8 @@
     },
     "execute_aarch64_instrs_system_register_system": {
       "traces_enabled": {
-	"proof": "- (* TODO *)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "\\<not>(sys_op0 = 3 \\<and> sys_op1 \\<in> {0, 4, 6} \\<and> sys_op2 = 2 \\<and> sys_crm = 12)"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_system_register_system read sys_crm sys_crm sys_op0 sys_op1 sys_op2 t) s"]
       }
     },
     "ReduceCombine": {
@@ -405,7 +406,8 @@
     },
     "AArch64_SysRegWrite": {
       "traces_enabled": {
-        "extra_assms": ["\\<not>(((((arg0 = 3 \\<and> arg2 = 12) \\<and> ((arg1 = 6 \\<or> arg1 = 4) \\<or> arg1 = 0)) \\<and> arg4 = 2) \\<and> arg3 = 0) \\<and> vec_of_bits [access_vec_dec arg5 1] = (1 :: 1 word))"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "\\<not>(op0 = 3 \\<and> op1 \\<in> {0, 4, 6} \\<and> op2 = 2 \\<and> crn = 12)"],
+        "stmts": ["traces_enabled (AArch64_SysRegWrite op0 op1 crn crm op2 val) s"]
       },
       "non_mem_exp": {
         "stmts": ["\\<not>(arg0 = 3 \\<and> arg2 = 12 \\<and> (arg1 = 6 \\<or> arg1 = 4 \\<or> arg1 = 0) \\<and> arg4 = 2 \\<and> arg3 = 0 \\<and> arg5 !! 1) \\<Longrightarrow> non_mem_exp (AArch64_SysRegWrite arg0 arg1 arg2 arg3 arg4 arg5)"]

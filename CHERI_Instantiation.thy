@@ -1231,7 +1231,7 @@ definition "ISA \<equiv>
    isa.instr_raises_ex = instr_raises_ex,
    isa.fetch_raises_ex = fetch_raises_ex,
    isa.exception_targets = exception_targets,
-   privileged_regs = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
+   privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
@@ -1241,7 +1241,7 @@ lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
   "KCC ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "IDC ISA = {''_R29''}"
-  "privileged_regs ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
+  "privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "isa.instr_sem ISA = instr_sem"
   "isa.instr_fetch ISA = instr_fetch"
   "isa.caps_of_regval ISA = caps_of_regval"
@@ -1529,6 +1529,8 @@ lemmas privilegeds_accessible_system_reg_access[intro] =
   privileged_accessible_system_reg_access[where r = "''VBAR_EL1''", simplified]
   privileged_accessible_system_reg_access[where r = "''VBAR_EL2''", simplified]
   privileged_accessible_system_reg_access[where r = "''VBAR_EL3''", simplified]
+  privileged_accessible_system_reg_access[where r = "''CDBGDTR_EL0''", simplified]
+  privileged_accessible_system_reg_access[where r = "''CDLR_EL0''", simplified]
 
 lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
   "non_cap_exp (undefined_bitvector n)"
@@ -2363,16 +2365,30 @@ lemma Halted_False:
   unfolding Halted_def
   by (auto simp: EDSCR_ref_def sysreg_trace_assms_def elim!: Run_bindE Run_or_boolM_E Run_read_regE)
 
-lemma PCC_sysreg_trace_assms:
-  assumes "Run (read_reg PCC_ref) t c" and "sysreg_trace_assms t"
-  shows "CapIsTagSet c" and "\<not>CapIsSealed c"
+lemma Run_Halted_True_False[simp]:
+  assumes "sysreg_trace_assms t"
+  shows "Run (Halted ()) t True \<longleftrightarrow> False"
   using assms
-  by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def)
+  by (auto dest: Halted_False)
 
 lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
   "no_reg_writes_to Rs (Halted u)"
   unfolding Halted_def
   by (no_reg_writes_toI)
+
+lemma Run_Halted_accessible_regs[accessible_regsE]:
+  assumes "Run (Halted u) t h" and "sysreg_trace_assms t"
+    and "Rs - (if h then privileged_regs ISA else {}) \<subseteq> accessible_regs s"
+  shows "Rs \<subseteq> accessible_regs (run s t)"
+  using assms
+  by (intro accessible_regs_no_writes_run_subset[of "Halted u" t h Rs])
+     (auto intro: no_reg_writes_runs_no_reg_writes no_reg_writes_to_Halted split: if_splits)
+
+lemma PCC_sysreg_trace_assms:
+  assumes "Run (read_reg PCC_ref) t c" and "sysreg_trace_assms t"
+  shows "CapIsTagSet c" and "\<not>CapIsSealed c"
+  using assms
+  by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def)
 
 lemma CapIsSystemAccessEnabled_trace_allows_system_reg_access:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
@@ -2383,7 +2399,7 @@ proof -
     where t1: "Run (Halted ()) t1 False"
       and t2: "Run (read_reg PCC_ref :: Capability M) t2 c" "sysreg_trace_assms t2"
       and "CapIsSystemAccessPermitted c"
-      and "t = t1 @ t2"
+      and t: "t = t1 @ t2"
     using assms PCC_sysreg_trace_assms
     by (auto simp: CapIsSystemAccessEnabled_def PCC_read_def
              elim!: Run_bindE dest: Halted_False)
@@ -2391,7 +2407,7 @@ proof -
     using PCC_sysreg_trace_assms[OF t2]
     by auto
   moreover have "{''PCC''} \<subseteq> accessible_regs (run s t1)"
-    using t1 assms(4)
+    using t t1 assms(2,4)
     by - accessible_regsI
   ultimately show ?thesis
     by (auto elim!: Run_read_regE simp: PCC_ref_def)
@@ -2457,6 +2473,9 @@ next
     using assms(2,3) False
     by - accessible_regsI
 qed
+
+lemmas system_access_disabled_accessible_regs_or_ex[accessible_regsE] =
+  system_access_disabled_accessible_regs[THEN disjI1]
 
 lemma system_access_disabled_system_reg_access:
   assumes "Run system_access_disabled t a" and "sysreg_trace_assms t" and "\<not>a"
@@ -2755,7 +2774,7 @@ lemma sysreg_ev_assmsI[intro]:
   "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
   by (cases e rule: sysreg_ev_assms.cases) auto
 
-lemma sysreg_trace_assmsI[intro, derivable_capsI]:
+lemma sysreg_trace_assmsI[simp, intro, derivable_capsI]:
   "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
   by (auto simp: sysreg_trace_assms_def trace_assms_def)
 
@@ -2792,7 +2811,8 @@ begin
 
 fun extra_assms :: "register_value event \<Rightarrow> bool" where
   "extra_assms (E_read_reg r v) =
-    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and>
+    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c)) \<and>
+     (r = ''EDSCR'' \<longrightarrow> (\<forall>w. v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 6 word) = 2)) \<and> \<comment> \<open>Non-debug state\<close>
      (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps))"
 | "extra_assms _ = True"
 
@@ -2858,6 +2878,14 @@ lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
   shows "CapUnseal c \<in> invoked_indirect_caps"
   using assms
   by (auto elim!: derivable_capsE split: if_splits)
+
+lemma sysreg_ev_assmsI[intro]:
+  "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
+  by (cases e rule: sysreg_ev_assms.cases) (auto simp: ev_assms_def)
+
+lemma sysreg_trace_assmsI[simp, intro, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
+  by (auto simp: sysreg_trace_assms_def trace_assms_def)
 
 end
 
