@@ -782,70 +782,154 @@ lemma cap_of_mem_bytes_of_word_B1_Capability_of_tag_word:
 text \<open>Proofs that a monadic function essentially encodes a pure function\<close>
 
 definition
-  monad_return_rel :: "('rv, 'a, 'e) monad \<Rightarrow> ('rv, 'a, 'e) monad \<Rightarrow> ('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> bool"
+  monad_return_rel :: "('regv event \<Rightarrow> bool) \<Rightarrow> ('regv, 'a, 'e) monad \<Rightarrow> ('regv, 'a, 'e) monad \<Rightarrow>
+    ('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> ('e \<Rightarrow> 'e \<Rightarrow> bool) \<Rightarrow> bool"
 where
-  "monad_return_rel m m' P = (\<forall> t t' x x'. Run m t x \<and> Run m' t' x' \<longrightarrow> P x x')"
+  "monad_return_rel assms m m' P E = (\<forall> t t' r r'. (m, t, r) \<in> Traces \<and> (m', t', r') \<in> Traces \<and>
+    (\<forall>ev \<in> set t. assms ev) \<and> (\<forall>ev \<in> set t'. assms ev) \<longrightarrow>
+    (case (r, r') of
+        (Done x, Done x') \<Rightarrow> P x x'
+      | (Exception e, Exception e') \<Rightarrow> E e e'
+      | (Done _, Exception _) \<Rightarrow> False
+      | (Exception _, Done _) \<Rightarrow> False
+      | _ \<Rightarrow> True
+    ))"
+
+abbreviation(input)
+  "monad_determ assms m \<equiv> monad_return_rel assms m m (=) (=)"
 
 lemmas monad_return_relD = monad_return_rel_def[THEN iffD1, unfolded imp_conjL, rule_format]
 
 definition
-  monad_result_of :: "('rv, 'a, 'e) monad \<Rightarrow> 'a"
+  monad_result_of :: "('regv event \<Rightarrow> bool) \<Rightarrow> ('regv, 'a, 'e) monad \<Rightarrow> 'a"
 where
-  "monad_result_of m = (THE v. \<exists>t. Run m t v)"
+  "monad_result_of assms m = (THE v. \<exists>t. (\<forall>ev \<in> set t. assms ev) \<and> Run m t v)"
 
 lemma monad_result_of_eq:
-  "monad_return_rel m m (=) \<Longrightarrow> Run m t x \<Longrightarrow> monad_result_of m = x"
+  "monad_determ assms m \<Longrightarrow> Run m t x \<Longrightarrow> \<forall>ev \<in> set t. assms ev \<Longrightarrow> monad_result_of assms m = x"
   apply (simp add: monad_result_of_def)
   apply (rule the_equality)
-   apply (auto elim: monad_return_relD)
+   apply (auto dest: monad_return_relD)
+  done
+
+lemma bind_Traces_final_cases:
+  "(bind f (\<lambda>x. g x), t, r) \<in> Traces \<Longrightarrow>
+    (case r of Done _ \<Rightarrow> False | Exception _ \<Rightarrow> False | _ \<Rightarrow> True) \<or>
+    (\<exists>x ta tb. t = ta @ tb \<and> Run f ta x \<and> (
+        (\<exists>y. r = Done y \<and> Run (g x) tb y) \<or>
+        (\<exists>e. r = Exception e \<and> (g x, tb, Exception e) \<in> Traces))) \<or>
+    (\<exists>e. r = Exception e \<and> (f, t, Exception e) \<in> Traces)"
+  apply (erule bind_Traces_cases)
+   apply (case_tac m'', simp_all)[1]
+   apply (simp split: monad.split)
+   apply (fastforce intro: exI[where x=Nil])
+  apply (simp split: monad.split)
+  apply auto[1]
   done
 
 lemma monad_return_rel_bind:
-  "monad_return_rel f f' P \<Longrightarrow> (\<And>x x'. P x x' \<Longrightarrow> monad_return_rel (g x) (g' x') Q)
-    \<Longrightarrow> monad_return_rel (bind f g) (bind f' g') Q"
-  apply (subst monad_return_rel_def, clarsimp elim!: Run_bindE)
-  apply (drule(2) monad_return_relD)
+  "monad_return_rel assms f f' P E \<Longrightarrow> (\<And>x x'. P x x' \<Longrightarrow> monad_return_rel assms (g x) (g' x') Q E)
+    \<Longrightarrow> monad_return_rel assms (bind f g) (bind f' (\<lambda>x'. g' x')) Q E"
+  apply (subst monad_return_rel_def, clarsimp)
+  apply (erule bind_Traces_final_cases[THEN disjE], simp split: monad.split_asm)
+  apply (simp split: monad.split)
+  apply (erule bind_Traces_final_cases[THEN disjE], simp split: monad.split_asm)
+  apply (elim disjE; clarsimp; drule(2) monad_return_relD; simp)
   apply (elim meta_allE, drule(1) meta_mp)
-  apply (erule(2) monad_return_relD)
+  apply (clarsimp simp: ball_Un)
+  apply (elim disjE; clarsimp; drule(2) monad_return_relD; simp)
   done
 
+lemmas monad_return_rel_bind_eq = monad_return_rel_bind[where P="(=)"]
+
 lemma monad_return_rel_if:
-  "G = G' \<Longrightarrow> monad_return_rel f f' P \<Longrightarrow> monad_return_rel g g' P
-    \<Longrightarrow> monad_return_rel (If G f g) (If G' f' g') P"
+  "G = G' \<Longrightarrow> monad_return_rel assms f f' P E \<Longrightarrow> monad_return_rel assms g g' P E
+    \<Longrightarrow> monad_return_rel assms (If G f g) (If G' f' g') P E"
   by simp
 
 lemma monad_return_rel_return:
-  "P x y \<Longrightarrow> monad_return_rel (return x) (return y) P"
+  "P x y \<Longrightarrow> monad_return_rel assms (return x) (return y) P E"
   by (clarsimp simp: monad_return_rel_def)
 
 lemma monad_return_rel_triv:
-  "monad_return_rel f g (\<lambda> x x'. True)"
-  by (clarsimp simp: monad_return_rel_def)
+  "(\<forall>tr e. \<not> (f, tr, Exception e) \<in> Traces) \<Longrightarrow>
+    (\<forall>tr e. \<not> (g, tr, Exception e) \<in> Traces) \<Longrightarrow>
+    monad_return_rel assms f g (\<lambda> x x'. True) E"
+  by (simp add: monad_return_rel_def split: monad.split)
+
+lemmas monad_return_rel_triv_same = monad_return_rel_triv[where f=f and g=f for f]
+
+lemma bind_exceptionD:
+  "(bind f (\<lambda>x. g x), tr, Exception e) \<in> Traces \<Longrightarrow>
+    (((f, tr, Exception e) \<in> Traces) \<or>
+        (\<exists>tra trb x. Run f tra x \<and> tr = tra @ trb \<and> (g x, trb, Exception e) \<in> Traces))"
+  by (drule bind_Traces_final_cases, auto)
+
+lemma foreachM_no_exception:
+  "(\<And>x vs tr e. x \<in> set xs \<Longrightarrow> (body x vs, tr, Exception e) \<notin> Traces) \<Longrightarrow>
+   (foreachM xs vs body, tr, Exception e) \<notin> Traces"
+  apply (induct xs arbitrary: tr vs e, simp_all)
+  apply (clarsimp dest!: bind_Traces_final_cases)
+  done
+
+lemma Choose_exception:
+  "((Choose s m, tr, Exception e) \<in> Traces) \<Longrightarrow> \<exists>b tr'. (m b, tr', Exception e) \<in> Traces"
+  apply (erule Traces.cases; clarsimp)
+  apply (auto elim!: T.cases)
+  done
+
+lemma choose_bool_exception:
+  "(choose_bool ''bool_of_bitU'', tr, Exception e) \<notin> Traces"
+  by (clarsimp simp: choose_bool_def dest!: Choose_exception)
+
+lemma undefined_bitvector_exception:
+  "\<not> (undefined_bitvector n, tr, Exception e) \<in> Traces"
+  apply (simp only: undefined_bitvector_def repeat_singleton_replicate)
+  apply (clarsimp simp: of_bits_nondet_def bools_of_bits_nondet_def
+                 dest!: bind_Traces_final_cases)
+  apply (subst(asm) foreachM_no_exception, simp_all)
+  apply (clarsimp dest!: bind_Traces_final_cases simp: choose_bool_exception)
+  done
 
 definition
   eq_at_bits :: "nat set \<Rightarrow> ('a :: len0) word \<Rightarrow> 'a word \<Rightarrow> bool"
 where
   "eq_at_bits ns x y = (\<forall>i \<in> ns. i < size x \<longrightarrow> test_bit x i = test_bit y i)"
 
-lemma monad_return_rel_undefined:
-  "monad_return_rel (undefined_bitvector i) (undefined_bitvector j) (eq_at_bits {})"
-  by (simp add: monad_return_rel_def eq_at_bits_def)
+lemma monad_return_rel_rel_weaken:
+  "monad_return_rel assms f g P E \<Longrightarrow> (\<forall>x y. P x y \<longrightarrow> P' x y) \<Longrightarrow>
+    (\<forall>x y. E x y \<longrightarrow> E' x y) \<Longrightarrow>
+    monad_return_rel assms f g P' E'"
+  apply (subst monad_return_rel_def, clarsimp)
+  apply (drule(2) monad_return_relD, simp_all)
+  apply (auto split: monad.split)
+  done
 
-lemmas monad_return_rel_assert_exp_triv =
-    monad_return_rel_triv[where f="assert_exp P str" and g="assert_exp Q str'" for str str' P Q]
+lemma monad_return_rel_undefined_bitvector:
+  "monad_return_rel assms (undefined_bitvector n) (undefined_bitvector n) (eq_at_bits {}) E"
+  by (rule monad_return_rel_rel_weaken, rule monad_return_rel_triv,
+    auto simp add: eq_at_bits_def undefined_bitvector_exception)
+
+lemma assert_exp_exception:
+  "(assert_exp P str, tr, Exception e) \<notin> Traces"
+  by (simp add: assert_exp_def)
+
+lemmas monad_return_rel_assert_exp =
+    monad_return_rel_triv[where f="assert_exp P str" and g="assert_exp Q str'" for str str' P Q,
+        simplified assert_exp_exception, simplified]
 
 lemma monad_return_rel_assert_exp_P:
-  "monad_return_rel (assert_exp P str) (assert_exp P str') (\<lambda>_ _. P)"
-  by (clarsimp simp: monad_return_rel_def)
+  "monad_return_rel assms (assert_exp P str) (assert_exp P str') (\<lambda>_ _. P) E"
+  by (clarsimp simp: monad_return_rel_def assert_exp_def)
 
 lemma monad_return_rel_let_same_forget:
-  "(\<And>x. monad_return_rel (g x) (g' x) Q)
-    \<Longrightarrow> monad_return_rel (Let x g) (Let x g') Q"
+  "(\<And>x. monad_return_rel assms (g x) (g' x) Q E)
+    \<Longrightarrow> monad_return_rel assms (Let x g) (Let x g') Q E"
   by simp
 
 lemma monad_return_rel_let_rel:
-  "P x x' \<Longrightarrow> (\<And>x x'. P x x' \<Longrightarrow> monad_return_rel (g x) (g' x') Q)
-    \<Longrightarrow> monad_return_rel (Let x g) (Let x' g') Q"
+  "P x x' \<Longrightarrow> (\<And>x x'. P x x' \<Longrightarrow> monad_return_rel assms (g x) (g' x') Q E)
+    \<Longrightarrow> monad_return_rel assms (Let x g) (Let x' g') Q E"
   by simp
 
 lemma test_bit_word_update:
@@ -884,10 +968,10 @@ lemma test_bit_vector_update_subrange_from_subrange:
   done
 
 lemma CapGetTop_monad_return_rel:
-  "monad_return_rel (CapGetTop c) (CapGetTop c) (=)"
+  "monad_determ assms (CapGetTop c)"
   apply (clarsimp simp add: CapGetTop_def Let_def split del: if_split)
   apply (intro monad_return_rel_if monad_return_rel_return
-    monad_return_rel_bind[OF monad_return_rel_undefined])
+    monad_return_rel_bind[OF monad_return_rel_undefined_bitvector])
   apply simp
   done
 
@@ -897,9 +981,9 @@ lemma CapGetExponent_range:
 
 lemma eq_at_bits_set_slice_zeros_lemma:
   assumes eq: "eq_at_bits S x x'"
-     and imp: "\<And>y y'. eq_at_bits (S \<union> {nat i ..< nat j}) y y' \<Longrightarrow> monad_return_rel (g y) (g' y') Q"
+     and imp: "\<And>y y'. eq_at_bits (S \<union> {nat i ..< nat j}) y y' \<Longrightarrow> monad_return_rel assms (g y) (g' y') Q E"
    and extra: "n = int (size x)" "0 \<le> i" "0 \<le> j"
-  shows "monad_return_rel (Let (set_slice_zeros n x i j) g) (Let (set_slice_zeros n x' i j) g') Q"
+  shows "monad_return_rel assms (Let (set_slice_zeros n x i j) g) (Let (set_slice_zeros n x' i j) g') Q E"
   using eq extra
   apply simp
   apply (rule imp)
@@ -910,18 +994,18 @@ lemma eq_at_bits_set_slice_zeros_lemma:
 
 lemma eq_at_bits_word_update_lemma:
   assumes eq: "eq_at_bits S x x'"
-     and imp: "\<And>y y'. eq_at_bits (S \<union> {nat i ..< nat j + 1}) y y' \<Longrightarrow> monad_return_rel (g y) (g' y') Q"
+     and imp: "\<And>y y'. eq_at_bits (S \<union> {nat i ..< nat j + 1}) y y' \<Longrightarrow> monad_return_rel assms (g y) (g' y') Q E"
    and extra: "j = i + size y - 1" "j < size x" "0 < size y"
-  shows "monad_return_rel (Let (word_update x i j y) g) (Let (word_update x' i j y) g') Q"
+  shows "monad_return_rel assms (Let (word_update x i j y) g) (Let (word_update x' i j y) g') Q E"
   using eq extra
   by (auto intro!: imp simp: eq_at_bits_def test_bit_word_update)
 
 lemma eq_at_bits_vector_update_subrange_from_subrange_lemma:
   assumes eq: "eq_at_bits S x x'"
-     and imp: "\<And>y y'. eq_at_bits (S \<union> {nat e1 ..< nat (s1 + 1)}) y y' \<Longrightarrow> monad_return_rel (g y) (g' y') Q"
+     and imp: "\<And>y y'. eq_at_bits (S \<union> {nat e1 ..< nat (s1 + 1)}) y y' \<Longrightarrow> monad_return_rel assms (g y) (g' y') Q E"
    and extra: "e1 \<le> s1 \<and> 0 \<le> e1 \<and> e2 \<le> s2 \<and> 0 \<le> e2"
-  shows "monad_return_rel (Let (vector_update_subrange_from_subrange n x s1 e1 y s2 e2) g)
-    (Let (vector_update_subrange_from_subrange n x' s1 e1 y s2 e2) g') Q"
+  shows "monad_return_rel assms (Let (vector_update_subrange_from_subrange n x s1 e1 y s2 e2) g)
+    (Let (vector_update_subrange_from_subrange n x' s1 e1 y s2 e2) g') Q E"
   using eq extra
   apply (clarsimp intro!: imp conj_cong[OF refl] simp: eq_at_bits_def
     test_bit_vector_update_subrange_from_subrange)
@@ -935,8 +1019,8 @@ lemma let_pair_to_let:
   by simp
 
 lemma monad_return_rel_let_shuffle:
-  "monad_return_rel (let x = x; y = f x in g y) (let x = x'; y = f x in g' y) Q \<Longrightarrow>
-    monad_return_rel (let y = f x in g y) (let y = f x' in g' y) Q"
+  "monad_return_rel assms (let x = x; y = f x in g y) (let x = x'; y = f x in g' y) Q E \<Longrightarrow>
+    monad_return_rel assms (let y = f x in g y) (let y = f x' in g' y) Q E"
   by simp
 
 lemma eq_at_bits_complete:
@@ -949,15 +1033,16 @@ lemma eq_at_bits_same:
 
 lemma eq_at_bits_finale_lemma:
   "eq_at_bits S x x' \<Longrightarrow> {0 ..< size x} \<subseteq> S \<Longrightarrow>
-    (\<And>y. x = x' \<Longrightarrow> monad_return_rel (g y) (g' y) Q) \<Longrightarrow>
-    monad_return_rel (let y = f x in g y) (let y = f x' in g' y) Q"
+    (\<And>y. x = x' \<Longrightarrow> monad_return_rel assms (g y) (g' y) Q E) \<Longrightarrow>
+    monad_return_rel assms (let y = f x in g y) (let y = f x' in g' y) Q E"
   apply (drule(1) eq_at_bits_complete)
   apply simp
   done
 
 lemma CapGetBounds_monad_return_rel:
-  "monad_return_rel (CapGetBounds c) (CapGetBounds c) (=)"
+  "monad_determ assms (CapGetBounds c)"
   using CapGetExponent_range[of c] [[simproc del: let_simp]]
+  apply clarsimp
   apply (simp add: CapGetBounds_def
     Let_def[where s="CapGetExponent _"]
     update_subrange_vec_dec_def
@@ -965,7 +1050,7 @@ lemma CapGetBounds_monad_return_rel:
   )
   apply (repeat_new \<open>intro conjI impI refl
     monad_return_rel_return
-    monad_return_rel_bind[OF monad_return_rel_undefined]
+    monad_return_rel_bind[OF monad_return_rel_undefined_bitvector]
     monad_return_rel_let_same_forget
     CapGetTop_monad_return_rel[THEN monad_return_rel_bind]
     monad_return_rel_assert_exp_P[THEN monad_return_rel_bind]
@@ -982,15 +1067,15 @@ lemma CapGetBounds_monad_return_rel:
     solves \<open>clarsimp simp: CAP_MW_def nat_add_distrib\<close>)
   | (drule order_antisym[where y="CapGetExponent c"], solves \<open>simp\<close>)
   \<close>)
-  apply (simp_all add: CAP_MW_def)
+  apply (simp_all add: CAP_MW_def ivl_disj_un nat_add_distrib)
   done
 
 lemma CapGetBase_monad_return_rel:
-  "monad_return_rel (CapGetBase c) (CapGetBase c) (=)"
+  "monad_determ assms (CapGetBase c)"
   apply (simp add: CapGetBase_def case_prod_beta)
   apply (intro
     monad_return_rel_return
-    monad_return_rel_bind[OF monad_return_rel_undefined]
+    monad_return_rel_bind[OF monad_return_rel_undefined_bitvector]
     CapGetBounds_monad_return_rel[THEN monad_return_rel_bind])
   apply simp
   done
@@ -1054,7 +1139,8 @@ proof -
   thus ?thesis
     using CapGetBounds_top_bit[OF assms]
     apply (clarsimp simp: get_base_def)
-    apply (frule monad_result_of_eq[OF CapGetBase_monad_return_rel])
+    apply (frule monad_result_of_eq[OF CapGetBase_monad_return_rel[where assms="\<lambda>_. True"]])
+     apply simp
     apply (simp add: monad_result_of_def less_mask_eq[unfolded word_less_nat_alt])
     done
 qed
@@ -1067,8 +1153,7 @@ lemma CapGetBounds_get_limit:
   apply (rule the_equality)
    apply auto[1]
   apply clarsimp
-  apply (drule(1) CapGetBounds_monad_return_rel[THEN monad_return_relD])
-  apply simp
+  apply (drule(1) CapGetBounds_monad_return_rel[THEN monad_return_relD], simp+)
   done
 
 lemma CapIsBaseAboveLimit_get_base_leq_get_limit:
