@@ -413,9 +413,9 @@
         "stmts": ["\\<not>(arg0 = 3 \\<and> arg2 = 12 \\<and> (arg1 = 6 \\<or> arg1 = 4 \\<or> arg1 = 0) \\<and> arg4 = 2 \\<and> arg3 = 0 \\<and> arg5 !! 1) \\<Longrightarrow> non_mem_exp (AArch64_SysRegWrite arg0 arg1 arg2 arg3 arg4 arg5)"]
       }
     },
-    "DC_ZVA": {
+    "DC_ZVA_": {
       "traces_enabled_mem": {
-	"assms": ["{''PCC''} \\<subseteq> accessible_regs s", "store_enabled s AccType_DCZVA (unat (Align arg0 64)) 64 (0 :: 512 word) False"],
+	"extra_assms": ["store_enabled s AccType_DCZVA (unat (Align arg0 64)) 64 (0 :: 512 word) False"],
 	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv2[where Inv = \"\\<lambda>idx _ memaddrdesc s. {''PCC''} \\<subseteq> accessible_regs s \\<and> FullAddress_address (AddressDescriptor_paddress memaddrdesc) = FullAddress_address (AddressDescriptor_paddress memaddrdesc0) + word_of_int idx\" and var_b = memaddrdesc0 for memaddrdesc0] store_enabled_data_paccess_enabled_subset[OF assms(2)] simp: DCZID_EL0_assm exp_fails_if_then_else aligned_unat_plus_distrib[where sz = 64] AArch64_FullTranslate_translate_address[THEN translate_address_aligned_iff] wi_hom_syms elim: Run_bindE)"
       }
     },
