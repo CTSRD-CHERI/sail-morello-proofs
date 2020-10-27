@@ -521,7 +521,8 @@
     },
     "execute_aarch64_instrs_memory_vector_single_no_wb": {
       "traces_enabled_mem": {
-        "proof": "- (* TODO: traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (element, offset :: 64 word, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (offset :: 64 word, rval, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] simp: Run_bind_iff Run_if_iff wi_hom_syms *)"
+	"unfolding": ["execute_aarch64_instrs_memory_vector_single_no_wb_def", "bind_assoc", "Let_def", "case_prod_beta"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx vars s. Inv_vector_single_no_wb ebytes idx address (fst (snd vars))\" and body = \"\\<lambda>s (vars :: ('esize word * 64 word * int)). (Mem_read0 (add_vec address (fst (snd vars))) ebytes _ :: 'esize word M) \\<bind> (\\<lambda>w. _ w vars :: ('esize word * 64 word * int) M)\" for address :: \"64 word\" and ebytes] traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx vars s. Inv_vector_single_no_wb ebytes idx address (fst vars)\" and body = \"\\<lambda>s (vars :: 64 word * 128 word * int). (V_read 128 (snd (snd vars)) :: 128 word M) \\<bind> (\\<lambda>w. (if arg4 = MemOp_LOAD then Mem_read0 (add_vec address (fst vars)) ebytes _ \\<bind> (\\<lambda>w'. _ w' w vars :: 128 word M) else (_ w vars :: 128 word M)) \\<bind> (\\<lambda>w'. _ w' w vars :: (64 word * 128 word * int) M))\" for address :: \"64 word\" and ebytes] elim: Run_bindE[where thesis = \"Inv_vector_single_no_wb _ (_ + 1) _ _\"] Run_ifE[where thesis = \"Inv_vector_single_no_wb _ (_ + 1) _ _\"] Mem_read0_valid_address Mem_set0_valid_address simp: unat_0_iff)"
       }
     },
     "execute_aarch64_instrs_memory_exclusive_pair": {
@@ -538,8 +539,10 @@
     },
     "execute_aarch64_instrs_memory_vector_multiple_no_wb": {
       "traces_enabled_mem": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg1 > 0 \\<and> arg6 > 0 \\<and> arg7 > 0 \\<and> LENGTH('esize) \\<ge> 8 \\<and> 8 dvd LENGTH('esize)"],
-        "proof": "- (* TODO: traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where to = \"arg6 - 1\" and Inv = \"\\<lambda>idx (offset, _, _) _. unat offset = nat idx * nat arg1 * nat arg7 * (size_itself arg2 div 8)\"] traces_enabled_foreachM_index_list_inv[where to = \"arg1 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * nat arg7 * (size_itself arg2 div 8)\" for vars0] traces_enabled_foreachM_index_list_inv[where to = \"arg7 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * (size_itself arg2 div 8)\" for vars0] *)"
+	"assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('esize) \\<in> {8, 16, 32, 64}", "LENGTH('datasize) \\<in> {64, 128}", "arg1 = int LENGTH('datasize) div int LENGTH('esize)", "arg6 \\<in> {1, 2, 3, 4}", "arg7 \\<in> {1, 2, 3, 4}"],
+	"stmts": ["traces_enabled (execute_aarch64_instrs_memory_vector_multiple_no_wb (arg0 :: 'datasize::len itself) arg1 (arg2 :: 'esize::len itself) arg3 arg4 arg5 arg6 arg7 arg8 arg9) s"],
+	"unfolding": ["execute_aarch64_instrs_memory_vector_multiple_no_wb_def", "bind_assoc", "Let_def", "case_prod_beta"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_triple_foreachM_index_list_inv[where Inv = \"Inv_vector_multiple_no_wb (LENGTH('esize) div 8) arg1 arg7 base\" and body = \"\\<lambda>idx_a idx_b idx_c (vars :: (64 word * 'datasize word * int)). (V_read _ (snd (snd vars)) :: 'datasize word M) \\<bind> (\\<lambda>w. (if arg4 = MemOp_LOAD then Mem_read0 (add_vec base (fst vars)) _ _ \\<bind> (_ w idx_b vars :: 'esize word \\<Rightarrow> 'datasize word M) else _ w base idx_b vars) \\<bind> (_ vars :: 'datasize word \\<Rightarrow> (64 word * 'datasize word * int) M))\" for base :: \"64 word\"] elim: Run_bindE[where thesis = \"Inv_vector_multiple_no_wb _ _ _ _ _ _ (_ + 1) _ _\"] Run_ifE[where thesis = \"Inv_vector_multiple_no_wb _ _ _ _ _ _ (_ + 1) _ _\"] Inv_vector_multiple_no_wb_step Mem_read0_valid_address Mem_set0_valid_address simp: unat_0_iff)"
       }
     },
     "execute_aarch64_instrs_memory_pair_simdfp_no_alloc": {

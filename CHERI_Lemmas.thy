@@ -2452,6 +2452,35 @@ lemma DCZID_EL0_assm:
   shows "uint (a AND mask 4) = 4"
   sorry
 
+text \<open>Define loop invariant and a helper lemma for the vector_multiple_no_wb instruction with a nested loop\<close>
+
+fun Inv_vector_multiple_no_wb :: "nat \<Rightarrow> int \<Rightarrow> int \<Rightarrow> 64 word \<Rightarrow> int \<Rightarrow> int \<Rightarrow> int \<Rightarrow> 64 word \<times> 'b \<Rightarrow> 'c \<Rightarrow> bool" where
+  "Inv_vector_multiple_no_wb ebytes elements selem base idx_a idx_b idx_c vars s =
+     ((unat (fst vars) = nat idx_a * nat elements * nat selem * ebytes +
+                         nat idx_b * nat selem * ebytes +
+                         nat idx_c * ebytes) \<and>
+      ((idx_a = 0 \<and> idx_b = 0 \<and> idx_c = 0) \<or> valid_address AccType_VEC (unat base)))"
+
+lemma Inv_vector_multiple_no_wb_step:
+  assumes "Inv_vector_multiple_no_wb ebytes elements selem base idx_a idx_b idx_c vars s"
+    and "idx_a \<le> 4" and "idx_b \<le> 16" and "0 \<le> idx_c" and "idx_c \<le> 4"
+    and "elements \<le> 16" and "selem \<le> 4" and "ebytes \<le> 8"
+    and "fst vars' = fst vars + (word_of_int (int ebytes))"
+    and "fst vars = 0 \<longrightarrow> valid_address AccType_VEC (unat base)"
+  shows "Inv_vector_multiple_no_wb ebytes elements selem base idx_a idx_b (idx_c + 1) vars' s'"
+proof -
+  have "nat idx_a * nat elements * nat selem * ebytes + nat idx_b * nat selem * ebytes + nat idx_c * ebytes \<le> 4 * 16 * 4 * 8 + 16 * 4 * 8 + 4 * 8"
+    using assms
+    by (intro add_le_mono mult_le_mono) auto
+  then show ?thesis
+    using assms
+    by (auto simp: nat_add_distrib unat_0_iff)
+qed
+
+fun Inv_vector_single_no_wb where
+  "Inv_vector_single_no_wb ebytes idx address offset =
+     (unat offset = nat idx * nat ebytes \<and> (idx \<noteq> 0 \<longrightarrow> valid_address AccType_VEC (unat address)))"
+
 end
 
 end
