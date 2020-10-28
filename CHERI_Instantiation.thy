@@ -927,10 +927,13 @@ lemma monad_return_rel_let_same_forget:
     \<Longrightarrow> monad_return_rel assms (Let x g) (Let x g') Q E"
   by simp
 
-lemma monad_return_rel_let_rel:
-  "P x x' \<Longrightarrow> (\<And>x x'. P x x' \<Longrightarrow> monad_return_rel assms (g x) (g' x') Q E)
-    \<Longrightarrow> monad_return_rel assms (Let x g) (Let x' g') Q E"
-  by simp
+definition
+  "Abbrev x = x"
+
+lemma monad_return_rel_let_Abbrev:
+  "(\<And>x. Abbrev (x = v) \<Longrightarrow> monad_return_rel assms (f x) (g x) P E) \<Longrightarrow>
+    monad_return_rel assms (Let v f) (let x = v in g x) P E"
+  by (simp add: Abbrev_def Let_def)
 
 lemma test_bit_word_update:
   "j = i + size y - 1 \<Longrightarrow> j < size x \<Longrightarrow> 0 < size y \<Longrightarrow>
