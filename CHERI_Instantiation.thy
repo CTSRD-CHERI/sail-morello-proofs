@@ -2542,6 +2542,7 @@ locale Morello_Write_Cap_Automaton = Morello_ISA +
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
     and is_indirect_branch :: bool
+    and no_system_reg_access :: bool
   assumes indirect_regs_indirect_branch: "invoked_indirect_regs \<noteq> {} \<longrightarrow> is_indirect_branch"
 begin
 
@@ -2574,7 +2575,7 @@ definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
 (* TODO *)
 fun ev_assms :: "register_value event \<Rightarrow> bool" where
   "ev_assms (E_read_reg r v) =
-    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c)) \<and>
+    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c \<and> (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))) \<and>
      (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps) \<and>
      (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
      (r = ''EDSCR'' \<longrightarrow> (\<forall>w. v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 6 word) = 2)))" (* Non-debug state *)

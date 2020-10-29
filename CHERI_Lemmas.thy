@@ -871,6 +871,46 @@ qed
   unfolding CapIsInternalExponent_def CapSetObjectType_def CAP_OTYPE_LO_BIT_def CAP_OTYPE_HI_BIT_def CAP_IE_BIT_def
   by (auto simp: update_subrange_vec_dec_test_bit)*)
 
+text \<open>Resetting the system requires system access permission\<close>
+
+lemma CapIsSystemAccessEnabled_True_no_system_reg_access_False:
+  assumes "Run (CapIsSystemAccessEnabled u) t True" and "trace_assms t"
+  obtains "\<not>no_system_reg_access"
+  using assms sysreg_trace_assmsI[THEN Run_Halted_True_False]
+  unfolding CapIsSystemAccessEnabled_def CapIsSystemAccessPermitted_def PCC_read_def trace_assms_def
+  by (elim Run_bindE Run_ifE Run_read_regE; auto simp: PCC_ref_def)
+
+lemma Run_RMR_EL1_SysRegWrite_system_reg_access:
+  assumes "Run (RMR_EL1_SysRegWrite_0ae19f794f511c7a el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  obtains "\<not>no_system_reg_access"
+  using assms
+  by (auto simp: RMR_EL1_SysRegWrite_0ae19f794f511c7a_def HaveCapabilitiesExt_def
+           elim!: Run_bindE Run_ifE Run_and_boolM_E CapIsSystemAccessEnabled_True_no_system_reg_access_False)
+
+lemma Run_RMR_EL2_SysRegWrite_system_reg_access:
+  assumes "Run (RMR_EL2_SysRegWrite_df7b9a989e2495d2 el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  obtains "\<not>no_system_reg_access"
+  using assms
+  by (auto simp: RMR_EL2_SysRegWrite_df7b9a989e2495d2_def HaveCapabilitiesExt_def
+           elim!: Run_bindE Run_ifE Run_and_boolM_E CapIsSystemAccessEnabled_True_no_system_reg_access_False)
+
+lemma Run_RMR_EL3_SysRegWrite_system_reg_access:
+  assumes "Run (RMR_EL3_SysRegWrite_2849130fc457929e el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  obtains "\<not>no_system_reg_access"
+  using assms
+  by (auto simp: RMR_EL3_SysRegWrite_2849130fc457929e_def HaveCapabilitiesExt_def
+           elim!: Run_bindE Run_ifE Run_and_boolM_E CapIsSystemAccessEnabled_True_no_system_reg_access_False)
+
+lemma Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access:
+  assumes "Run (AArch64_AutoGen_SysRegWrite el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+    and "op0 = 3 \<and> op1 \<in> {0, 4, 6} \<and> op2 = 2 \<and> crn = 12 \<and> crm = 0"
+  obtains "\<not>no_system_reg_access"
+  using assms
+  by (auto simp: AArch64_AutoGen_SysRegWrite_def
+           elim!: Run_RMR_EL1_SysRegWrite_system_reg_access
+                  Run_RMR_EL2_SysRegWrite_system_reg_access
+                  Run_RMR_EL3_SysRegWrite_system_reg_access)
+
 text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
   using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
   TRWTV and TSNJF in the Morello architecture document (DDI0606 A.c) say that

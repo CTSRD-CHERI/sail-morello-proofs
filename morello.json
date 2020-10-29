@@ -143,8 +143,20 @@
     },
     "execute_aarch64_instrs_system_register_system": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "\\<not>(sys_op0 = 3 \\<and> sys_op1 \\<in> {0, 4, 6} \\<and> sys_op2 = 2 \\<and> sys_crm = 12)"],
-        "stmts": ["traces_enabled (execute_aarch64_instrs_system_register_system read sys_crm sys_crm sys_op0 sys_op1 sys_op2 t) s"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "(\\<not>read \\<and> sys_op0 = 3 \\<and> sys_op1 \\<in> {0, 4, 6} \\<and> sys_op2 = 2 \\<and> sys_crn = 12 \\<and> sys_crm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_system_register_system read sys_crm sys_crn sys_op0 sys_op1 sys_op2 t) s"]
+      }
+    },
+    "decode_mrs_aarch64_instrs_system_register_system": {
+      "traces_enabled": {
+        "extra_assms": ["(L \\<noteq> 1 \\<and> uint o0 = 1 \\<and> uint op1 \\<in> {0, 4, 6} \\<and> uint op2 = 2 \\<and> uint CRn = 12 \\<and> uint CRm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (decode_mrs_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L) s"]
+      }
+    },
+    "decode_msr_reg_aarch64_instrs_system_register_system": {
+      "traces_enabled": {
+        "extra_assms": ["(L \\<noteq> 1 \\<and> uint o0 = 1 \\<and> uint op1 \\<in> {0, 4, 6} \\<and> uint op2 = 2 \\<and> uint CRn = 12 \\<and> uint CRm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (decode_msr_reg_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L) s"]
       }
     },
     "ReduceCombine": {
@@ -394,11 +406,12 @@
     },
     "AArch64_SysRegWrite": {
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "\\<not>(op0 = 3 \\<and> op1 \\<in> {0, 4, 6} \\<and> op2 = 2 \\<and> crn = 12)"],
-        "stmts": ["traces_enabled (AArch64_SysRegWrite op0 op1 crn crm op2 val) s"]
+        "extra_assms": ["(op0 = 3 \\<and> op1 \\<in> {0, 4, 6} \\<and> op2 = 2 \\<and> crn = 12 \\<and> crm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (AArch64_SysRegWrite op0 op1 crn crm op2 val) s"],
+        "proof": "(traces_enabledI assms: assms; auto elim: Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access)"
       },
       "non_mem_exp": {
-        "stmts": ["\\<not>(arg0 = 3 \\<and> arg2 = 12 \\<and> (arg1 = 6 \\<or> arg1 = 4 \\<or> arg1 = 0) \\<and> arg4 = 2 \\<and> arg3 = 0 \\<and> arg5 !! 1) \\<Longrightarrow> non_mem_exp (AArch64_SysRegWrite arg0 arg1 arg2 arg3 arg4 arg5)"]
+        "proof": "(unfold AArch64_SysRegWrite_def TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def AArch64_ResetSpecialRegisters_def Reset_def AArch64_IMPDEFResets_def AArch32_AutoGen_ArchitectureReset_def AArch64_AutoGen_ArchitectureReset_def MPAM2_EL2_read_def MPAM1_EL1_read_def MPAM2_EL2_write_def MPAM1_EL1_write_def ICC_CTLR_EL1_write_def ICC_CTLR_EL1_read_def Let_def bind_assoc, non_mem_expI intro: non_mem_exp_bind_no_asm non_mem_exp_if_no_asm)"
       }
     },
     "DC_ZVA_": {
