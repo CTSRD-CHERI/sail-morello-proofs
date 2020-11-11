@@ -5,6 +5,8 @@ begin
 context Morello_Axiom_Automaton
 begin
 
+declare CapSquashPostLoadCap_derivable[derivable_capsE del]
+
 lemma MemCP_fst_derivable[derivable_capsE]:
   "Run (MemCP address acctype) t a \<Longrightarrow> use_mem_caps \<Longrightarrow> fst a \<in> derivable_caps (run s t)"
   by (unfold MemCP_def, derivable_capsI)
@@ -486,8 +488,8 @@ lemma branch_sealed_pair_enabled_pcc:
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
   assumes "c \<in> invoked_caps" and "invokable CC cc cd"
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
-    and "cc \<in> derivable (accessed_caps (\<not>invokes_indirect_caps) s)"
-    and "cd \<in> derivable (accessed_caps (\<not>invokes_indirect_caps) s)"
+    and "cc \<in> derivable (accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
+    and "cd \<in> derivable (accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
     and "name r \<in> IDC ISA"
     and "leq_cap CC c (unseal_method CC cd)"
   shows "traces_enabled (write_reg r v) s"
@@ -529,6 +531,7 @@ lemma traces_enabled_C_set_29:
 lemma traces_enabled_C_set_mem_cap:
   assumes "c \<in> derivable_mem_caps s"
     and "invokes_indirect_caps \<and> CapIsTagSet c \<longrightarrow> n = 29 \<and> c \<in> invoked_caps"
+    and "\<not>invokes_indirect_caps \<and> CapIsTagSet c \<longrightarrow> use_mem_caps"
   shows "traces_enabled (C_set n c) s"
 proof cases
   assume *: "invokes_indirect_caps \<and> CapIsTagSet c"
@@ -543,7 +546,7 @@ proof cases
 next
   assume "\<not>(invokes_indirect_caps \<and> CapIsTagSet c)"
   then have "c \<in> derivable_caps s"
-    using derivable_mem_caps_derivable_caps[OF assms(1)]
+    using derivable_mem_caps_derivable_caps[OF assms(1)] assms(3)
     unfolding derivable_caps_def
     by auto
   then show ?thesis
@@ -553,15 +556,17 @@ qed
 
 lemma enabled_branch_target_CapUnseal_mem_cap:
   assumes "c \<in> derivable_mem_caps s"
-    and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+    and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps \<and> use_mem_caps"
   shows "enabled_branch_target (CapUnseal (if clear then CapWithTagClear c else c)) s"
 proof -
   have "c \<in> derivable_mem_caps s \<and> invokes_indirect_caps \<or> c \<in> derivable_caps s"
-    using assms(1) derivable_mem_caps_derivable_caps[OF assms(1)]
+    using assms derivable_mem_caps_derivable_caps[OF assms(1)]
+    unfolding derivable_caps_def
     by (cases "invokes_indirect_caps") auto
   then show ?thesis
     using assms(2) branch_caps_leq
-    by (auto simp: enabled_branch_target_def enabled_pcc_def)
+    unfolding enabled_branch_target_def enabled_pcc_def
+    by auto
 qed
 
 lemma CapGetObjectType_CapClearPerms_eq[simp]:
@@ -571,14 +576,6 @@ lemma CapGetObjectType_CapClearPerms_eq[simp]:
 lemma CapIsSealed_CapClearPerms_iff[simp]:
   "CapIsSealed (CapClearPerms c perms) \<longleftrightarrow> CapIsSealed c"
   by (auto simp: CapIsSealed_def)
-
-lemma CapSquashPostLoadCap_cases:
-  assumes "Run (CapSquashPostLoadCap c base) t c'"
-  obtains "c' = c"
-  | "c' = CapWithTagClear c"
-  | "c' = CapClearPerms c mutable_perms" and "\<not>CapIsSealed c"
-  using assms
-  by (auto simp: CapSquashPostLoadCap_def elim!: Run_bindE split: if_splits)
 
 lemma CapSquashPostLoadCap_sealed_branch_caps_invoked_caps[derivable_capsE]:
   assumes "Run (CapSquashPostLoadCap c base) t c'"
@@ -597,9 +594,14 @@ lemma invokes_mem_cap_leq_enabled_pccI:
   unfolding enabled_pcc_def
   by blast
 
+lemma VAIsBits64_iff_not_VAIsCapability:
+  "VAIsBits64 va \<longleftrightarrow> \<not>VAIsCapability va"
+  by (cases "VirtualAddress_vatype va") (auto simp: VAIsBits64_def VAIsCapability_def)
+
 lemma enabled_branch_target_CapSquashPostLoadCap:
-  assumes "Run (CapSquashPostLoadCap c base) t c'"
+  assumes "Run (CapSquashPostLoadCap c base) t c'" "trace_assms t"
     and "c \<in> derivable_mem_caps s"
+    and "\<not>invokes_indirect_caps \<longrightarrow> VA_from_load_auth base"
     and "(CapIsTagSet c \<and> \<not>CapIsSealed c \<and> invokes_indirect_caps) \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps"
   shows "enabled_branch_target c' s"
 proof (cases "invokes_indirect_caps")
@@ -612,11 +614,9 @@ proof (cases "invokes_indirect_caps")
              elim!: invokes_mem_cap_leq_enabled_pccI[OF _ _ _ True] leqI)
 next
   case False
-  then have "c \<in> derivable_caps s"
-    using derivable_mem_caps_derivable_caps[OF assms(2)]
-    by auto
-  with assms(1) have "c' \<in> derivable_caps s"
-    by (cases rule: CapSquashPostLoadCap_cases) (auto intro: clear_perm_derivable_caps)
+  then have "c' \<in> derivable_caps s"
+    using assms
+    by (elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps) auto
   then show ?thesis
     by (auto intro: derivable_enabled_branch_target)
 qed
@@ -754,7 +754,7 @@ lemma CapSetObjectType_derivable[derivable_capsI]:
 proof -
   from assms have "permits_seal_method CC c'"
     by (auto simp: CC_def)
-  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (accessed_caps (invoked_indirect_caps = {}) s)"
+  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
     using assms
     by (intro derivable.Seal) (auto simp: derivable_caps_def)
   then show ?thesis
@@ -768,7 +768,7 @@ lemma CapSetObjectType_sentry_derivable:
   shows "CapSetObjectType c otype \<in> derivable_caps s"
 proof -
   note simps = CapGetObjectType_CapSetObjectType_and_mask
-  have "seal_method CC c (unat otype) \<in> derivable (accessed_caps (invoked_indirect_caps = {}) s)"
+  have "seal_method CC c (unat otype) \<in> derivable (accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.SealEntry)
@@ -809,7 +809,7 @@ proof -
   have "unat (CapGetValue auth) \<in> get_mem_region CC auth"
     using in_bounds
     by (auto simp: elim!: Run_bindE CapIsInBounds_cursor_in_mem_region)
-  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (accessed_caps (invoked_indirect_caps = {}) s)"
+  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.Unseal) (auto simp: derivable_caps_def)
@@ -1725,7 +1725,7 @@ lemma CheckCapability_load_enabled:
     and sz: "sz > 0" "sz < 2^52" (*"unat vaddr + nat sz \<le> 2^64"*)
     and sz': "sz' > 0" "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included CAP_PERM_LOAD req_perms"
-    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP req_perms"
+    and "tagged \<and> use_mem_caps \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
@@ -2135,6 +2135,10 @@ abbreviation
      c \<in> derivable_caps s
      \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
 
+lemma derivable_or_invokedI1:
+  "c \<in> derivable_caps s \<Longrightarrow> derivable_or_invoked c s"
+  by auto
+
 definition
   "VA_derivable_or_invoked va s \<equiv> VAIsCapability va \<longrightarrow> derivable_or_invoked (VirtualAddress_base va) s"
 
@@ -2150,6 +2154,14 @@ lemma VAFromCapability_derivable_or_invoked[derivable_capsE]:
   using assms
   by (auto simp: VA_derivable_or_invoked_def is_indirect_sentry_def)
 
+lemma VAToCapability_derivable_or_invoked[derivable_capsE]:
+  assumes "Run (VAToCapability va) t c"
+    and "VA_derivable_or_invoked va s"
+  shows "derivable_or_invoked c s"
+  using assms
+  unfolding VA_derivable_or_invoked_def VAToCapability_def
+  by auto
+
 lemma VA_derivable_or_invoked_run_imp[derivable_caps_runI]:
   assumes "VA_derivable_or_invoked va s"
   shows "VA_derivable_or_invoked va (run s t)"
@@ -2164,43 +2176,53 @@ lemma VADeref_load_enabled:
     and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included CAP_PERM_LOAD perms"
-    and "tagged \<longrightarrow> perm_bits_included CAP_PERM_LOAD_CAP perms"
+    and "tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' tagged"
-proof -
-  have PCC: "c \<in> derivable_caps (run (run s t') t'')"
-    if "Run (read_reg PCC_ref) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)"
-    for c c' t' t''
-    using that \<open>{''PCC''} \<subseteq> accessible_regs s\<close>
-    by - (derivable_capsI)
-  have DDC: "c \<in> derivable_caps (run (run s t') t'')"
-    if "Run (DDC_read ()) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)" and "trace_assms t''"
-    for c c' t' t''
-    using that \<open>{''PCC''} \<subseteq> accessible_regs s\<close>
-    by - (derivable_capsI)
-  have VA: "derivable_or_invoked c (run (run s t') t'')"
-    if "Run (VAToCapability va) t'' c" and "Run (undefined_bitvector 129) t' (c' :: Capability)"
-      and "\<not>CapIsSealed c"
-    for c c' t' t''
-    using that \<open>\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s\<close>
-    unfolding VAToCapability_def VA_derivable_or_invoked_def VAIsSealedCap_def VAIsCapability_def
-    by (auto intro: derivable_caps_run_imp)
-  obtain c t1 t2 t3 addr
-    where "Run (CheckCapability c vaddr sz perms acctype) t3 addr"
-      and "trace_assms t3"
-      and "derivable_or_invoked c (run s (t1 @ t2))"
-      and "t = t1 @ t2 @ t3"
-    using assms(1,2)
-    unfolding VACheckAddress_def \<open>acctype' = acctype\<close>
-    by (fastforce simp: CheckCapability_CapIsSealed_False dest!: PCC DDC VA elim!: Run_bindE Run_ifE)
-  then show ?thesis
-    using assms(3-)
-    unfolding \<open>t = t1 @ t2 @ t3\<close> foldl_append
-    by (elim CheckCapability_load_enabled) auto
+proof (cases "VAIsPCCRelative va")
+  case True
+  have *: "cap_permits CAP_PERM_LOAD_CAP c"
+    if t: "Run (read_reg PCC_ref) t c" "trace_assms t" and tag: "tagged \<and> use_mem_caps" for t c
+    using True t \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
+    unfolding VAIsPCCRelative_def VA_from_load_auth_def
+    by (elim Run_read_regE) (simp add: ev_assms_def PCC_ref_def, use tag in blast)
+  show ?thesis
+    using assms
+    unfolding VACheckAddress_def Let_def
+    by (elim Run_bindE)
+       (simp add: True, derivable_capsI elim: CheckCapability_load_enabled * intro: derivable_or_invokedI1)
+next
+  case False
+  show ?thesis
+  proof (cases "VirtualAddress_vatype va")
+    case VA_Bits64
+    then have *: "cap_permits CAP_PERM_LOAD_CAP c"
+      if t: "Run (DDC_read ()) t c" "trace_assms t" and tag: "tagged \<and> use_mem_caps" for t c
+      using False t \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
+      unfolding DDC_read_def Let_def VA_from_load_auth_def VAIsPCCRelative_def
+      by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE)
+         (simp add: ev_assms_def register_defs DDC_names_def; use tag in blast)+
+    show ?thesis
+      using assms
+      unfolding VACheckAddress_def VAIsBits64_def Let_def
+      by (elim Run_bindE)
+         (simp add: False VA_Bits64, derivable_capsI elim: CheckCapability_load_enabled * intro: derivable_or_invokedI1)
+  next
+    case VA_Capability
+    then have "cap_permits CAP_PERM_LOAD_CAP (VirtualAddress_base va)" if "tagged \<and> use_mem_caps"
+      using False that \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
+      unfolding VA_from_load_auth_def load_cap_ev_assms.simps VAIsPCCRelative_def
+      by auto
+    then show ?thesis
+      using assms False VA_Capability
+      unfolding VACheckAddress_def VAIsBits64_def VAIsCapability_def VAIsSealedCap_def Let_def
+      by (elim Run_bindE)
+         (simp, derivable_capsI elim: CheckCapability_load_enabled)
+  qed
 qed
 
 text \<open>Common patterns\<close>
@@ -2217,24 +2239,13 @@ lemma VADeref_data_load_enabled[derivable_capsE]:
   using assms
   by (elim VADeref_load_enabled) auto
 
-lemma VADeref_data_load_enabled'[derivable_capsE]:
+lemma VADeref_cap_load_enabled[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr sz CAP_PERM_LOAD acctype') t u" "trace_assms t"
     and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
-    and "{''PCC''} \<subseteq> accessible_regs s"
-    and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
-    and "acctype' = acctype"
-  shows "load_enabled (run s t) acctype vaddr' sz' False"
-  using assms
-  by (elim VADeref_load_enabled) auto
-
-lemma VADeref_cap_load_enabled[derivable_capsE]:
-  assumes "Run (VACheckAddress va vaddr sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP) acctype') t u" "trace_assms t"
-    and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
-    and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "nat sz' = 16 \<and> aligned vaddr' 16"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
+    and "use_mem_caps \<longrightarrow> VA_from_load_auth va"
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
@@ -2242,20 +2253,7 @@ lemma VADeref_cap_load_enabled[derivable_capsE]:
   using assms
   by (elim VADeref_load_enabled) auto
 
-lemma VADeref_cap_load_enabled'[derivable_capsE]:
-  assumes "Run (VACheckAddress va vaddr sz (or_vec CAP_PERM_LOAD CAP_PERM_LOAD_CAP OR perms) acctype') t u" "trace_assms t"
-    and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
-    and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "nat sz' = 16 \<and> aligned vaddr' 16"
-    and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
-    and "{''PCC''} \<subseteq> accessible_regs s"
-    and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
-    and "acctype' = acctype"
-  shows "load_enabled (run s t) acctype vaddr' sz' True"
-  using assms
-  by (elim VADeref_load_enabled) auto
-
-lemma VADeref_load_data_access_enabled'[derivable_capsE]:
+lemma VADeref_load_data_access_enabled[derivable_capsE]:
   assumes "Run (VACheckAddress va vaddr sz CAP_PERM_LOAD acctype) t u" "trace_assms t"
     and "sz > 0" "sz < 2^52"
     and "translate_address (unat vaddr) = Some paddr"
@@ -2263,7 +2261,7 @@ lemma VADeref_load_data_access_enabled'[derivable_capsE]:
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "paccess_enabled (run s t) Load paddr (nat sz) data B0"
   using assms
-  by (elim VADeref_data_load_enabled'[THEN load_enabled_access_enabled]) auto
+  by (elim VADeref_data_load_enabled[THEN load_enabled_access_enabled]) auto
 
 text \<open>Stores enabled by VADeref\<close>
 
