@@ -519,6 +519,14 @@ lemma clear_perms_128th_iff[simp]:
   "CapClearPerms c perms !! 128 \<longleftrightarrow> c !! 128"
   by (auto simp: CapClearPerms_def update_subrange_vec_dec_test_bit)
 
+lemma CapGetObjectType_CapClearPerms[simp]:
+  "CapGetObjectType (CapClearPerms c perms) = CapGetObjectType c"
+  by (auto simp: CapClearPerms_def CapGetObjectType_def slice_update_subrange_vec_dec_above)
+
+lemma CapIsSealed_CapClearPerms_iff[simp]:
+  "CapIsSealed (CapClearPerms c perms) \<longleftrightarrow> CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
 lemma CapSetFlags_128th_iff[simp]:
   "CapSetFlags c flags !! 128 = c !! 128"
   by (auto simp: CapSetFlags_def update_subrange_vec_dec_test_bit)
@@ -2547,7 +2555,8 @@ abbreviation mutable_perms where
   "mutable_perms \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
 
 datatype load_auth =
-  BaseRegAuth int
+  RegAuth int
+  | BaseRegAuth int
   | AltBaseRegAuth int
   | PCCAuth
 
@@ -2559,7 +2568,7 @@ locale Morello_Load_Cap_Assm_Automaton = Morello_ISA +
 begin
 
 definition loads_via_cap_reg :: "int \<Rightarrow> bool" where
-  "loads_via_cap_reg n \<equiv> (if is_in_c64 then BaseRegAuth n \<in> load_auths else AltBaseRegAuth n \<in> load_auths)"
+  "loads_via_cap_reg n \<equiv> (RegAuth n \<in> load_auths \<or> (if is_in_c64 then BaseRegAuth n \<in> load_auths else AltBaseRegAuth n \<in> load_auths))"
 
 definition loads_via_ddc :: "bool" where
   "loads_via_ddc \<equiv> (\<exists>n. if is_in_c64 then AltBaseRegAuth n \<in> load_auths else BaseRegAuth n \<in> load_auths)"
@@ -2643,7 +2652,7 @@ lemma CapSquashPostLoadCap_from_load_auth_reg_derivable_caps[derivable_capsE]:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "c \<in> derivable_mem_caps s"
     and "VA_from_load_auth base"
-    and "invoked_indirect_caps = {}"
+    and "CapIsTagSet c' \<longrightarrow> invoked_indirect_caps = {}"
   shows "c' \<in> derivable_caps s"
 proof -
   have "CapIsTagSet c' \<longrightarrow> c \<in> derivable_caps s"
@@ -2774,6 +2783,69 @@ lemma AltBaseReg_read__1_VA_from_load_auth[derivable_capsE]:
   using assms
   unfolding AltBaseReg_read__1_def
   by (elim AltBaseReg_read_VA_from_load_auth)
+
+lemma VAFromPCC_VA_from_load_auth[derivable_capsE]:
+  assumes "Run (VAFromPCC addr) t va"
+    and "loads_via_pcc"
+  shows "VA_from_load_auth va"
+  using assms
+  unfolding VAFromPCC_def VA_from_load_auth_def
+  by auto
+
+lemma VAFromBits64_VA_from_load_auth[derivable_capsE]:
+  assumes "Run (VAFromBits64 addr) t va"
+    and "loads_via_ddc"
+  shows "VA_from_load_auth va"
+  using assms
+  unfolding VAFromBits64_def VA_from_load_auth_def
+  by auto
+
+definition
+  "load_auth_reg_cap c \<equiv> (\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)))"
+
+lemma VAFromCapability_VA_from_load_auth[derivable_capsE]:
+  assumes "Run (VAFromCapability c) t va"
+    and "load_auth_reg_cap c"
+  shows "VA_from_load_auth va"
+  using assms
+  unfolding VAFromCapability_def load_auth_reg_cap_def VA_from_load_auth_def
+  by (elim Run_bindE Run_letE Run_returnE) auto
+
+lemma C_read_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "load_cap_trace_assms t"
+    and "loads_via_cap_reg n" and "n \<noteq> 31"
+  shows "load_auth_reg_cap c"
+  using assms
+  by (elim C_read_load_cap_ev_assms) (auto simp: load_auth_reg_cap_def)
+
+lemma CSP_read_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (CSP_read u) t c" and "load_cap_trace_assms t"
+    and "loads_via_cap_reg 31"
+  shows "load_auth_reg_cap c"
+  using assms
+  by (elim CSP_read_load_cap_ev_assms) (auto simp: load_auth_reg_cap_def)
+
+lemma CSP_or_C_read_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (if n = 31 then CSP_read u else C_read n) t c" and "load_cap_trace_assms t"
+    and "loads_via_cap_reg n"
+  shows "load_auth_reg_cap c"
+  using assms
+  by (auto split: if_splits elim: derivable_capsE)
+
+lemma RegAuth_loads_via_cap_regI[intro, simp]:
+  "RegAuth n \<in> load_auths \<Longrightarrow> loads_via_cap_reg n"
+  by (auto simp: loads_via_cap_reg_def)
+
+lemma load_auth_reg_cap_CapUnseal_iff[simp]:
+  "load_auth_reg_cap (CapUnseal c) \<longleftrightarrow> load_auth_reg_cap c"
+  unfolding load_auth_reg_cap_def load_cap_ev_assms.simps
+  by (simp add: CapCheckPermissions_def CapGetPermissions_CapUnseal_eq)
+
+lemma load_auth_reg_cap_if_CapUnsealI[intro, derivable_capsI]:
+  assumes "load_auth_reg_cap c"
+  shows "load_auth_reg_cap (if unseal then CapUnseal c else c)"
+  using assms
+  by auto
 
 end
 

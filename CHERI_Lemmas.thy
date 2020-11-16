@@ -528,54 +528,81 @@ lemma traces_enabled_C_set_29:
   by (auto simp: C_set_def R_set_def register_defs derivable_caps_def
            intro!: traces_enabled_write_reg)
 
-lemma traces_enabled_C_set_mem_cap:
+lemma leq_cap_derivable_mem_caps:
   assumes "c \<in> derivable_mem_caps s"
-    and "invokes_indirect_caps \<and> CapIsTagSet c \<longrightarrow> n = 29 \<and> c \<in> invoked_caps"
-    and "\<not>invokes_indirect_caps \<and> CapIsTagSet c \<longrightarrow> use_mem_caps"
-  shows "traces_enabled (C_set n c) s"
+    and "leq_cap CC c' c"
+  shows "c' \<in> derivable_mem_caps s"
+  using assms
+  by (auto simp: derivable_mem_caps_def leq_cap_def intro: derivable.Restrict)
+
+lemma CapSquashPostLoadCap_invoked_cap[derivable_capsE]:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps"
+    and "CapIsTagSet c'"
+  shows "c' \<in> invoked_caps"
+  using assms
+  by (cases rule: CapSquashPostLoadCap_cases)
+     (auto simp: mem_branch_caps_def branch_caps_def CapIsSealed_def split: if_splits)
+
+lemma traces_enabled_C_set_mem_cap:
+  assumes "Run (CapSquashPostLoadCap c base) t c'" "trace_assms t"
+    and "VA_from_load_auth base"
+    and "c \<in> derivable_mem_caps s"
+    and "invokes_indirect_caps \<and> CapIsTagSet c' \<and> CapIsTagSet c \<longrightarrow> n = 29 \<and> mem_branch_caps c \<subseteq> invoked_caps"
+  shows "traces_enabled (C_set n c') s"
 proof cases
-  assume *: "invokes_indirect_caps \<and> CapIsTagSet c"
-  then have "traces_enabled (write_reg R29_ref c) s"
-    using assms
+  assume indirect: "invokes_indirect_caps \<and> CapIsTagSet c'"
+  then have c: "CapIsTagSet c" and c': "c' \<in> derivable_mem_caps s"
+    using assms(1,4)
+    by (auto elim!: CapSquashPostLoadCap_cases leq_cap_derivable_mem_caps[of c s c'] intro: clear_perm_leq_cap)
+  then have "c' \<in> invoked_caps"
+    using assms(1,5) indirect
+    by (elim CapSquashPostLoadCap_invoked_cap) auto
+  then have "traces_enabled (write_reg R29_ref c') s"
+    using c c' assms indirect
     by (intro traces_enabled_write_reg) (auto simp: register_defs derivable_mem_caps_def)
   moreover have "n = 29"
-    using assms *
+    using assms indirect c
     by auto
   ultimately show ?thesis
     by (auto simp: C_set_def R_set_def)
 next
-  assume "\<not>(invokes_indirect_caps \<and> CapIsTagSet c)"
-  then have "c \<in> derivable_caps s"
-    using derivable_mem_caps_derivable_caps[OF assms(1)] assms(3)
-    unfolding derivable_caps_def
-    by auto
+  assume "\<not>(invokes_indirect_caps \<and> CapIsTagSet c')"
+  then have "c' \<in> derivable_caps s"
+    using assms(1-4)
+    by (elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps) auto
   then show ?thesis
     by (auto simp: C_set_def R_set_def register_defs derivable_caps_def
              intro!: traces_enabled_write_reg traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI])
 qed
 
 lemma enabled_branch_target_CapUnseal_mem_cap:
-  assumes "c \<in> derivable_mem_caps s"
-    and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps \<and> use_mem_caps"
-  shows "enabled_branch_target (CapUnseal (if clear then CapWithTagClear c else c)) s"
-proof -
-  have "c \<in> derivable_mem_caps s \<and> invokes_indirect_caps \<or> c \<in> derivable_caps s"
-    using assms derivable_mem_caps_derivable_caps[OF assms(1)]
+  assumes "Run (CapSquashPostLoadCap c base) t c'" "trace_assms t"
+    and "VA_from_load_auth base"
+    and "c \<in> derivable_mem_caps s"
+    and "CapIsTagSet c' \<and> CapIsTagSet c \<and> CapGetObjectType c' = CapGetObjectType c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> mem_branch_caps c \<subseteq> invoked_caps"
+  shows "enabled_branch_target (CapUnseal (if clear then CapWithTagClear c' else c')) s"
+proof cases
+  assume tagged: "CapIsTagSet c'"
+  moreover have "c' \<in> derivable_mem_caps s"
+    using assms(1,4)
+    by (elim CapSquashPostLoadCap_cases leq_cap_derivable_mem_caps[of c s c']) (auto intro: clear_perm_leq_cap)
+  moreover have *: use_mem_caps
+    using tagged assms(1-3)
+    by (elim Run_CapSquashPostLoadCap_use_mem_caps) auto
+  ultimately have "c' \<in> derivable_mem_caps s \<and> invokes_indirect_caps \<or> c' \<in> derivable_caps s"
+    using assms(5) derivable_mem_caps_derivable_caps[of c' s]
     unfolding derivable_caps_def
     by (cases "invokes_indirect_caps") auto
-  then show ?thesis
-    using assms(2) branch_caps_leq
-    unfolding enabled_branch_target_def enabled_pcc_def
+  moreover have "CapGetObjectType c' = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c') \<subseteq> invoked_caps"
+    using assms(1,5) tagged
+    unfolding mem_branch_caps_def
+    by (elim CapSquashPostLoadCap_cases) (auto simp: CapIsSealed_def)
+  ultimately show ?thesis
+    using branch_caps_leq
+    unfolding enabled_branch_target_def enabled_pcc_def mem_branch_caps_def
     by auto
-qed
-
-lemma CapGetObjectType_CapClearPerms_eq[simp]:
-  "CapGetObjectType (CapClearPerms c perms) = CapGetObjectType c"
-  by (auto simp: CapGetObjectType_def CapClearPerms_def slice_update_subrange_vec_dec_above)
-
-lemma CapIsSealed_CapClearPerms_iff[simp]:
-  "CapIsSealed (CapClearPerms c perms) \<longleftrightarrow> CapIsSealed c"
-  by (auto simp: CapIsSealed_def)
+qed (auto intro: derivable_enabled_branch_target)
 
 lemma CapSquashPostLoadCap_sealed_branch_caps_invoked_caps[derivable_capsE]:
   assumes "Run (CapSquashPostLoadCap c base) t c'"
@@ -620,15 +647,6 @@ next
   then show ?thesis
     by (auto intro: derivable_enabled_branch_target)
 qed
-
-lemma CapSquashPostLoadCap_invoked_cap[derivable_capsE]:
-  assumes "Run (CapSquashPostLoadCap c base) t c'"
-    and "CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps"
-    and "CapIsTagSet c'"
-  shows "c' \<in> invoked_caps"
-  using assms
-  by (cases rule: CapSquashPostLoadCap_cases)
-     (auto simp: mem_branch_caps_def branch_caps_def CapIsSealed_def split: if_splits)
 
 lemma clear_perm_derivable_mem_caps[derivable_capsI]:
   assumes "c \<in> derivable_mem_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
