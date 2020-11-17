@@ -2847,6 +2847,12 @@ lemma load_auth_reg_cap_if_CapUnsealI[intro, derivable_capsI]:
   using assms
   by auto
 
+lemma loads_via_pccI[intro, simp]:
+  assumes "PCCAuth \<in> load_auths"
+  shows "loads_via_pcc"
+  using assms
+  by (auto simp: loads_via_pcc_def)
+
 end
 
 locale Morello_Write_Cap_Automaton = Morello_ISA +

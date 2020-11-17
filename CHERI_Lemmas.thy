@@ -702,6 +702,7 @@ lemma Capability_of_tag_word_derivable_mem_caps_rev_pairE[derivable_capsE]:
   by auto
 
 declare Run_case_prodE[where thesis = "Capability_of_tag_word tag word \<in> derivable_mem_caps s" for tag word s, derivable_capsE]
+declare Run_letE[where thesis = "Capability_of_tag_word tag word \<in> derivable_mem_caps s" for tag word s, derivable_capsE]
 
 lemma Capability_of_tag_word_return_rev_derivable_mem_caps_pairE[derivable_capsE]:
   assumes "Run (return (data, tag)) t x"
@@ -710,7 +711,28 @@ lemma Capability_of_tag_word_return_rev_derivable_mem_caps_pairE[derivable_capsE
   using assms
   by auto
 
+lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
+  "Capability_of_tag_word False data \<in> derivable_mem_caps s"
+  by (auto simp: derivable_mem_caps_def)
+
 declare derivable_mem_caps_run_imp[derivable_caps_runI]
+
+declare MemAtomicCompareAndSwapC_derivable[derivable_capsE del]
+
+lemma MemAtomicCompareAndSwapC_from_load_auth_derivable_caps[derivable_capsE]:
+  assumes "Run (MemAtomicCompareAndSwapC vaddr address expectedcap newcap ldacctype stacctype) t c" and "trace_assms t"
+    and "VA_from_load_auth vaddr" and "\<not>invokes_indirect_caps"
+  shows "c \<in> derivable_caps (run s t)"
+  using assms
+  unfolding MemAtomicCompareAndSwapC_def
+  by - (derivable_capsI elim: Run_ifE[where thesis = "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_mem_caps s" and a = x for x i j s])
+
+lemma MemAtomicC_derivable_mem_caps[derivable_capsE]:
+  assumes "Run (MemAtomicC address op v ldacctype stacctype) t c"
+  shows "c \<in> derivable_mem_caps (run s t)"
+  using assms
+  unfolding MemAtomicC_def
+  by - (derivable_capsI elim: Run_ifE[where thesis = "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_mem_caps s" and a = x for x i j s])
 
 lemma traces_enabled_C_set_if_sentry:
   fixes c :: Capability and n :: int
