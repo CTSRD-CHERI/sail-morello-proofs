@@ -443,7 +443,7 @@
     },
     "execute_BLR_CI_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
       },
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
@@ -456,7 +456,7 @@
     },
     "execute_BR_CI_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
       },
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
@@ -464,8 +464,8 @@
     },
     "execute_LDPBLR_C_C_C": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> t__arg", "t__arg \\<le> 31", "0 \\<le> n", "n \\<le> 31", "t__arg = 29 \\<longrightarrow> n \\<in> invoked_indirect_regs", "t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_mem_cap[where n = t__arg] elim: enabled_branch_target_CapSquashPostLoadCap)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> t__arg", "t__arg \\<le> 31", "0 \\<le> n", "n \\<le> 31", "t__arg = 29 \\<longrightarrow> n \\<in> invoked_indirect_regs", "t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch", "RegAuth n \\<in> load_auths"],
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
       },
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
@@ -473,13 +473,13 @@
     },
     "decode_LDPBLR_C_C_C": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint Ct = 29 \\<longrightarrow> uint Cn \\<in> invoked_indirect_regs", "uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint Ct = 29 \\<longrightarrow> uint Cn \\<in> invoked_indirect_regs", "uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch", "RegAuth (uint Cn) \\<in> load_auths"]
       }
     },
     "execute_LDPBR_C_C_C": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> t__arg", "t__arg \\<le> 31", "0 \\<le> n", "n \\<le> 31", "t__arg = 29 \\<longrightarrow> n \\<in> invoked_indirect_regs", "t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_mem_cap traces_enabled_C_set_mem_cap[where n = t__arg] elim: enabled_branch_target_CapSquashPostLoadCap)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "0 \\<le> t__arg", "t__arg \\<le> 31", "0 \\<le> n", "n \\<le> 31", "t__arg = 29 \\<longrightarrow> n \\<in> invoked_indirect_regs", "t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch", "RegAuth n \\<in> load_auths"],
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
       },
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
@@ -487,7 +487,7 @@
     },
     "decode_LDPBR_C_C_C": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint Ct = 29 \\<longrightarrow> uint Cn \\<in> invoked_indirect_regs", "uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "uint Ct = 29 \\<longrightarrow> uint Cn \\<in> invoked_indirect_regs", "uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch", "RegAuth (uint Cn) \\<in> load_auths"]
       }
     },
     "execute_RETS_C_C_C": {
@@ -679,6 +679,76 @@
     "decode_LDPBLR_C_C_C": ["uint Cn"],
     "execute_LDPBR_C_C_C": ["n"],
     "decode_LDPBR_C_C_C": ["uint Cn"]
+  },
+  "load_auths": {
+    "execute_ALDAR_C_R_C": ["AltBaseRegAuth n"],
+    "decode_ALDAR_C_R_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_ALDR_C_RI_C": ["AltBaseRegAuth n"],
+    "decode_ALDR_C_RI_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_ALDR_C_RRB_C": ["AltBaseRegAuth n"],
+    "decode_ALDR_C_RRB_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_ALDUR_C_RI_C": ["AltBaseRegAuth n"],
+    "decode_ALDUR_C_RI_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_BLR_CI_C": ["RegAuth n"],
+    "decode_BLR_CI_C": ["RegAuth (uint Cn)"],
+    "execute_BR_CI_C": ["RegAuth n"],
+    "decode_BR_CI_C": ["RegAuth (uint Cn)"],
+    "execute_CASAL_C_R_C": ["BaseRegAuth n"],
+    "decode_CASAL_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_CASA_C_R_C": ["BaseRegAuth n"],
+    "decode_CASA_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_CASL_C_R_C": ["BaseRegAuth n"],
+    "decode_CASL_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_CAS_C_R_C": ["BaseRegAuth n"],
+    "decode_CAS_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAPR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAPR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAXP_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAXP_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAXR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAXR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDNP_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDNP_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDPBLR_C_C_C": ["RegAuth n"],
+    "decode_LDPBLR_C_C_C": ["RegAuth (uint Cn)"],
+    "execute_LDPBR_C_C_C": ["RegAuth n"],
+    "decode_LDPBR_C_C_C": ["RegAuth (uint Cn)"],
+    "execute_LDP_CC_RIAW_C": ["BaseRegAuth n"],
+    "decode_LDP_CC_RIAW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDP_C_RIBW_C": ["BaseRegAuth n"],
+    "decode_LDP_C_RIBW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDP_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDP_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_I_C": ["PCCAuth"],
+    "decode_LDR_C_I_C": ["PCCAuth"],
+    "execute_LDR_C_RIAW_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RIAW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_RIBW_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RIBW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_RRB_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RRB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDTR_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDTR_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDUR_C_RI_C": ["BaseRegAuth n"],
+    "decode_LDUR_C_RI_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDXP_C_R_C": ["BaseRegAuth n"],
+    "decode_LDXP_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDXR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDXR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWPAL_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWPAL_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWPA_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWPA_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWPL_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWPL_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWP_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWP_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDCT_R_R__": ["BaseRegAuth n"],
+    "decode_LDCT_R_R__": ["BaseRegAuth (uint Rn)"]
   },
   "cap_load_funs": ["_ReadTaggedMem"],
   "skips": [
