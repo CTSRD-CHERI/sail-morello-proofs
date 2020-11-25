@@ -1394,6 +1394,7 @@ definition bounds_address :: "AccType \<Rightarrow> nat \<Rightarrow> nat" where
 
 definition valid_address :: "AccType \<Rightarrow> nat \<Rightarrow> bool" where
   "valid_address acctype addr \<equiv>
+     (addr < 2 ^ 64) \<and>
      (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
       then (if tbi_enabled acctype addr
             then addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52 \<comment> \<open>addr[55..52] = 0xF\<close>
