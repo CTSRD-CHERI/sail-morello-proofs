@@ -2209,12 +2209,6 @@ lemma CapGetBounds_eq_leq_bounds:
   "CapGetBounds c' = CapGetBounds c \<Longrightarrow> leq_bounds CC c' c"
   by (simp add: leq_bounds_def get_base_def get_limit_def CapGetBase_def)
 
-lemma word_plus_is_or:
-  fixes x y :: "('a :: len) word"
-  shows "x AND y = 0 \<Longrightarrow> x + y = x OR y"
-  using word_plus_and_or[of x y]
-  by simp
-
 lemma word_le_mask_eq:
   fixes x :: "'a::len word"
   shows "(x \<le> mask n) = (x AND mask n = x)"
@@ -2473,16 +2467,6 @@ proof -
     by (simp add: word_le_def uint_shiftl bintrunc_mod2p shiftl_int_def P)
 qed
 
-lemma word_le_embed_double_or:
-  fixes x :: "('a :: len) word"
-  assumes "x \<le> y"
-  assumes "n + size x \<le> LENGTH ('b :: len)"
-  shows "(ucast x << n) OR mask n \<le> ((ucast y << n) :: 'b word) OR mask n"
-  using word_le_embed[OF assms, THEN word_plus_mono_right[where x="mask n"]]
-    word_plus_is_or[of "(ucast x << n) :: 'b word" "mask n"]
-    word_plus_is_or[of "(ucast y << n) :: 'b word" "mask n"]
-  by (simp add: shiftl_mask_eq_0 add.commute le_word_or1)
-
 lemma word_le_test_bit_mono:
   fixes x :: "('a :: len) word"
   assumes "\<forall>n < size x. x !! n \<longrightarrow> y !! n"
@@ -2642,52 +2626,10 @@ lemma CapBoundsAddress_eq_add:
   apply (auto simp: linorder_not_less dest: le_imp_less_or_eq)
   done
 
-declare [[z3_extensions = true]]
-declare [[smt_trace = true]]
-declare [[smt_oracle = true]]
-
-lemma is_down_ucast_eq_slice[OF refl, simplified is_down_def source_size target_size]:
-  "uc = ucast \<Longrightarrow> is_down uc \<Longrightarrow> uc x = Word.slice 0 x"
-  by simp
-
 lemma test_bit_is_slice_check:
   fixes x :: "('a :: len) word"
   shows "test_bit x n = (Word.slice n x = (1 :: 1 word))"
   by (simp add: word_eq_iff nth_slice)
-
-lemma nth_scast2[OF refl]:
-  "w2 = scast w \<Longrightarrow> w2 !! n =
-    ((if n < size w then w !! n else Bits.msb w) \<and> n < size w2)"
-  apply (simp add: nth_scast msb_nth)
-  apply (cases "n = size w - 1", auto)
-  done
-
-lemma scast_eq_ucast_or:
-  "scast x = ucast x OR (if Bits.msb x then NOT (mask (size x)) else 0)"
-  apply (simp add: word_eq_iff word_ops_nth_size nth_ucast nth_scast2)
-  apply (auto dest: test_bit_size)
-  done
-
-lemma scast_eq_ucast_plus:
-  "scast x = ucast x + (if Bits.msb x then NOT (mask (size x)) else 0)"
-  apply (subst word_plus_is_or)
-   apply (simp add: word_eq_iff word_ops_nth_size nth_ucast)
-   apply (auto dest: test_bit_size)[1]
-  apply (simp add: scast_eq_ucast_or)
-  done
-
-definition
-  "annot x y = y"
-
-lemma annot_op_ty:
-  "(f :: 'a \<Rightarrow> 'b) x = annot TYPE('a \<Rightarrow> 'b) f x"
-  by (simp add: annot_def)
-
-lemmas annot_ineqs = annot_op_ty[where f="(<)"] annot_op_ty[where f="(\<le>)"]
-
-lemmas annot_eq = annot_op_ty[where f="(=)"]
-
-lemmas annot_ucast = annot_op_ty[where f="ucast"]
 
 lemma CapBoundsAddress_add_66_positive:
   "(test_bit val 55 = test_bit (val + incr) 55) \<Longrightarrow>
@@ -2731,86 +2673,11 @@ lemma CapBoundsAddress_add_66_negative:
   apply (word_bitwise, clarsimp simp: xor3_simps carry_simps)
   done
 
-lemma word_shiftl_add:
-  "Bits.shiftl (x :: ('a :: len) word) (i + j) = Bits.shiftl (Bits.shiftl x i) j"
-  by (simp add: shiftl_t2n power_add)
-
-lemma word_shiftl_add_comm:
-  "Bits.shiftl (x :: ('a :: len) word) (i + j) = Bits.shiftl (Bits.shiftl x j) i"
-  by (simp add: shiftl_t2n power_add)
-
-lemma scast_eq_ucast:
-  "LENGTH ('b) \<le> LENGTH ('a) \<Longrightarrow>
-    (scast (x :: ('a :: len) word) :: ('b :: len) word) = ucast x"
-  apply (rule word_eqI)
-  apply (clarsimp simp: nth_scast nth_ucast)
-  apply (case_tac "n = size x - 1", simp_all)
-  done
-
-lemma cast_down_is_slice:
-  "LENGTH ('b) < LENGTH ('a) \<Longrightarrow>
-    (ucast (x :: ('a :: len) word) :: ('b :: len) word) = Word.slice 0 x \<and>
-    (scast (x :: ('a :: len) word) :: ('b :: len) word) = Word.slice 0 x"
-  by (simp add: scast_eq_ucast)
-
-lemma "(ucast (13 :: 8 word)) = (0xd::4 word)"
-  apply (subst cast_down_is_slice, simp)
-  apply smt
-  done
-
-lemma ucast_minus:
-  fixes x y :: "'a ::len0 word"
-  shows "(ucast (x - y)::'b::len word) = (ucast x - ucast y) AND mask (LENGTH('a))"
-  apply (cases "LENGTH('a) < LENGTH('b)")
-   apply (simp_all add: ucast_minus_down ucast_minus_up)
-  done
-
-lemma of_int_uint:
-  "of_int (uint w) = ucast w"
-  by (simp add: ucast_def word_of_int)
-
-lemma of_nat_unat:
-  "of_nat (unat w) = ucast w"
-  by (simp add: ucast_def word_of_nat unat_def)
-
-lemma word_and_mask_shiftl_eq:
-  "(x AND mask i) << j = (x << j) AND mask (i + j)"
-  by (auto simp add: word_eq_iff word_ops_nth_size nth_shiftl)
-
-lemma plus_minus_shiftl_distrib:
-  fixes x :: "('a :: len) word"
-  shows "(x + y) << i = (x << i) + (y << i)"
-    "(x - y) << i = (x << i) - (y << i)"
-  by (simp_all add: shiftl_t2n algebra_simps)
-
-lemma shiftr_shiftl:
-  "(Bits.shiftr x i) << j = (if i < j
-    then (x AND NOT (mask i)) << j - i
-    else Bits.shiftr (x AND NOT (mask i)) (i - j))"
-  apply (simp add: word_eq_iff nth_shiftl nth_shiftr
-        word_ops_nth_size word_ao_nth)
-  apply (auto; frule test_bit_size; auto simp: word_ops_nth_size)
-  done
-
-lemma shiftr_shiftl_alt:
-  "(Bits.shiftr x i) << j = (if i \<le> j
-    then (x AND NOT (mask i)) << j - i
-    else Bits.shiftr (x AND NOT (mask i)) (i - j))"
-  by (simp add: shiftr_shiftl)
-
 lemma mask_minus_and_mask:
   fixes x :: "('a :: len) word"
   shows "mask n - (x AND mask n) = ((- 1) - x) AND mask n"
   apply (subst word_minus_and_mask_eq)
   apply (simp add: word_and_le1)
-  done
-
-lemmas ucast_uminus = ucast_minus[where x=0, simplified]
-
-lemma ucast_up_shiftr[OF refl, simplified is_up_def source_size target_size]:
-  "uc = ucast \<Longrightarrow> is_up uc \<Longrightarrow> uc (Bits.shiftr x i) = Bits.shiftr (uc x) i"
-  apply (clarsimp simp: is_up_def source_size_def target_size_def)
-  apply (auto simp add: word_eq_iff nth_shiftr nth_ucast dest: test_bit_size)
   done
 
 lemma word_mask_eq_via_sub:
@@ -2821,6 +2688,7 @@ lemma word_mask_eq_via_sub:
   apply simp
   done
 
+(* this is only needed for diagnostic purposes
 definition
   "CapGetExponent_8_word c = (of_int (CapGetExponent c) :: 8 word)"
 
@@ -2829,44 +2697,7 @@ lemma nat_CapGetExponent:
   apply (simp add: CapGetExponent_8_word_def CapGetExponent_def)
   apply (simp add: unat_def[symmetric] of_int_uint)
   done
-
-lemma mask_eq_saturate:
-  "NO_MATCH (a AND mask b) x \<Longrightarrow>
-    (x + y) AND mask n = ((x AND mask n) + y) AND mask n"
-  "NO_MATCH (a AND mask b) y \<Longrightarrow>
-    (x + y) AND mask n = (x + (y AND mask n)) AND mask n"
-  "NO_MATCH (a AND mask b) x \<Longrightarrow>
-    (x - y) AND mask n = ((x AND mask n) - y) AND mask n"
-  "NO_MATCH (a AND mask b) y \<Longrightarrow>
-    (x - y) AND mask n = (x - (y AND mask n)) AND mask n"
-  by (simp_all add: mask_eqs)
-
-lemma word_not_two_complement:
-  fixes x :: "('a :: len) word"
-  shows
-  "NOT x = (- x - 1)"
-  by (simp add: max_word_minus word_not_alt)
-
-lemma word_sub_1_less:
-  fixes x :: "('a :: len) word"
-  shows "x \<noteq> 0 \<Longrightarrow> x - 1 < x"
-  by (simp add: word_less_nat_alt measure_unat)
-
-lemma word_le_nonzero_negate:
-  fixes x :: "('a :: len) word"
-  shows "x \<le> y \<Longrightarrow> x \<noteq> 0 \<Longrightarrow> (- y) \<le> (- x)"
-  using word_le_minus_mono[of "-1" "-1" "x - 1" "y - 1"]
-    word_sub_1_less[of x] word_sub_1_less[of y]
-  apply simp
-  apply (erule meta_mp)
-  apply (rule word_le_minus_mono, simp_all)
-  apply (cases "y = 0", simp_all)
-  done
-
-lemma word_le_nonzero_negateI:
-  fixes x :: "('a :: len) word"
-  shows "- x \<le> - y \<Longrightarrow> x \<noteq> 0 \<Longrightarrow> y \<le> x"
-  by (drule word_le_nonzero_negate, simp+)
+*)
 
 lemma word_le_nonzero_negate_and:
   fixes x :: "('a :: len) word"
@@ -2998,7 +2829,7 @@ lemma update_subrange_addr_CapIsRepresentableFast_derivable:
    apply (simp only: word_minus_word_and_mask[symmetric] field_simps)
    apply (simp add: ucast_shiftl mask_def[where n=3, simplified] word_shiftl_add[symmetric]
         del: shiftl_1)
-   apply (simp add: mask_eq_saturate shiftl_mask_eq_0 del: shiftl_1)
+   apply (simp add: add_and_masks shiftl_mask_eq_0 del: shiftl_1)
    apply (simp add: mask_eqs)
    apply (simp add: add.commute word_not_two_complement[symmetric]
         mask_minus_word_and_mask[symmetric] del: mask_minus_word_and_mask)
@@ -3058,7 +2889,7 @@ lemma update_subrange_addr_CapIsRepresentableFast_derivable:
   apply (simp add: ucast_minus word_and_mask_shiftl_eq)
   apply (simp add: add.commute mask_eqs plus_minus_shiftl_distrib)
 
-  apply (simp add: mask_eq_saturate)
+  apply (simp add: add_and_masks)
   apply (rule arg_cong2[where f="bitAND"], simp_all)[1]
   apply (rule arg_cong2[where f="(-)"])
    apply (simp add: word_eq_iff word_ops_nth_size nth_ucast nth_shiftl nth_shiftr)
@@ -3068,7 +2899,7 @@ lemma update_subrange_addr_CapIsRepresentableFast_derivable:
                    word_shiftl_add[symmetric]
               del: shiftl_1)
   apply (simp add: add.commute)
-  apply (simp add: mask_eq_saturate)
+  apply (simp add: add_and_masks)
   done
 
 lemma update_tag_bit_zero_derivable[derivable_capsI]:
