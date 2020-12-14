@@ -60,7 +60,7 @@ function propCapSetFlagsBoundsEq(c : Capability, flags : bits(8)) -> bool = {
   CapIsTagSet(c') --> (origBase == newBase & origLimit == newLimit)
 }
 
-$counterexample
+$property
 function propSetLSBsMono(c : Capability, bits : bits(CAP_MW - 3)) -> bool = {
   let c' = [c with (CAP_MW - 4) .. 0 = bits];
   let (origBase, origLimit, origValid) = CapGetBounds(c);
@@ -125,4 +125,84 @@ function propBuildCapDerivable(data : Capability, key : Capability) -> bool = {
     // If any of the above checks fail, we don't guarantee anything about the result
     true
   }
+}
+
+function CapGetRepresentableLength(len : bits(64)) -> bits(64) = {
+  let mask = CapGetRepresentableMask(len);
+  (len + not(mask)) & mask
+}
+
+/* A help function defining how CapSetBounds normalises the top 8 bits of the base */
+
+val normaliseBaseFlags : forall 'oldExp 'newExp, 'oldExp >= 0 & 'newExp >= 0. (bits(64), int('oldExp), int('newExp)) -> bits(64)
+
+function normaliseBaseFlags(base, oldExp, newExp) = {
+  if CapBoundsUsesValue(oldExp) then {
+    /* If the capability originally has a small exponent, then all 8 bits will be normalised */
+    return CapBoundsAddress(base);
+  } else if (newExp + CAP_MW < CAP_FLAGS_LO_BIT) then {
+    /* Same if the mantissa is completely below the top byte */
+    return CapBoundsAddress(base);
+  } else if (newExp + CAP_MW >= CAP_VALUE_NUM_BITS) then {
+    /* If the mantissa covers the top byte, those bits will come from the mantissa unchanged */
+    return base;
+  } else {
+    /* If there is a partial overlap between mantissa and top byte, then the
+     * mantissa bits will be unchanged, others will be normalised */
+    let numTopBits = CAP_VALUE_NUM_BITS - newExp - CAP_MW;
+    let topBits = (if base[CAP_FLAGS_LO_BIT - 1] == bitone then Ones(numTopBits) else Zeros(numTopBits));
+    return topBits @ base[CAP_VALUE_NUM_BITS - numTopBits - 1 .. 0];
+  }
+}
+
+/* Setting bounds aligned and padded using RRMASK/RRLEN will be exact, modulo
+ * flag bits normalisation */
+$property
+function propRepresentableSetBoundsExact(c : Capability, len : bits(64)) -> bool = {
+  let c' = CapSetBounds(c, 0b0 @ len, true);
+  let repMask = CapGetRepresentableMask(len);
+  let repLen = CapGetRepresentableLength(len);
+  let base = CapGetValue(c);
+  let (newBase, newTop, _) = CapGetBounds(c');
+
+  /* Assume that aligned and padded bounds */
+  let baseAligned = ((base & repMask) == base);
+  let lenPadded = (len == repLen);
+
+  /* In that case, the low 56 bits of base and top are guaranteed to be exactly as requested */
+  let top : bits(65) = (0b0 @ base) + (0b0 @ len);
+  let exact56 = (newBase[55 .. 0] == base[55 .. 0] & newTop[55 .. 0] == top[55 .. 0]);
+
+  /* The top 8 bits of VAs are reserved for flag bits, so the top byte of the
+   * base will be normalised as defined in the above helper function, provided
+   * that the flags check in CapSetBounds succeeds (the tag will be cleared if
+   * it doesn't). */
+  let expectedBase : bits(65) = 0b0 @ (normaliseBaseFlags(base, CapGetExponent(c), CapGetExponent(c')));
+  let expectedTop : bits(65) = expectedBase + (0b0 @ len);
+  let exactFlags = (newBase == expectedBase) & (newTop == expectedTop);
+
+  /* For aligned and padded bounds, CapSetBounds will not clear the tag due to
+   * inexactness, so the tag depends only on the flags and bounds checks
+   * performed by CapSetBounds, replicated here. */
+  let fromLarge = not(CapBoundsUsesValue(CapGetExponent(c)));
+  let toSmall = CapBoundsUsesValue(CapGetExponent(c'));
+  let flagsCheckPassed = (fromLarge & toSmall --> SignExtend(base[CAP_FLAGS_LO_BIT - 1 .. 0], 64) == base);
+
+  let reqBase = 0b0 @ (if CapBoundsUsesValue(CapGetExponent(c)) then CapBoundsAddress(base) else base);
+  let reqTop = reqBase + (0b0 @ len);
+  let (origBase, origTop, origValid) = CapGetBounds(c);
+  let boundsCheckPassed = (CapUnsignedGreaterThanOrEqual(reqBase, origBase) & CapUnsignedLessThanOrEqual(reqTop, origTop) & origValid);
+
+  let tagCorrect = (CapIsTagSet(c') <--> CapIsTagSet(c) & flagsCheckPassed & boundsCheckPassed);
+
+  /* Putting it all together: */
+  (baseAligned & lenPadded) --> (tagCorrect & exact56 & (flagsCheckPassed --> exactFlags))
+}
+
+/* RRLEN is not idempotent on Morello, as pointed out by Silviu Baranga on the Arm slack */
+
+$counterexample
+function propRepresentableLengthIdempotent(len : bits(64)) -> bool = {
+  let repLen = CapGetRepresentableLength(len);
+  CapGetRepresentableLength(repLen) == repLen
 }
