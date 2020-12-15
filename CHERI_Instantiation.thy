@@ -16,6 +16,9 @@ adhoc_overloading bind Sail2_prompt_monad.bind
 
 section \<open>General lemmas\<close>
 
+lemma pow2_power[simp]: "pow2 n = 2 ^ nat n"
+  by (auto simp: pow2_def pow_def)
+
 lemma un_ui_lt:
   "(unat x < unat y) \<longleftrightarrow> (uint x < uint y)"
   unfolding unat_def nat_less_eq_zless[OF uint_ge_0] ..
@@ -753,9 +756,11 @@ lemma CC_simps[simp]:
   "get_top_method CC c = get_limit c"
   "get_obj_type_method CC c = unat (CapGetObjectType c)"
   "cap_of_mem_bytes_method CC = cap_of_mem_bytes"
+  "permits_store_method CC c = cap_permits CAP_PERM_STORE c"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
   "permits_unseal_method CC c = cap_permits CAP_PERM_UNSEAL c"
   "permits_ccall_method CC c = cap_permits CAP_PERM_BRANCH_SEALED_PAIR c"
+  "permits_system_access_method CC c = CapIsSystemAccessPermitted c"
   "get_perms_method CC c = to_bl (CapGetPermissions c)"
   "is_global_method CC c = cap_permits CAP_PERM_GLOBAL c"
   "clear_global_method CC c = clear_perm CAP_PERM_GLOBAL c"
@@ -1227,7 +1232,7 @@ definition "ISA \<equiv>
    isa.instr_raises_ex = instr_raises_ex,
    isa.fetch_raises_ex = fetch_raises_ex,
    isa.exception_targets = exception_targets,
-   privileged_regs = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
+   privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
@@ -1237,7 +1242,7 @@ lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
   "KCC ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "IDC ISA = {''_R29''}"
-  "privileged_regs ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
+  "privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "isa.instr_sem ISA = instr_sem"
   "isa.instr_fetch ISA = instr_fetch"
   "isa.caps_of_regval ISA = caps_of_regval"
@@ -1410,15 +1415,15 @@ locale Morello_Fixed_Address_Translation =
        allowing us to make assumptions about register values/fields that might change over time,
        e.g. PSTATE.EL *)
     and translation_assms :: "register_value event \<Rightarrow> bool"
-  assumes translate_correct:
+  assumes translate_correct[simp]:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
-          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
-          FaultRecord_statuscode (AddressDescriptor_fault addrdesc) = Fault_None \<Longrightarrow>
+          Run (AArch64_FullTranslateWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          \<not>IsFault addrdesc \<Longrightarrow>
           \<forall>e \<in> set t. translation_assms e \<Longrightarrow>
           translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
     and is_translation_event_correct:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc e.
-          Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
+          Run (AArch64_FullTranslateWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
           \<forall>e' \<in> set t. translation_assms e' \<Longrightarrow>
           e \<in> set t \<Longrightarrow> is_mem_event e \<Longrightarrow>
           is_translation_event e"
@@ -1449,107 +1454,33 @@ proof -
     .
 qed
 
-(*definition has_ttbr1 :: "AccType \<Rightarrow> bool" where
-  "has_ttbr1 acctype = (translation_el acctype \<in> {EL0, EL1} \<or> in_host acctype)"
+lemma AArch64_FullTranslate_translate_address[simp]:
+  assumes "Run (AArch64_FullTranslate vaddress acctype iswrite wasaligned sz) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_FullTranslate_def IsFault_def elim!: Run_bindE Run_ifE)
 
-definition bounds_address :: "AccType \<Rightarrow> nat \<Rightarrow> nat" where
-  "bounds_address acctype addr =
-     (if tbi_enabled acctype addr then
-        (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
-         then addr mod 2 ^ 56 + (255 * 2 ^ 56) \<comment> \<open>sign extension of addr[55..0]\<close>
-         else addr mod 2 ^ 56)                 \<comment> \<open>zero extension of addr[55..0]\<close>
-      else addr)"
+lemma AArch64_TranslateAddressWithTag_translate_address[simp]:
+  assumes "Run (AArch64_TranslateAddressWithTag vaddress acctype iswrite wasaligned sz iswritevalidcap) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_TranslateAddressWithTag_def IsFault_def elim!: Run_bindE Run_ifE)
 
-definition valid_address :: "AccType \<Rightarrow> nat \<Rightarrow> bool" where
-  "valid_address acctype addr \<equiv>
-     (if s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55
-      then (if tbi_enabled acctype addr
-            then addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52 \<comment> \<open>addr[55..52] = 0xF\<close>
-            else addr \<ge> 4095 * 2 ^ 52)         \<comment> \<open>addr[63..52] = 0xFFF\<close>
-      else (if tbi_enabled acctype addr
-            then addr mod 2 ^ 56 < 2 ^ 52      \<comment> \<open>addr[55..52] = 0x0\<close>
-            else addr < 2 ^ 52))"              \<comment> \<open>addr[63..52] = 0x000\<close>
+lemma AArch64_TranslateAddress_translate_address[simp]:
+  assumes "Run (AArch64_TranslateAddress vaddress acctype iswrite wasaligned sz) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_TranslateAddress_def IsFault_def elim!: Run_bindE Run_ifE)
 
-lemma bin_nth_eq_mod_div:
-  "bin_nth w n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
-proof -
-  have "bin_nth w n = odd (w div 2 ^ n)"
-    by (auto simp: bin_nth_eq_mod)
-  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + w div 2 ^ (Suc n) * 2 ^ (Suc n)) div 2 ^ n)"
-    unfolding mod_div_mult_eq
-    ..
-  also have "\<dots> = odd ((w mod 2 ^ (Suc n) + (2 ^ n) * (2 * (w div 2 ^ (Suc n)))) div 2 ^ n)"
-    by (auto simp only: mult_ac power_Suc)
-  also have "\<dots> = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
-    by auto
-  finally show ?thesis
-    .
-qed
-
-lemma bin_nth_int_eq_mod_div:
-  "bin_nth (int w) n = odd (w mod 2 ^ (Suc n) div 2 ^ n)"
-proof -
-  have "even (nat (int w mod 2 ^ (Suc n) div 2 ^ n)) = even (int w mod 2 ^ (Suc n) div 2 ^ n)"
-    by (intro even_nat_iff) (auto simp: pos_imp_zdiv_nonneg_iff)
-  then show ?thesis
-    unfolding bin_nth_eq_mod_div nat_mod_as_int
-    by (auto simp: nat_div_distrib nat_power_eq)
-qed
-
-lemma bounds_address_offset:
-  assumes "valid_address acctype (addr + offset)"
-    and "valid_address acctype addr"
-    and "offset < 2 ^ 52"
-    and "bounds_address acctype addr + offset < 2 ^ 64"
-  shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
-proof -
-  have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55
-        \<and> (addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
-  proof (cases "s1_enabled acctype \<and> has_ttbr1 acctype \<and> bin_nth (int addr) 55")
-    case True
-    let ?baddr = "bounds_address acctype addr"
-    have "?baddr = (?baddr mod 2 ^ 56) + (?baddr div 2 ^ 56 * 2 ^ 56)"
-      unfolding mod_div_mult_eq
-      ..
-    also have "\<dots> = addr mod 2 ^ 56 + 255 * 2 ^ 56"
-      using True assms(2,4)
-      by (intro arg_cong2[where f = "(+)"])
-         (auto simp add: bounds_address_def valid_address_def simp flip: mod_add_eq)
-    finally have "addr mod 2 ^ 56 + offset < 2 ^ 56" and *: "addr mod 2 ^ 56 \<ge> 15 * 2 ^ 52"
-      using True assms(2,4)
-      by (auto simp: bounds_address_def valid_address_def split: if_splits)
-    then have **: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
-      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
-      by auto
-    moreover have "bin_nth (int (addr + offset)) 55"
-      using assms(1) * **
-      by (auto simp: valid_address_def split: if_splits)
-    ultimately show ?thesis
-      using True
-      by auto
-  next
-    case False
-    then have 1: "addr mod 2 ^ 56 < 2 ^ 52"
-      using \<open>valid_address acctype addr\<close>
-      by (auto simp: valid_address_def split: if_splits)
-    then have 2: "addr mod 2 ^ 56 + offset < 2 ^ 53"
-      using \<open>offset < 2 ^ 52\<close>
-      by auto
-    then have 3: "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
-      unfolding mod_add_left_eq[of addr "2 ^ 56" offset, symmetric]
-      by auto
-    moreover have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55"
-      using 1 2 3
-      unfolding bin_nth_int_eq_mod_div
-      by auto
-    ultimately show ?thesis
-      by auto
-  qed
-  then show ?thesis
-    using tbi_enabled_cong[of addr "addr + offset" acctype]
-    unfolding bounds_address_def
-    by auto
-qed *)
+lemma AArch64_TranslateAddressForAtomicAccess_translate_address[simp]:
+  assumes "Run (AArch64_TranslateAddressForAtomicAccess vaddress sz) t addrdesc"
+    and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
+  shows "translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc)))"
+  using assms
+  by (auto simp: AArch64_TranslateAddressForAtomicAccess_def IsFault_def elim!: Run_bindE Run_ifE Run_letE)
 
 sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
   using no_cap_load_translation_events
@@ -1599,6 +1530,8 @@ lemmas privilegeds_accessible_system_reg_access[intro] =
   privileged_accessible_system_reg_access[where r = "''VBAR_EL1''", simplified]
   privileged_accessible_system_reg_access[where r = "''VBAR_EL2''", simplified]
   privileged_accessible_system_reg_access[where r = "''VBAR_EL3''", simplified]
+  privileged_accessible_system_reg_access[where r = "''CDBGDTR_EL0''", simplified]
+  privileged_accessible_system_reg_access[where r = "''CDLR_EL0''", simplified]
 
 lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
   "non_cap_exp (undefined_bitvector n)"
@@ -2938,17 +2871,6 @@ lemma ReadTaggedMem_single_accessed_mem_cap:
   unfolding ReadTaggedMem_def
   by (auto simp: Bits_def elim!: Run_bindE Run_letE Run_ifE read_memt_accessed_mem_cap)
 
-lemma (in Cap_Axiom_Automaton) accessed_mem_cap_of_trace_if_tagged_append[simp]:
-  "accessed_mem_cap_of_trace_if_tagged c (t @ t') \<longleftrightarrow>
-   accessed_mem_cap_of_trace_if_tagged c t \<or> accessed_mem_cap_of_trace_if_tagged c t'"
-  by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
-
-lemma (in Cap_Axiom_Automaton) untagged_accessed_mem_cap_of_trace[simp]:
-  assumes "\<not>is_tagged_method CC c"
-  shows "accessed_mem_cap_of_trace_if_tagged c t"
-  using assms
-  by (auto simp: accessed_mem_cap_of_trace_if_tagged_def)
-
 lemma ReadTaggedMem_lower_accessed_mem_cap:
   assumes t: "Run (ReadTaggedMem desc sz accdesc) t (tag, data :: 'a::len word)"
     and sz: "LENGTH('a) = nat sz * 8" "sz = 16 \<or> sz = 32"
@@ -3178,14 +3100,161 @@ lemma VA_derivable_run_imp[derivable_caps_runI]:
 declare Run_ifE[where thesis = "VA_derivable va s" and a = va for va s, derivable_caps_combinators]
 declare Run_letE[where thesis = "VA_derivable va s" and a = va for va s, derivable_caps_combinators]
 
-thm derivable_caps_combinators
-
 lemmas Run_return_VA_derivable[derivable_caps_combinators] =
    Run_return_resultE[where P = "\<lambda>va. VA_derivable va s" for s]
 
 lemma VAFromPCC_derivable[derivable_capsE]:
   "Run (VAFromPCC offset) t va \<Longrightarrow> VA_derivable va s"
   by (auto simp: VAFromPCC_def VA_derivable_def elim: Run_bindE)
+
+(* System register access *)
+
+fun sysreg_ev_assms :: "register_value event \<Rightarrow> bool" where
+  "sysreg_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)) = (r = ''PCC'' \<longrightarrow> CapIsTagSet c \<and> \<not>CapIsSealed c)"
+| "sysreg_ev_assms (E_read_reg r (Regval_bitvector_32_dec v)) = (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2)" (* Non-debug state *)
+| "sysreg_ev_assms _ = True"
+
+definition "sysreg_trace_assms t \<equiv> (\<forall>e \<in> set t. sysreg_ev_assms e)"
+
+lemma sysreg_trace_assms_append[simp]:
+  "sysreg_trace_assms (t1 @ t2) \<longleftrightarrow> sysreg_trace_assms t1 \<and> sysreg_trace_assms t2"
+  by (auto simp: sysreg_trace_assms_def)
+
+lemma bitvector_32_dec_of_regva_eq_Some_iff[simp]:
+  "bitvector_32_dec_of_regval rv = Some v \<longleftrightarrow> rv = Regval_bitvector_32_dec v"
+  by (cases rv) auto
+
+(* In Debug mode, access to system registers seems to be generally enabled, so let's assume that
+   we are not in Debug mode; otherwise we'd have to tweak the properties to allow for ambient
+   system register access permission. *)
+lemma Halted_False:
+  assumes "Run (Halted u) t a" and "sysreg_trace_assms t"
+  shows "\<not>a"
+  using assms
+  unfolding Halted_def
+  by (auto simp: EDSCR_ref_def sysreg_trace_assms_def elim!: Run_bindE Run_or_boolM_E Run_read_regE)
+
+lemma Run_Halted_True_False[simp]:
+  assumes "sysreg_trace_assms t"
+  shows "Run (Halted ()) t True \<longleftrightarrow> False"
+  using assms
+  by (auto dest: Halted_False)
+
+lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Halted u)"
+  unfolding Halted_def
+  by (no_reg_writes_toI)
+
+lemma Run_Halted_accessible_regs[accessible_regsE]:
+  assumes "Run (Halted u) t h" and "sysreg_trace_assms t"
+    and "Rs - (if h then privileged_regs ISA else {}) \<subseteq> accessible_regs s"
+  shows "Rs \<subseteq> accessible_regs (run s t)"
+  using assms
+  by (intro accessible_regs_no_writes_run_subset[of "Halted u" t h Rs])
+     (auto intro: no_reg_writes_runs_no_reg_writes no_reg_writes_to_Halted split: if_splits)
+
+lemma PCC_sysreg_trace_assms:
+  assumes "Run (read_reg PCC_ref) t c" and "sysreg_trace_assms t"
+  shows "CapIsTagSet c" and "\<not>CapIsSealed c"
+  using assms
+  by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def)
+
+lemma CapIsSystemAccessEnabled_trace_allows_system_reg_access:
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
+    and "{''PCC''} \<subseteq> accessible_regs s"
+  shows "trace_allows_system_reg_access t s"
+proof -
+  obtain t1 t2 c
+    where t1: "Run (Halted ()) t1 False"
+      and t2: "Run (read_reg PCC_ref :: Capability M) t2 c" "sysreg_trace_assms t2"
+      and "CapIsSystemAccessPermitted c"
+      and t: "t = t1 @ t2"
+    using assms PCC_sysreg_trace_assms
+    by (auto simp: CapIsSystemAccessEnabled_def PCC_read_def
+             elim!: Run_bindE dest: Halted_False)
+  moreover have "CapIsTagSet c" and "\<not>CapIsSealed c"
+    using PCC_sysreg_trace_assms[OF t2]
+    by auto
+  moreover have "{''PCC''} \<subseteq> accessible_regs (run s t1)"
+    using t t1 assms(2,4)
+    by - accessible_regsI
+  ultimately show ?thesis
+    by (auto elim!: Run_read_regE simp: PCC_ref_def)
+qed
+
+lemma CapIsSystemAccessEnabled_system_reg_access:
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
+    and "{''PCC''} \<subseteq> accessible_regs s"
+  shows "system_reg_access (run s t)"
+  using CapIsSystemAccessEnabled_trace_allows_system_reg_access[OF assms]
+  by (auto simp: system_reg_access_run_iff)
+
+lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (CapIsSystemAccessEnabled u)"
+  unfolding CapIsSystemAccessEnabled_def Halted_def PCC_read_def bind_assoc
+  by (no_reg_writes_toI)
+
+lemma CapIsSystemAccessEnabled_accessible_regs[accessible_regsE]:
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
+    and "Rs - (if a then privileged_regs ISA else {}) \<union> {''PCC''} \<subseteq> accessible_regs s"
+  shows "Rs \<subseteq> accessible_regs (run s t)"
+proof -
+  have PCC: "{''PCC''} \<subseteq> accessible_regs s"
+    using assms
+    by auto
+  moreover have "Rs - (if a then privileged_regs ISA else {}) \<subseteq> accessible_regs (run s t)"
+    using assms
+    by - (accessible_regsI)
+  ultimately show ?thesis
+    using CapIsSystemAccessEnabled_system_reg_access[OF assms(1,2), THEN system_reg_access_accessible_regs, of s Rs]
+    by (cases a) auto
+qed
+
+lemmas CapIsSystemAccessEnabled_system_reg_access_or_ex[derivable_capsE] =
+  CapIsSystemAccessEnabled_system_reg_access[THEN disjI1]
+
+lemma Run_and_boolM_HaveCapabilitiesExt_eq[simp]:
+  "and_boolM (return (HaveCapabilitiesExt ())) m = m"
+  by (auto simp: HaveCapabilitiesExt_def and_boolM_def)
+
+abbreviation
+  "system_access_disabled \<equiv>
+     and_boolM
+       (and_boolM (return (HaveCapabilitiesExt ()))
+          (CapIsSystemAccessEnabled () \<bind> (\<lambda>x. return (\<not>x))))
+       (Halted () \<bind> (\<lambda>y. return (\<not>y)))"
+
+lemma system_access_disabled_accessible_regs[accessible_regsE]:
+  assumes "Run system_access_disabled t a" and "sysreg_trace_assms t"
+    and "Rs - (if a then {} else privileged_regs ISA) \<union> {''PCC''} \<subseteq> accessible_regs s"
+  shows "Rs \<subseteq> accessible_regs (run s t)"
+proof (cases a)
+  case True
+  then show ?thesis
+    using assms
+    by - accessible_regsI
+next
+  case False
+  then have "Run (CapIsSystemAccessEnabled ()) t True"
+    using assms
+    by (auto elim!: Run_bindE Run_and_boolM_E dest: Halted_False)
+  then show ?thesis
+    using assms(2,3) False
+    by - accessible_regsI
+qed
+
+lemmas system_access_disabled_accessible_regs_or_ex[accessible_regsE] =
+  system_access_disabled_accessible_regs[THEN disjI1]
+
+lemma system_access_disabled_system_reg_access:
+  assumes "Run system_access_disabled t a" and "sysreg_trace_assms t" and "\<not>a"
+    and "{''PCC''} \<subseteq> accessible_regs s"
+  shows "system_reg_access (run s t)"
+  using assms
+  by (auto elim!: Run_bindE Run_and_boolM_E CapIsSystemAccessEnabled_system_reg_access dest: Halted_False)
+
+lemmas system_access_disabled_system_reg_access_or_ex[derivable_capsE] =
+  system_access_disabled_system_reg_access[THEN disjI1]
 
 end
 
@@ -3242,6 +3311,7 @@ locale Morello_Write_Cap_Automaton = Morello_ISA +
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
     and is_indirect_branch :: bool
+    and no_system_reg_access :: bool
   assumes indirect_regs_indirect_branch: "invoked_indirect_regs \<noteq> {} \<longrightarrow> is_indirect_branch"
 begin
 
@@ -3274,9 +3344,10 @@ definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
 (* TODO *)
 fun ev_assms :: "register_value event \<Rightarrow> bool" where
   "ev_assms (E_read_reg r v) =
-    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and>
+    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c \<and> (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))) \<and>
      (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps) \<and>
-     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps))"
+     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
+     (r = ''EDSCR'' \<longrightarrow> (\<forall>w. v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 6 word) = 2)))" (* Non-debug state *)
 | "ev_assms (E_read_memt rk addr sz (bytes, tag)) =
     (is_indirect_branch \<longrightarrow> (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps))"
 | "ev_assms _ = True"
@@ -3469,6 +3540,14 @@ lemma accessed_mem_cap_of_trace_invoked_caps:
 lemmas tagged_mem_primitives_invoked_caps[derivable_capsE] =
   tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_invoked_caps]
 
+lemma sysreg_ev_assmsI[intro]:
+  "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
+  by (cases e rule: sysreg_ev_assms.cases) auto
+
+lemma sysreg_trace_assmsI[simp, intro, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
+  by (auto simp: sysreg_trace_assms_def trace_assms_def)
+
 end
 
 lemma HaveAArch32EL_False[simp]:
@@ -3502,7 +3581,8 @@ begin
 
 fun extra_assms :: "register_value event \<Rightarrow> bool" where
   "extra_assms (E_read_reg r v) =
-    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. \<not>CapIsSealed c)) \<and>
+    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c)) \<and>
+     (r = ''EDSCR'' \<longrightarrow> (\<forall>w. v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 6 word) = 2)) \<and> \<comment> \<open>Non-debug state\<close>
      (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps))"
 | "extra_assms _ = True"
 
@@ -3568,6 +3648,14 @@ lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
   shows "CapUnseal c \<in> invoked_indirect_caps"
   using assms
   by (auto elim!: derivable_capsE split: if_splits)
+
+lemma sysreg_ev_assmsI[intro]:
+  "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
+  by (cases e rule: sysreg_ev_assms.cases) (auto simp: ev_assms_def)
+
+lemma sysreg_trace_assmsI[simp, intro, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
+  by (auto simp: sysreg_trace_assms_def trace_assms_def)
 
 end
 
