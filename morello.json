@@ -76,7 +76,7 @@
     "CapAdd": {
       "derivable_caps": {
         "stmts": ["Run (CapAdd arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, unfold CapAdd_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentableFast_derivable)"
+        "proof": "(non_cap_exp_insert_run s, unfold CapAdd_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentableFast_derivable simp: word_bl.Abs_inject nth_ucast CapGetValue_def update_subrange_vec_dec_test_bit)"
       }
     },
     "CapAdd__1": {
