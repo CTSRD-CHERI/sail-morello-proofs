@@ -127,6 +127,22 @@ function propBuildCapDerivable(data : Capability, key : Capability) -> bool = {
   }
 }
 
+/* Setting bounds to a length smaller than 2^(CAP_MW-2) is always exact */
+
+$property
+function propCapSetBoundsSmallExact(c : Capability, len : bits(64)) -> bool = {
+  let c' = CapSetBounds(c, 0b0 @ len, true);
+  /* The expected new base is the sign-extended capability value with
+   * normalised flags (top 8 bits), because the exponent will be zero */
+  let expectedBase = 0b0 @ CapBoundsAddress(CapGetValue(c));
+  /* The expected new top is exactly len above the new base */
+  let expectedTop = expectedBase + (0b0 @ len);
+  let (newBase, newTop, _) = CapGetBounds(c');
+  let lenSmall = (UInt(len) < pow2(CAP_MW - 2));
+  let exact = (newBase == expectedBase & newTop == expectedTop);
+  lenSmall --> exact
+}
+
 function CapGetRepresentableLength(len : bits(64)) -> bits(64) = {
   let mask = CapGetRepresentableMask(len);
   (len + not(mask)) & mask
@@ -205,4 +221,50 @@ $counterexample
 function propRepresentableLengthIdempotent(len : bits(64)) -> bool = {
   let repLen = CapGetRepresentableLength(len);
   CapGetRepresentableLength(repLen) == repLen
+}
+
+/* CRRL is idempotent on CHERI-RISC-V, however, due to a change to the
+ * calculation of the alignment mask, using Zeros() instead of (Ones() - len)
+ * as the test base. */
+
+val CapGetRepresentableMaskAlt : bits(CAP_VALUE_NUM_BITS) -> bits(CAP_VALUE_NUM_BITS) effect {escape, undef}
+
+function CapGetRepresentableMaskAlt(len) = {
+    c : bits(129) = CapNull();
+    let test_base : bits(CAP_VALUE_NUM_BITS) = Zeros(CAP_VALUE_NUM_BITS);
+    let test_length : bits(CAP_LENGTH_NUM_BITS) = ZeroExtend(len, CAP_LENGTH_NUM_BITS);
+    c[CAP_VALUE_HI_BIT .. CAP_VALUE_LO_BIT] = test_base;
+    let c : bits(129) = CapSetBounds(c, test_length, false);
+    exp1 : int = 0;
+    if CapIsInternalExponent(c) then {
+        exp1 = CapGetExponent(c) + 3
+    };
+    let 'exp1 = exp1;
+    assert(constraint(64 - '_exp1 >= 0));
+    assert(constraint('_exp1 >= 0));
+    return(Ones(CAP_VALUE_NUM_BITS - exp1) @ Zeros(exp1))
+}
+
+function CapGetRepresentableLengthAlt(len : bits(64)) -> bits(64) = {
+  let mask = CapGetRepresentableMaskAlt(len);
+  (len + not(mask)) & mask
+}
+
+/* With this alternative definition, RRLEN is idempotent */
+
+$property
+function propRepresentableLengthAltIdempotent(len : bits(64)) -> bool = {
+  let repLen = CapGetRepresentableLengthAlt(len);
+  CapGetRepresentableLengthAlt(repLen) == repLen
+}
+
+/* RRMASK(RRLEN(len)) == RRMASK(len) with the alternative mask calculation,
+ * unless there is a length overflow (RRLEN returns zero for lengths that would
+ * get rounded up to 2^64) */
+
+$property
+function propRepresentableMaskLengthAbsorb(len : bits(64)) -> bool = {
+  let repLen = CapGetRepresentableLengthAlt(len);
+  let noLenOverflow = (UInt(repLen) == 0 --> UInt(len) == 0);
+  noLenOverflow --> (CapGetRepresentableMaskAlt(repLen) == CapGetRepresentableMaskAlt(len))
 }
