@@ -934,13 +934,17 @@ text \<open>AArch32 is unsupported on Morello\<close>
 lemma UsingAArch32_False[simp]:
   assumes "trace_assms t"
   shows "\<not>Run (UsingAArch32 ()) t True"
-  sorry
+  apply (simp add: UsingAArch32_def HaveAnyAArch32_def)
+  apply (clarsimp elim!: Run_elims)
+  done
 
 text \<open>Assume that tag setting is disabled\<close>
 
 lemma IsTagSettingDisabled_not_False:
   assumes "trace_assms t"
   shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
+  apply (simp add: IsTagSettingDisabled_def)
+  (* FIXME: add to sysreg_ev_assms and ev_assms *)
   sorry
 
 text \<open>Assume that PCC is not sealed\<close>
@@ -2475,7 +2479,10 @@ text \<open>AArch32 is unsupported on Morello\<close>
 lemma UsingAArch32_False[simp]:
   assumes "trace_assms t"
   shows "\<not>Run (UsingAArch32 ()) t True"
-  sorry
+  (* FIXME: same proof as in another locale above? *)
+  apply (simp add: UsingAArch32_def HaveAnyAArch32_def)
+  apply (clarsimp elim!: Run_elims)
+  done
 
 text \<open>Assume that tag setting is disabled\<close>
 
