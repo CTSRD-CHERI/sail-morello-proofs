@@ -1228,6 +1228,17 @@ locale Morello_ISA =
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
 begin
 
+abbreviation "translation_control_regs \<equiv>
+  {''SCR_EL3'', ''TCR_EL1'', ''TCR_EL2'', ''TCR_EL3'',
+   ''SCTLR_EL1'', ''SCTLR_EL2'', ''SCTLR_EL3'', ''TTBR0_EL3'', ''TTBR0_EL2'',
+   ''TTBR0_EL1'', ''TTBR1_EL1'', ''TTBR1_EL2'', ''VTCR_EL2'', ''VTTBR_EL2'',
+   ''MAIR_EL1'', ''MAIR_EL2'', ''MAIR_EL3'',
+   ''MPAM3_EL3'', ''_MPAM2_EL2_0_62'', ''_MPAM1_EL1_0_62'',
+   ''MPAM0_EL1'', ''MPAMIDR_EL1'', ''MPAMVPMV_EL2'',
+   ''MPAMVPM0_EL2'', ''MPAMVPM1_EL2'', ''MPAMVPM2_EL2'', ''MPAMVPM3_EL2'',
+   ''MPAMVPM4_EL2'', ''MPAMVPM5_EL2'', ''MPAMVPM6_EL2'', ''MPAMVPM7_EL2'',
+   ''MPAMHCR_EL2''}"
+
 definition "ISA \<equiv>
   \<lparr>isa.instr_sem = instr_sem,
    isa.instr_fetch = instr_fetch,
@@ -1242,7 +1253,8 @@ definition "ISA \<equiv>
    isa.instr_raises_ex = instr_raises_ex,
    isa.fetch_raises_ex = fetch_raises_ex,
    isa.exception_targets = exception_targets,
-   privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
+   read_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
+   write_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs, \<comment> \<open>TODO\<close>
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
@@ -1252,7 +1264,8 @@ lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
   "KCC ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "IDC ISA = {''_R29''}"
-  "privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
+  "read_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
+  "write_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs"
   "isa.instr_sem ISA = instr_sem"
   "isa.instr_fetch ISA = instr_fetch"
   "isa.caps_of_regval ISA = caps_of_regval"
@@ -3158,7 +3171,7 @@ lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
 
 lemma Run_Halted_accessible_regs[accessible_regsE]:
   assumes "Run (Halted u) t h" and "sysreg_trace_assms t"
-    and "Rs - (if h then privileged_regs ISA else {}) \<subseteq> accessible_regs s"
+    and "Rs - (if h then read_privileged_regs ISA else {}) \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
   using assms
   by (intro accessible_regs_no_writes_run_subset[of "Halted u" t h Rs])
@@ -3207,13 +3220,13 @@ lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
 
 lemma CapIsSystemAccessEnabled_accessible_regs[accessible_regsE]:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
-    and "Rs - (if a then privileged_regs ISA else {}) \<union> {''PCC''} \<subseteq> accessible_regs s"
+    and "Rs - (if a then read_privileged_regs ISA else {}) \<union> {''PCC''} \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
 proof -
   have PCC: "{''PCC''} \<subseteq> accessible_regs s"
     using assms
     by auto
-  moreover have "Rs - (if a then privileged_regs ISA else {}) \<subseteq> accessible_regs (run s t)"
+  moreover have "Rs - (if a then read_privileged_regs ISA else {}) \<subseteq> accessible_regs (run s t)"
     using assms
     by - (accessible_regsI)
   ultimately show ?thesis
@@ -3237,7 +3250,7 @@ abbreviation
 
 lemma system_access_disabled_accessible_regs[accessible_regsE]:
   assumes "Run system_access_disabled t a" and "sysreg_trace_assms t"
-    and "Rs - (if a then {} else privileged_regs ISA) \<union> {''PCC''} \<subseteq> accessible_regs s"
+    and "Rs - (if a then {} else read_privileged_regs ISA) \<union> {''PCC''} \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
 proof (cases a)
   case True

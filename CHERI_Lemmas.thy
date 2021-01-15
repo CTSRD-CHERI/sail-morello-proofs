@@ -490,7 +490,7 @@ lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
     and "cc \<in> derivable (accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
     and "cd \<in> derivable (accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
-    and "name r \<in> IDC ISA"
+    and "name r \<in> IDC ISA - write_privileged_regs ISA"
     and "leq_cap CC c (unseal_method CC cd)"
   shows "traces_enabled (write_reg r v) s"
   using assms
@@ -516,7 +516,7 @@ lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_sentry:
     and "cs \<in> derivable (accessed_reg_caps s)"
     and "is_indirect_sentry_method CC cs" and "is_sealed_method CC cs"
     and "leq_cap CC c (unseal_method CC cs)"
-    and "name r \<in> IDC ISA"
+    and "name r \<in> IDC ISA - write_privileged_regs ISA"
   shows "traces_enabled (write_reg r v) s"
   using assms
   by (intro traces_enabled_write_reg) auto
@@ -768,7 +768,7 @@ lemma traces_enabled_BranchToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"
   shows "traces_enabled (BranchToCapability c branch_type) s"
   unfolding BranchToCapability_def
-  by (traces_enabledI assms: assms intro: traces_enabled_PCC_set non_cap_expI[THEN non_cap_exp_traces_enabledI])
+  by (traces_enabledI assms: assms intro: traces_enabled_PCC_set non_cap_expI[THEN non_cap_exp_traces_enabledI] simp: BranchTaken_ref_def PSTATE_ref_def PC_ref_def)
 
 lemma enabled_branch_target_set_0th[derivable_capsI]:
   assumes "enabled_branch_target c s"
@@ -780,7 +780,7 @@ lemma traces_enabled_BranchXToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"
   shows "traces_enabled (BranchXToCapability c branch_type) s"
   unfolding BranchXToCapability_def
-  by (traces_enabledI assms: assms intro: non_cap_expI[THEN non_cap_exp_traces_enabledI])
+  by (traces_enabledI assms: assms intro: non_cap_expI[THEN non_cap_exp_traces_enabledI] simp: PSTATE_ref_def)
 
 text \<open>Sealing and unsealing\<close>
 
