@@ -6,8 +6,8 @@ theory CHERI_Instantiation
     "Sail.Sail2_values_lemmas"
     "HOL-Library.Monad_Syntax"
     "Sail-T-CHERI.Word_Extra"
+    "Sail-T-CHERI.BW2"
     "Sail-T-CHERI.Recognising_Automata"
-    "HOL-Word.Word_Bitwise"
 begin
 
 no_notation Sail2_prompt_monad.bind (infixr "\<bind>" 54)
@@ -2689,7 +2689,6 @@ lemma CapBoundsAddress_add_66_negative:
    prefer 2
    apply (simp add: test_bit_is_slice_check mask_def)
    apply (word_bitwise, clarsimp simp: xor3_simps carry_simps)
-  apply (simp add: mask_def)
   apply (simp add: test_bit_is_slice_check mask_def)
   apply (word_bitwise, clarsimp simp: xor3_simps carry_simps)
   done
@@ -2922,6 +2921,452 @@ lemma update_subrange_addr_CapIsRepresentableFast_derivable:
   apply (simp add: add.commute)
   apply (simp add: add_and_masks)
   done
+
+definition
+  ex_run :: "('rv, 'a, 'e) monad \<Rightarrow> bool"
+  where
+  "ex_run m = (\<exists>x t. Run m t x)"
+
+lemma ex_run_bindI:
+  "ex_run f \<Longrightarrow> (\<And>x. ex_run (g x)) \<Longrightarrow> ex_run (bind f g)"
+  apply (simp add: ex_run_def)
+  apply (fastforce intro: Traces_bindI)
+  done
+
+lemma ex_run_return[simp]:
+  "ex_run (return x)"
+  by (simp add: ex_run_def)
+
+lemma ex_run_undefined_bitvector:
+  "ex_run (undefined_bitvector n)"
+  apply (simp add: ex_run_def)
+  apply (rule exI, rule undefined_bitvector_witness)
+  done
+
+lemma ex_run_comb:
+  "(\<And>x. ex_run (f x)) \<Longrightarrow> ex_run (Let x f)"
+  "ex_run p \<Longrightarrow> ex_run q \<Longrightarrow> ex_run (if P then p else q)"
+  "(\<And>x y. ex_run (g x y)) \<Longrightarrow> ex_run ((\<lambda>(x, y). g x y) tup)"
+  by auto
+
+lemma CapGetTop_ex_run:
+  "ex_run (CapGetTop cap)"
+  unfolding CapGetTop_def
+  by (intro ex_run_comb ex_run_return ex_run_bindI ex_run_undefined_bitvector)
+
+lemma CapGetBounds_ex_run:
+  "ex_run (CapGetBounds cap)"
+  unfolding CapGetBounds_def
+  using CapGetExponent_range[of cap]
+  apply (simp only: Let_def[where s="CapGetExponent _"] split: if_split)
+  apply (intro conjI impI ex_run_comb ex_run_return ex_run_bindI
+        ex_run_undefined_bitvector CapGetTop_ex_run)
+  apply (clarsimp simp add: CapIsExponentOutOfRange_def Let_def
+        CAP_MAX_EXPONENT_def CAP_MAX_ENCODEABLE_EXPONENT_def)
+  done
+
+definition
+  "annot x y = y"
+
+lemma annot_op_ty:
+  "(f :: 'a \<Rightarrow> 'b) x = annot TYPE('a \<Rightarrow> 'b) f x"
+  by (simp add: annot_def)
+
+lemmas annot_ineqs = annot_op_ty[where f="(<)"] annot_op_ty[where f="(\<le>)"]
+
+lemmas annot_eq = annot_op_ty[where f="(=)"]
+
+lemmas annot_ucast = annot_op_ty[where f="ucast"]
+
+lemmas annot_vec_dec = annot_op_ty[where f="update_subrange_vec_dec"]
+lemmas annot_subr = annot_op_ty[where f="vector_update_subrange_from_subrange"]
+
+lemma slice_cat3[OF refl, simplified word_size]:
+  "z = word_cat x y \<Longrightarrow> size y \<le> n \<Longrightarrow> Word.slice n z = Word.slice (n - size y) (x AND mask (size z - size y))"
+  apply simp
+  apply (simp add: word_eq_iff nth_slice nth_word_cat word_ao_nth)
+  apply (auto; frule test_bit_size)
+  apply simp_all
+  done
+
+definition
+  word_slice_in :: "nat \<Rightarrow> nat \<Rightarrow> ('a :: len) word \<Rightarrow> 'a word \<Rightarrow> 'a word"
+  where
+  "word_slice_in i j x y = (let m = Bits.shiftl (mask j) i in
+    (x AND m) OR (y AND NOT m))"
+
+lemma word_slice_in_test_bit:
+  "test_bit (word_slice_in i j x y) k =
+    (if i \<le> k \<and> k < i + j then test_bit x k else test_bit y k)"
+  apply (cases "k < size x", simp_all add: test_bit_above_size)
+  apply (simp add: word_slice_in_def Let_def word_ops_nth_size nth_shiftl)
+  apply arith
+  done
+
+lemma vector_update_subrange_from_subrange_to_word_slice_in:
+  assumes cs: "e1 \<le> s1 \<and> 0 \<le> e1 \<and> e2 \<le> s2 \<and> 0 \<le> e2"
+  assumes es: "(s2 - e2 + 1) = (s1 - e1 + 1)"
+  shows "vector_update_subrange_from_subrange n v1 s1 e1 v2 s2 e2 =
+    word_slice_in (nat e1) (nat (s1 - e1 + 1))
+        (Bits.shiftl (Word.slice (nat e2) v2) (nat e1)) v1"
+  apply (simp add: word_eq_iff word_slice_in_test_bit
+                   nth_shiftl nth_slice es
+                   test_bit_vector_update_subrange_from_subrange[OF cs])
+  apply (safe; (simp(no_asm_use))?; frule test_bit_size; simp(no_asm_use))
+  apply arith
+  done
+
+lemma word_update_to_word_slice_in:
+  "j = i + size y - 1 \<Longrightarrow> j < size x \<Longrightarrow> 0 < size y \<Longrightarrow> 0 < j \<Longrightarrow>
+  word_update x i j y = word_slice_in i (size y) (ucast y << i) x"
+  apply (simp add: word_eq_iff test_bit_word_update word_slice_in_test_bit
+    nth_ucast nth_shiftl)
+  apply (safe, simp_all)
+  done
+ 
+lemma unat_le_ucast1:
+  fixes x :: "('a :: len) word"
+  shows "size x \<le> size y \<Longrightarrow> (unat x \<le> unat y) = (ucast x \<le> y)"
+  by (simp add: word_le_nat_alt)
+
+lemma unat_eq_ucast2:
+  fixes x :: "('a :: len) word" and y :: "('b :: len) word"
+  shows "size y \<le> size x \<Longrightarrow> (unat x = unat y) = (x = ucast y)"
+  by (auto del: word_unat.Rep_eqD intro: word_unat.Rep_eqD)
+
+lemma of_bool_test_bit:
+  "of_bool (test_bit w n) = ucast (Word.slice n w :: 1 word)"
+  by (simp add: word_eq_iff word_ops_nth_size nth_slice cong: rev_conj_cong)
+
+lemma cast_down_is_slice:
+  "LENGTH ('b) < LENGTH ('a) \<Longrightarrow>
+    (ucast (x :: ('a :: len) word) :: ('b :: len) word) = Word.slice 0 x \<and>
+    (scast (x :: ('a :: len) word) :: ('b :: len) word) = Word.slice 0 x"
+  by (simp add: scast_eq_ucast)
+
+lemma slice_up_is_ucast[OF refl]:
+  "y = ucast (Bits.shiftr x n) \<Longrightarrow> size x \<le> size y + n \<Longrightarrow> Word.slice n x = y"
+  by (simp add: slice_shiftr)
+
+lemma word_set_bit_to_and_or:
+  fixes x :: "('a :: len0) word"
+    and y :: "('b :: len0) word"
+  shows
+  "set_bit x n True = x OR (Bits.shiftl 1 n)"
+  "set_bit x n False = x AND NOT (Bits.shiftl 1 n)"
+  "set_bit x n (test_bit y i) = (x AND NOT (Bits.shiftl 1 n))
+    OR Bits.shiftl (ucast (Word.slice i y :: 1 word)) n"
+  by (auto simp add: word_eq_iff word_ops_nth_size test_bit_set_gen
+        nth_shiftl nth_ucast nth_slice
+    simp del: shiftl_1)
+
+lemma set_bit_to_xor:
+  fixes x :: "('a :: len0) word"
+  shows "set_bit x n (\<not> test_bit x n) = x XOR (1 << n)"
+  by (simp add: word_eq_iff test_bit_set_gen word_ops_nth_size nth_shiftl)
+
+lemma set_bit_to_xor_eq:
+  fixes x :: "('a :: len0) word"
+  shows "b = (\<not> test_bit x n) \<Longrightarrow> set_bit x n b = x XOR (1 << n)"
+  by (simp add: set_bit_to_xor)
+
+termination count_leading_zero_bits
+  by (relation "measure length", simp_all)
+
+(* FIXME to sail operators lemmas *)
+lemma count_leading_zero_bits_positive:
+  "0 \<le> count_leading_zero_bits xs"
+  by (induct xs rule: count_leading_zero_bits.induct, simp_all)
+
+lemma count_leading_zero_bits_lim:
+  "count_leading_zero_bits xs \<le> length xs"
+  by (induct xs rule: count_leading_zero_bits.induct, simp_all)
+
+lemma count_leading_zeros_lim:
+  "nat (count_leading_zeros x) \<le> size x"
+  by (simp add: word_eq_iff word_ops_nth_size nth_shiftr
+        count_leading_zeros_def count_leading_zeros_bv_def
+        instance_Sail2_values_Bitvector_Machine_word_mword_dict_def
+        nat_le_iff order_trans[OF count_leading_zero_bits_lim])
+
+lemma count_leading_zero_bits_imp:
+  "i < nat (count_leading_zero_bits xs) \<Longrightarrow> xs ! i = B0"
+  apply (induct xs arbitrary: i rule: count_leading_zero_bits.induct, simp_all)
+  apply (simp add: nth_Cons split: nat.split)
+  done
+
+lemma count_leading_zeros_nth_imp:
+  "test_bit x i \<Longrightarrow> nat (count_leading_zeros x) \<le> size x - Suc i"
+  using count_leading_zero_bits_imp[where xs="map bitU_of_bool (to_bl x)" and i="size x - Suc i"]
+  apply (simp add: word_eq_iff word_ops_nth_size nth_shiftr
+        count_leading_zeros_def count_leading_zeros_bv_def
+        instance_Sail2_values_Bitvector_Machine_word_mword_dict_def)
+  apply (clarsimp simp: test_bit_bl nth_rev)
+  apply atomize
+  apply simp
+  done
+
+lemma count_leading_zeros_lt:
+  "x \<le> Bits.shiftr max_word (nat (count_leading_zeros x))"
+  by (auto intro!: word_le_test_bit_mono simp: nth_shiftr
+        dest: count_leading_zeros_nth_imp)
+
+lemma word_sum_eq_cut_at_bit:
+  assumes "x AND NOT (mask n) = y AND NOT (mask n)"
+    "z AND NOT (mask n) = 0"
+    "x AND mask n = (y AND mask n) + (z AND mask n)"
+  shows "x = y + z"
+  using arg_cong2[where f="(+)", OF assms(1, 3)]
+    word_minus_word_and_not_mask[of z n, simplified assms, symmetric]
+  by simp
+
+lemma le_small_words_bitwise:
+  "((x1 :: 1 word) \<le> y1) = (test_bit x1 0 \<longrightarrow> test_bit y1 0)"
+  "((x2 :: 2 word) \<le> y2) = ((test_bit x2 1 \<longrightarrow> test_bit y2 1)
+    \<and> (test_bit x2 1 = test_bit y2 1 \<longrightarrow> (test_bit x2 0 \<longrightarrow> test_bit y2 0)))"
+  "((x3 :: 3 word) \<le> y3) = ((test_bit x3 2 \<longrightarrow> test_bit y3 2)
+    \<and> (test_bit x3 2 = test_bit y3 2 \<longrightarrow> ((ucast x3 :: 2 word) \<le> ucast y3)))"
+  by (word_bitwise, blast)+
+
+lemma neg_numeral_norm[OF refl, simplified word_size]:
+  "w = - numeral n \<Longrightarrow> w = word_of_int (2 ^ size w - numeral n)"
+  by (simp add: wi_hom_syms word_of_int_2p_len)
+
+declare [[z3_extensions, smt_trace]]
+
+lemma CapSetBounds_derivable_proof:
+  assumes deriv: "cap \<in> derivable_caps s"
+  assumes unsealed: "CapIsTagSet cap \<longrightarrow> \<not>CapIsSealed cap"
+  assumes r: "Run (CapSetBounds cap req_len exact) t cap'"
+  shows "cap' \<in> derivable_caps s"
+proof -
+
+  let ?exp_arg = "Word.slice (nat (CAP_MW - 1)) req_len :: 50 word"
+  let ?exp = "count_leading_zeros ?exp_arg"
+
+  have req_limit:
+    "req_len \<le> (Bits.shiftr max_word (nat ?exp))"
+    using count_leading_zeros_lim[of "?exp_arg"]
+        count_leading_zeros_nth_imp[of "?exp_arg"]
+  apply (clarsimp intro!: word_le_test_bit_mono)
+  apply (erule_tac x="n - (nat CAP_MW - 1)" in meta_allE)
+  apply (case_tac "n < nat CAP_MW - 1")
+   apply (simp add: CAP_MW_def nth_shiftr)
+  apply (simp add: CAP_MW_def nth_shiftr nth_slice)
+  apply arith
+  done
+
+  note deriv2 = deriv[simplified derivable_caps_def, simplified, rule_format]
+  note Restr = derivable.Restrict[OF deriv2]
+
+  have high_region_equal:
+    "CAP_IE_BIT < i \<and> i < 128 \<Longrightarrow> test_bit cap' i = test_bit cap i" for i
+    using r[unfolded CapSetBounds_def]
+    unfolding Let_def
+    apply (clarsimp elim!: Run_elims split del: if_split)
+    apply (simp add: Let_def derivable_caps_def test_bit_set_gen update_subrange_vec_dec_test_bit test_bit_vector_update_subrange_from_subrange
+                     CAP_LIMIT_EXP_HI_BIT_def CAP_BASE_EXP_HI_BIT_def less_diff_conv2)
+    done
+
+  have eqs:
+    "CapGetObjectType cap' = CapGetObjectType cap \<and>
+        CapGetPermissions cap' = CapGetPermissions cap \<and>
+        CapCheckPermissions cap' CAP_PERM_GLOBAL = CapCheckPermissions cap CAP_PERM_GLOBAL"
+    apply (simp add: CapGetObjectType_def word_eq_iff word_ops_nth_size nth_slice
+                     CapCheckPermissions_def CapGetPermissions_def CAP_PERM_GLOBAL_def)
+    apply (simp add: high_region_equal cong: rev_conj_cong)
+    done
+
+  have leq_cap_helper:
+    "cap'' = cap' \<Longrightarrow> test_bit cap 128 \<Longrightarrow>
+        leq_bounds CC cap' cap \<Longrightarrow> leq_cap CC cap'' cap" for cap''
+    using unsealed
+    by (clarsimp simp add: leq_cap_def eqs CapIsSealed_def)
+
+  let ?ie_case = "?exp \<noteq> 0 \<or> test_bit req_len (nat (CAP_MW - 2))"
+
+  let ?nie_shape = "\<lambda>new_top new_bot.
+    update_subrange_vec_dec (update_subrange_vec_dec
+             (vector_update_subrange_from_subrange 129
+               (vector_update_subrange_from_subrange 129 (set_bit cap 94 True)
+                 CAP_BASE_EXP_HI_BIT 64 (ucast (new_bot :: 64 word) :: 16 word) 2 0)
+               CAP_LIMIT_EXP_HI_BIT 80
+               (ucast (new_top :: 66 word) :: 16 word) 2 0)
+             79 67 (Word.slice 3 new_bot :: 13 word))
+           93 83 (Word.slice 3 new_top :: 11 word)"
+
+  note nie_nth_lemmas = nth_slice nth_word_cat nth_ucast
+            word_ops_nth_size
+            update_subrange_vec_dec_test_bit
+            test_bit_vector_update_subrange_from_subrange
+            CAP_LIMIT_EXP_HI_BIT_def CAP_BASE_EXP_HI_BIT_def
+            test_bit_set_gen
+
+  have nie_shape_lemmas:
+    "\<forall>a b. CapGetExponent (?nie_shape a b) = 0"
+    "\<forall>a b. test_bit (?nie_shape a b) 94 = True"
+    "\<forall>a b. test_bit (?nie_shape a b) 128 = test_bit cap 128"
+    by (simp_all add: CapGetExponent_def CapIsInternalExponent_def
+            nie_nth_lemmas)
+
+  have nie_shape_lemmas2:
+    "\<forall>a b. CapGetBottom (?nie_shape a b) = (ucast b)"
+    "\<forall>a b. CapGetValue (?nie_shape a b) = (CapGetValue cap)"
+    "\<forall>a b. Word.slice 80 (?nie_shape a b) AND mask 14 =
+        (ucast a :: 16 word) AND mask 14"
+    by (simp_all add: CapGetBottom_def CapIsInternalExponent_def CapGetValue_def
+            nie_shape_lemmas word_ops_nth_size,
+      simp_all add: word_eq_iff nie_nth_lemmas,
+      auto)
+
+  have nie_get:
+    "\<not> ?ie_case \<Longrightarrow> False \<Longrightarrow> Run (CapGetBounds cap') t x \<Longrightarrow>
+        test_bit cap' (nat CAP_TAG_BIT) \<Longrightarrow>
+        fst x = ucast (CapBoundsAddress (CapGetValue cap))"
+
+    for x
+    using r[unfolded CapSetBounds_def Let_def]
+    apply (clarsimp simp: CAP_MW_def elim!: Run_elims split del: if_split)
+    done
+(*
+    apply (simp cong: if_cong split del: if_split)
+    apply (simp only: simp_thms if_simps test_bit_set split: if_split_asm[where x="set_bit _ _ _"]) 
+    apply (split if_split_asm[where x="set_bit _ _ _"])
+*)
+
+  have nie_get_lemma[OF refl]:
+    "P = (fst x = ucast (CapBoundsAddress (CapGetValue cap)) \<and>
+            fst (snd x) = ucast (CapBoundsAddress (CapGetValue cap)) + ucast req_len) \<Longrightarrow>
+        Run (CapGetBounds cap_x) t x \<Longrightarrow>
+        P \<Longrightarrow> P"
+     for x cap_x t P by simp
+
+  have uv_0:
+    "CapBoundsUsesValue 0"
+    by (simp add: CapBoundsUsesValue_def CAP_MW_def CAP_VALUE_NUM_BITS_def)
+
+  have BoundsAddress_simp:
+    "CapBoundsUsesValue (CapGetExponent cap) \<or>
+       sign_extend (ucast (CapGetValue cap) :: 56 word) 64 = CapGetValue cap \<Longrightarrow>
+    (if CapBoundsUsesValue (CapGetExponent cap) then CapBoundsAddress (CapGetValue cap)
+             else CapGetValue cap) = CapBoundsAddress (CapGetValue cap)"
+    by (clarsimp simp add: CapBoundsAddress_def CAP_VALUE_NUM_BITS_def)
+
+  note if_split[split del]
+
+  show ?thesis
+    using r[unfolded CapSetBounds_def]
+        CapGetBounds_ex_run[of cap', unfolded ex_run_def]
+        req_limit
+        [[goals_limit = 1]]
+    unfolding Let_def
+    apply (clarsimp elim!: Run_elims)
+    apply (split if_split_asm[where Q="_ \<longrightarrow> _"])
+     prefer 2
+     (* the non-internal-exponent case, generally a lot simpler *)
+     apply (clarsimp elim!: Run_elims)
+     (* most code paths end up with the tag bit cleared (i.e. trivial) *)
+     apply (clarsimp split: if_split_asm[where x="update_vec_dec _ _ _"];
+        (solves \<open>simp add: derivable_caps_def test_bit_set_gen update_subrange_vec_dec_test_bit test_bit_vector_update_subrange_from_subrange
+                           Let_def CAP_LIMIT_EXP_HI_BIT_def CAP_BASE_EXP_HI_BIT_def
+                    split: if_split\<close>)?)
+     apply ((subst if_not_P, solves \<open>simp\<close>)+)?
+     apply (simp add: Let_def derivable_caps_def test_bit_set_gen nie_shape_lemmas
+                      uv_0 BoundsAddress_simp
+                cong: if_cong)
+     apply (intro impI Restr; simp?)
+     apply (rule leq_cap_helper; simp?)
+     apply (rule leq_bounds_def[THEN iffD2, OF disjI2])
+     apply (clarsimp elim!: Run_elims)
+     apply (frule CapGetBounds_get_base[where c=cap, THEN sym])
+     apply (frule CapGetBounds_get_limit[where c=cap, THEN sym])
+     apply (frule CapGetBounds_get_base[where c="update_subrange_vec_dec _ _ _ _"])
+     apply (frule CapGetBounds_get_limit[where c="update_subrange_vec_dec _ _ _ _"])
+     apply (frule nie_get_lemma[where cap_x4="update_subrange_vec_dec _ _ _ _"])
+      apply (simp add: CapGetBounds_def[where c="update_subrange_vec_dec _ _ _ _"]
+            nie_shape_lemmas nie_shape_lemmas2 Let_def CapIsExponentOutOfRange_def
+            CapGetTop_def CAP_MAX_ENCODEABLE_EXPONENT_def
+            CapIsInternalExponent_def
+            arg_cong2[where f="(<)", OF CAP_MAX_EXPONENT_def refl]
+            arg_cong2[where f="(<)", OF refl CAP_MAX_EXPONENT_def])
+      apply (simp add: CAP_MW_def)
+      apply (clarify elim!: Run_elims)
+      apply (simp(no_asm_simp))
+      apply (rule conjI)
+       apply (thin_tac P for P)+
+       apply (simp add: word_eq_iff nth_ucast word_ops_nth_size
+            test_bit_vector_update_subrange_from_subrange
+            update_subrange_vec_dec_test_bit set_slice_zeros_def
+            slice_mask_def if_split[where P="\<lambda>x. x" for n])
+       apply (auto simp: nth_ucast dest: test_bit_size)[1]
+      apply (erule rev_mp[where P="_ \<le> (_ :: _ word)"])+
+      apply (erule rev_mp[where P="\<not> test_bit _ _"])+
+      apply (thin_tac P for P)+
+      apply (simp add: word_less_nat_alt[symmetric]
+            word_less_nat_alt[where a="1 :: 2 word", symmetric, simplified]
+            CAP_MW_def word_le_nat_alt[symmetric]
+        cong: if_cong)
+      (* this part just requires brute force bit-blasting *)
+      apply (simp add:
+            mask_def of_bl_Cons of_bool_test_bit
+            vector_update_subrange_from_subrange_to_word_slice_in
+            update_subrange_vec_dec_def word_update_to_word_slice_in
+            set_slice_zeros_def slice_mask_def
+            CAP_MAX_EXPONENT_def CAP_BOUND_MAX_def
+            update_vec_dec_bitU_of_bool
+            if_distrib[where f="word_of_int"] wi_hom_syms
+            set_bit_to_xor_eq word_ops_nth_size nth_slice
+            word_of_int_shiftl
+        cong: if_cong)
+      apply (simp add: CapBoundsAddress_def CAP_VALUE_NUM_BITS_def sign_extend_def
+            word_slice_in_def Let_def mask_def max_word_def
+        cong: if_cong)
+      subgoal by (word_bitwise_eq, simp only: carry_def xor3_def simp_thms, argo)
+
+     apply clarsimp
+     apply (rule conjI)
+      apply (erule order_trans[rotated])
+      apply (simp add: unat_le_ucast1 ucast_plus_up)
+     apply (simp add: unat_le_ucast1)
+     apply (erule_tac P="_ \<le> Bits.shiftr _ _" in rev_mp)
+     apply (thin_tac "_")+
+     apply (simp add: CAP_MAX_EXPONENT_def max_word_def)
+     apply (rule impI)
+     apply (rule plus_minus_no_overflow_ab[where ab=max_word])
+      apply (rule order_trans[where y="2 ^ 64"])
+       apply simp
+       apply word_bitwise
+      apply (simp add: word_not_alt[symmetric])
+      apply (word_bitwise, simp)
+     apply simp
+    (* now for the ie case *)
+    
+sorry (*
+
+    apply (clarsimp elim!: Run_elims)
+     apply (clarsimp split: if_split_asm[where x="update_vec_dec _ _ _"];
+        (solves \<open>simp add: derivable_caps_def test_bit_set_gen update_subrange_vec_dec_test_bit test_bit_vector_update_subrange_from_subrange
+                           Let_def CAP_LIMIT_EXP_HI_BIT_def CAP_BASE_EXP_HI_BIT_def
+                    split: if_split\<close>)?)
+*)
+
+(* to smt stuff
+apply (simp add: slice_up_is_ucast
+        word_set_bit_to_and_or
+    del: slice_zero
+    split del: if_split cong: if_cong)
+apply (simp add:
+    cast_down_is_slice test_bit_is_slice_check 
+    word_slice_in_def Let_def mask_def
+    word_set_bit_to_and_or
+    to_smt_shift max_word_def
+   del: slice_zero
+    split del: if_split cong: if_cong)
+
+
+apply smt
+*)
+qed
 
 lemma update_tag_bit_zero_derivable[derivable_capsI]:
   "update_vec_dec c CAP_TAG_BIT (Morello.Bit 0) \<in> derivable_caps s"
