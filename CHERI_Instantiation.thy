@@ -1255,6 +1255,8 @@ definition "ISA \<equiv>
    isa.exception_targets = exception_targets,
    read_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
    write_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs, \<comment> \<open>TODO\<close>
+   read_exception_regs = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
+   write_exception_regs = {},
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
@@ -1266,6 +1268,8 @@ lemma ISA_simps[simp]:
   "IDC ISA = {''_R29''}"
   "read_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "write_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs"
+  "read_exception_regs ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
+  "write_exception_regs ISA = {}"
   "isa.instr_sem ISA = instr_sem"
   "isa.instr_fetch ISA = instr_fetch"
   "isa.caps_of_regval ISA = caps_of_regval"
