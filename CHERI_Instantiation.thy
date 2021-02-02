@@ -3210,7 +3210,7 @@ proof -
     by (auto elim!: Run_read_regE simp: PCC_ref_def)
 qed
 
-lemma CapIsSystemAccessEnabled_system_reg_access:
+lemma CapIsSystemAccessEnabled_system_reg_access[derivable_capsE]:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "system_reg_access (run s t)"
@@ -3274,7 +3274,7 @@ qed
 lemmas system_access_disabled_accessible_regs_or_ex[accessible_regsE] =
   system_access_disabled_accessible_regs[THEN disjI1]
 
-lemma system_access_disabled_system_reg_access:
+lemma system_access_disabled_system_reg_access[derivable_capsE]:
   assumes "Run system_access_disabled t a" and "sysreg_trace_assms t" and "\<not>a"
     and "{''PCC''} \<subseteq> accessible_regs s"
   shows "system_reg_access (run s t)"
