@@ -717,7 +717,6 @@ definition "CC \<equiv>
    get_perms_method = get_perms,
    get_cursor_method = (\<lambda>c. unat (CapGetValue c)),
    is_global_method = (\<lambda>c. \<not>(CapIsLocal c)),
-   set_tag_method = set_tag,
    seal_method = seal,
    unseal_method = CapUnseal,
    clear_global_method = (clear_perm CAP_PERM_GLOBAL),
@@ -735,13 +734,15 @@ definition "CC \<equiv>
 
 interpretation Capabilities CC
 proof
-  fix c tag
-  show "is_tagged_method CC (set_tag_method CC c tag) = tag"
-    by (auto simp: CC_def set_tag_def test_bit_set)
-next
   fix c obj_type
   show "is_tagged_method CC (seal_method CC c obj_type) = is_tagged_method CC c"
     by (auto simp: CC_def seal_def)
+next
+  fix c tag
+  show "is_tagged_method CC (unseal_method CC c) = is_tagged_method CC c"
+    by (auto simp: CC_def set_tag_def test_bit_set)
+  show "is_tagged_method CC (clear_global_method CC c) = is_tagged_method CC c"
+    by (auto simp: CC_def set_tag_def test_bit_set)
 next
   fix c bytes tag
   have test_128_128: "w !! 128 \<longleftrightarrow> False" for w :: "128 word"
@@ -1161,6 +1162,34 @@ lemma get_bounds_CapClearPerms_eq:
   unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapClearPerms_eq
   by auto
 
+lemma CapSetObjectType_get_bounds_helpers_eq:
+  "CapGetExponent (CapSetObjectType c otype) = CapGetExponent c"
+  "CapGetBottom (CapSetObjectType c otype) = CapGetBottom c"
+  "CapGetTop (CapSetObjectType c otype) = CapGetTop c"
+  "CapGetValue (CapSetObjectType c otype) = CapGetValue c"
+  unfolding CapGetExponent_def CapGetBottom_def CapGetTop_def CapGetValue_def
+  unfolding CapClearPerms_def CapIsInternalExponent_def CapSetObjectType_def
+  by (auto simp add: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above
+           simp del: slice_zero)
+
+lemma CapGetBounds_CapSetObjectType_eq:
+  shows "CapGetBounds (CapSetObjectType c otype) = CapGetBounds c"
+  unfolding CapGetBounds_def CapIsExponentOutOfRange_def CapSetObjectType_get_bounds_helpers_eq
+  ..
+
+lemma get_bounds_CapSetObjectType_eq:
+  "get_base (CapSetObjectType c otype) = get_base c"
+  "get_limit (CapSetObjectType c otype) = get_limit c"
+  unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapSetObjectType_eq
+  by auto
+
+definition cap_invariant :: "Capability \<Rightarrow> bool" where
+  "cap_invariant c \<equiv> get_base c \<le> get_limit c \<and> get_limit c \<le> 2^64"
+
+interpretation Capabilities_Invariant CC cap_invariant
+  by unfold_locales
+     (auto simp: cap_invariant_def seal_def get_bounds_CapClearPerms_eq get_bounds_CapUnseal_eq leq_cap_def leq_bounds_def get_bounds_CapSetObjectType_eq)
+
 section \<open>Architecture abstraction\<close>
 
 type_synonym instr = "(InstrEnc * 32 word)"
@@ -1260,7 +1289,7 @@ definition "ISA \<equiv>
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
-sublocale Capability_ISA CC ISA ..
+sublocale Capability_Invariant_ISA CC ISA cap_invariant ..
 
 lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
@@ -3692,12 +3721,13 @@ fun ev_assms :: "register_value event \<Rightarrow> bool" where
 | "ev_assms _ = True"
 
 sublocale Write_Cap_Assm_Automaton
-  where CC = CC and ISA = ISA and ev_assms = ev_assms ..
+  where CC = CC and ISA = ISA and ev_assms = ev_assms and cap_invariant = cap_invariant ..
 
 lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
   by (cases e; simp; blast)
 
-lemma load_cap_trace_assmsI[intro, simp, derivable_capsI]: "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
+lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
   by (auto simp: trace_assms_def load_cap_trace_assms_def)
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
@@ -3887,7 +3917,7 @@ lemma sysreg_ev_assmsI[intro]:
   "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
   by (cases e rule: sysreg_ev_assms.cases) auto
 
-lemma sysreg_trace_assmsI[simp, intro, derivable_capsI]:
+lemma sysreg_trace_assmsI[simp, intro, accessible_regsI, derivable_capsI]:
   "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
   by (auto simp: sysreg_trace_assms_def trace_assms_def)
 
@@ -3940,7 +3970,7 @@ fun extra_assms :: "register_value event \<Rightarrow> bool" where
 | "extra_assms _ = True"
 
 sublocale Mem_Assm_Automaton
-  where CC = CC and ISA = ISA
+  where CC = CC and ISA = ISA and cap_invariant = cap_invariant
     (* and translation_assms = "\<lambda>_. True" *)
     and is_fetch = "False"
     and use_mem_caps = use_mem_caps
@@ -3951,7 +3981,8 @@ sublocale Mem_Assm_Automaton
 lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
   by (cases e; simp add: ev_assms_def; blast)
 
-lemma load_cap_trace_assmsI[intro, simp, derivable_capsI]: "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
+lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
   by (auto simp: trace_assms_def load_cap_trace_assms_def)
 
 lemma translate_address_ISA[simp]:
@@ -4006,7 +4037,7 @@ lemma sysreg_ev_assmsI[intro]:
   "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
   by (cases e rule: sysreg_ev_assms.cases) (auto simp: ev_assms_def)
 
-lemma sysreg_trace_assmsI[simp, intro, derivable_capsI]:
+lemma sysreg_trace_assmsI[simp, intro, accessible_regsI, derivable_capsI]:
   "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
   by (auto simp: sysreg_trace_assms_def trace_assms_def)
 

@@ -431,7 +431,7 @@
       "traces_enabled": {
         "extra_assms": ["(op0 = 3 \\<and> op1 \\<in> {0, 4, 6} \\<and> op2 = 2 \\<and> crn = 12 \\<and> crm = 0) \\<longrightarrow> no_system_reg_access"],
         "stmts": ["traces_enabled (AArch64_SysRegWrite op0 op1 crn crm op2 val) s"],
-        "proof": "(traces_enabledI assms: assms; auto elim: Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access)"
+        "proof": "(traces_enabledI assms: assms Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access[OF _ inv_trace_assms_trace_assms]; blast)"
       },
       "non_mem_exp": {
         "proof": "(unfold AArch64_SysRegWrite_def TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def AArch64_ResetSpecialRegisters_def Reset_def AArch64_IMPDEFResets_def AArch32_AutoGen_ArchitectureReset_def AArch64_AutoGen_ArchitectureReset_def MPAM2_EL2_read_def MPAM1_EL1_read_def MPAM2_EL2_write_def MPAM1_EL1_write_def ICC_CTLR_EL1_write_def ICC_CTLR_EL1_read_def Let_def bind_assoc, non_mem_expI intro: non_mem_exp_bind_no_asm non_mem_exp_if_no_asm)"
