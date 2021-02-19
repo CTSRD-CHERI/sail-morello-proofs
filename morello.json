@@ -169,17 +169,7 @@
     },
     "DRPSInstruction": {
       "traces_enabled": {
-        "assms": ["system_reg_access s"]
-      }
-    },
-    "execute_aarch64_instrs_branch_unconditional_dret": {
-      "traces_enabled": {
-        "assms": ["system_reg_access s"]
-      }
-    },
-    "decode_drps_aarch64_instrs_branch_unconditional_dret": {
-      "traces_enabled": {
-        "proof": "(traces_enabledI elim: Run_or_boolM_E)"
+        "proof": "(traces_enabledI simp: HaveCapabilitiesExt_def)"
       }
     },
     "ReduceCombine": {
