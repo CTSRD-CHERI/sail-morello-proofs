@@ -645,15 +645,15 @@
     },
     "execute_SCTAG_C_CR_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+        "proof": "(traces_enabledI assms: assms; auto elim: and_exp_SystemAccessEnabled_TagSettingEnabledE)"
       }
     },
     "execute_STCT_R_R__": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+        "proof": "(traces_enabledI assms: assms; auto elim: and_SystemAccessEnabled_TagSettingEnabledE)"
       },
       "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled; auto elim: and_SystemAccessEnabled_TagSettingEnabledE)"
       }
     }
   },

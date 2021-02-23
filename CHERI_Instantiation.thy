@@ -38,6 +38,14 @@ lemma of_bits_method_vec_of_bits_maybe[simp]:
 lemma or_boolM_return_True[simp]: "or_boolM (return True) m = return True"
   by (auto simp: or_boolM_def)
 
+lemma and_boolM_assoc:
+  "and_boolM (and_boolM m1 m2) m3 = and_boolM m1 (and_boolM m2 m3)"
+  by (auto intro: bind_cong simp: and_boolM_def)
+
+lemma or_boolM_assoc:
+  "or_boolM (or_boolM m1 m2) m3 = or_boolM m1 (or_boolM m2 m3)"
+  by (auto intro: bind_cong simp: or_boolM_def)
+
 lemma if_then_let_unfold[simp]:
   "(if c then let x = y in f x else z) = (if c then f y else z)"
   by auto
@@ -659,6 +667,28 @@ proof -
   then show ?thesis
     by (auto simp: unat_plus_if_size)
 qed
+
+lemma HaveAArch32EL_False[simp]:
+  "Run (HaveAArch32EL el) t a \<longleftrightarrow> (t = [] \<and> a = False)"
+  unfolding HaveAArch32EL_def HaveAnyAArch32_def HaveEL_def
+  unfolding EL0_def EL1_def EL2_def EL3_def
+  by (cases el rule: exhaustive_2_word) (auto elim: Run_bindE)
+
+lemma ELUsingAArch32_False:
+  shows "\<not>Run (ELUsingAArch32 el) t True"
+  unfolding ELUsingAArch32_def ELStateUsingAArch32_def ELStateUsingAArch32K_def
+  by (auto elim!: Run_bindE)
+
+lemma UsingAArch32_False[simp]:
+  shows "\<not>Run (UsingAArch32 ()) t True"
+  by (auto simp: UsingAArch32_def HaveAnyAArch32_def elim!: Run_elims)
+
+lemma AddrTop_63_or_55:
+  assumes "Run (AddrTop address el) t b"
+  shows "b = 63 \<or> b = 55"
+  using assms
+  unfolding AddrTop_def
+  by (auto elim!: Run_bindE simp: ELUsingAArch32_False)
 
 lemmas datatype_splits =
   ArchVersion.split Constraint.split Unpredictable.split Exception.split InstrEnc.split
@@ -1580,7 +1610,8 @@ section \<open>Verification framework\<close>
 
 locale Morello_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled use_mem_caps
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
-  and use_mem_caps :: bool
+  and use_mem_caps :: bool +
+  fixes no_system_reg_access :: bool
 begin
 
 lemmas privilegeds_accessible_system_reg_access[intro] =
@@ -3167,8 +3198,14 @@ lemma VAFromPCC_derivable[derivable_capsE]:
 (* System register access *)
 
 fun sysreg_ev_assms :: "register_value event \<Rightarrow> bool" where
-  "sysreg_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)) = (r = ''PCC'' \<longrightarrow> CapIsTagSet c \<and> \<not>CapIsSealed c)"
-| "sysreg_ev_assms (E_read_reg r (Regval_bitvector_32_dec v)) = (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2)" (* Non-debug state *)
+  "sysreg_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)) =
+     (r = ''PCC'' \<longrightarrow> CapIsTagSet c \<and> \<not>CapIsSealed c \<and>
+                      (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))"
+| "sysreg_ev_assms (E_read_reg r (Regval_bitvector_32_dec v)) =
+     ((r = ''CSCR_EL3'' \<longrightarrow> no_system_reg_access \<or> v !! 0) \<and>
+      (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2))" (* Non-debug state *)
+| "sysreg_ev_assms (E_read_reg r (Regval_ProcState v)) =
+     (r = ''PSTATE'' \<longrightarrow> no_system_reg_access \<or> ProcState_EL v \<noteq> EL3)"
 | "sysreg_ev_assms _ = True"
 
 definition "sysreg_trace_assms t \<equiv> (\<forall>e \<in> set t. sysreg_ev_assms e)"
@@ -3224,7 +3261,7 @@ proof -
   obtain t1 t2 c
     where t1: "Run (Halted ()) t1 False"
       and t2: "Run (read_reg PCC_ref :: Capability M) t2 c" "sysreg_trace_assms t2"
-      and "CapIsSystemAccessPermitted c"
+      and c: "CapIsSystemAccessPermitted c"
       and t: "t = t1 @ t2"
     using assms PCC_sysreg_trace_assms
     by (auto simp: CapIsSystemAccessEnabled_def PCC_read_def
@@ -3238,6 +3275,13 @@ proof -
   ultimately show ?thesis
     by (auto elim!: Run_read_regE simp: PCC_ref_def)
 qed
+
+lemma CapIsSystemAccessEnabled_no_system_reg_access_cases:
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
+  obtains "a" and "\<not>no_system_reg_access" | "\<not>a"
+  using assms
+  unfolding CapIsSystemAccessEnabled_def CapIsSystemAccessPermitted_def PCC_read_def
+  by (elim Run_bindE Run_ifE Run_read_regE; auto simp: PCC_ref_def sysreg_trace_assms_def)
 
 lemma CapIsSystemAccessEnabled_system_reg_access[derivable_capsE]:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
@@ -3313,6 +3357,99 @@ lemma system_access_disabled_system_reg_access[derivable_capsE]:
 lemmas system_access_disabled_system_reg_access_or_ex[derivable_capsE] =
   system_access_disabled_system_reg_access[THEN disjI1]
 
+lemma HaveEL_True[simp]: "HaveEL el = return True"
+  using EL_exhaust_disj[of el]
+  by (auto simp: HaveEL_def CFG_ID_AA64PFR0_EL1_EL2_def CFG_ID_AA64PFR0_EL1_EL3_def)
+
+(*lemma Run_try_catch_leftI: "Run m t a \<Longrightarrow> Run (try_catch m h) t a"
+  apply (induction m t "Done a :: ('a, 'b, 'c) monad" rule: Traces.induct)
+   apply simp
+  apply (erule T.cases; auto)
+  done
+
+lemma Run_liftR_iff[simp]: "Run (liftR m) t a \<longleftrightarrow> Run m t a"
+  unfolding liftR_def
+  apply auto
+   apply (elim Run_try_catchE)
+    apply (auto intro: Run_try_catch_leftI)
+  done*)
+
+lemma ELUsingAArch32_False[simp]:
+  "Run (ELUsingAArch32 el) t True \<longleftrightarrow> False"
+  unfolding ELUsingAArch32_def ELStateUsingAArch32_def ELStateUsingAArch32K_def
+  by (auto elim!: Run_bindE)
+
+(*lemma CHCR_EL2_SETTAG:
+  assumes t: "Run (read_reg CHCR_EL2_ref) t a" "sysreg_trace_assms t"
+    and no_asr: "\<not>no_system_reg_access"
+  shows "a !! 0"
+  using t
+  by (elim Run_read_regE, simp add: sysreg_trace_assms_def CHCR_EL2_ref_def) (auto simp: no_asr)*)
+
+lemma CSCR_EL3_SETTAG:
+  assumes t: "Run (read_reg CSCR_EL3_ref) t a" "sysreg_trace_assms t"
+    and no_asr: "\<not>no_system_reg_access"
+  shows "a !! 0"
+  using t
+  by (elim Run_read_regE, simp add: sysreg_trace_assms_def CSCR_EL3_ref_def) (auto simp: no_asr)
+
+lemma ProcState_of_regval_eq_Some_iff[simp]:
+  "ProcState_of_regval rv = Some ps \<longleftrightarrow> rv = Regval_ProcState ps"
+  by (cases rv) auto
+
+lemma not_EL3_if_system_reg_access:
+  assumes t: "Run (read_reg PSTATE_ref) t ps" "sysreg_trace_assms t"
+    and no_asr: "\<not>no_system_reg_access"
+  shows "ProcState_EL ps \<in> {EL0, EL1, EL2}"
+  using t EL_exhaust_disj[of "ProcState_EL ps"]
+  by (elim Run_read_regE, simp add: sysreg_trace_assms_def PSTATE_ref_def) (auto simp: no_asr)
+
+lemma word1_eq_1_iff[simp]: "(w = (1 :: 1 word)) \<longleftrightarrow> w !! 0"
+  by (cases w rule: exhaustive_1_word) auto
+
+lemma IsTagSettingDisabled_not_False:
+  assumes t: "sysreg_trace_assms t" and no_asr: "\<not>no_system_reg_access"
+  shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
+  using t
+  unfolding IsTagSettingDisabled_def Let_def
+  \<comment> \<open>Requires IsTagSettingDisabled_EL.patch\<close>
+  by (auto elim!: Run_bindE Run_and_boolM_E split: if_splits simp: nth_ucast
+           dest!: CSCR_EL3_SETTAG[OF _ _ no_asr] not_EL3_if_system_reg_access[OF _ _ no_asr])
+
+text \<open>Tag setting instructions check whether tag setting is disabled, but also whether system access
+  is enabled; provide elimination rules for the and_boolM combinations of those checks that appear
+  in the instructions, reflecting our assumption that either system access or tag setting is
+  disabled.\<close>
+
+abbreviation
+  "and_SystemAccessEnabled_TagSettingEnabled \<equiv>
+     and_boolM (CapIsSystemAccessEnabled ())
+               (IsTagSettingDisabled () \<bind> (\<lambda>w__2. return (\<not> w__2)))"
+
+lemma and_SystemAccessEnabled_TagSettingEnabledE:
+  assumes "Run and_SystemAccessEnabled_TagSettingEnabled t a" and "sysreg_trace_assms t"
+  obtains "\<not>a"
+proof -
+  from assms have "\<not>no_system_reg_access" if "a"
+    using that
+    by (elim Run_and_boolM_E CapIsSystemAccessEnabled_no_system_reg_access_cases; auto)
+  from IsTagSettingDisabled_not_False[OF _ this] assms
+  show thesis
+    by (auto elim!: Run_and_boolM_E intro: that)
+qed
+
+abbreviation
+  "and_exp_SystemAccessEnabled_TagSettingEnabled m \<equiv>
+     and_boolM (and_boolM m (CapIsSystemAccessEnabled ()))
+               (IsTagSettingDisabled () \<bind> (\<lambda>w__2. return (\<not> w__2)))"
+
+lemma and_exp_SystemAccessEnabled_TagSettingEnabledE:
+  assumes "Run (and_exp_SystemAccessEnabled_TagSettingEnabled m) t a" and "sysreg_trace_assms t"
+  obtains "\<not>a"
+  using assms
+  unfolding and_boolM_assoc
+  by (elim and_SystemAccessEnabled_TagSettingEnabledE Run_and_boolM_E; auto)
+
 end
 
 (*locale Morello_Axiom_Assm_Automaton = Morello_Axiom_Automaton +
@@ -3378,6 +3515,7 @@ datatype load_auth =
 locale Morello_Load_Cap_Assm_Automaton = Morello_ISA +
   fixes enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
     and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and invoked_indirect_caps :: "Capability set"
 begin
@@ -3396,7 +3534,8 @@ fun load_cap_ev_assms :: "register_value event \<Rightarrow> bool" where
      ((r = ''PCC'' \<and> loads_via_pcc \<longrightarrow> (\<forall>c \<in> caps_of_regval v. use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
       (\<forall>n c. r \<in> R_name n \<and> loads_via_cap_reg n \<and> c \<in> caps_of_regval v \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
       (\<forall>c. r \<in> DDC_names \<and> loads_via_ddc \<and> c \<in> caps_of_regval v \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
-      (\<forall>ps. r = ''PSTATE'' \<and> v = Regval_ProcState ps \<longrightarrow> (is_in_c64 \<longleftrightarrow> (ProcState_C64 ps = 1))))"
+      (\<forall>ps. r = ''PSTATE'' \<and> v = Regval_ProcState ps \<longrightarrow> (is_in_c64 \<longleftrightarrow> (ProcState_C64 ps = 1))) \<and>
+      (\<forall>w. r = ''DCZID_EL0'' \<and> v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 4 word) = 4) \<comment> \<open>Morello cache line size\<close>)"
 | "load_cap_ev_assms _ = True"
 
 definition load_cap_trace_assms :: "register_value trace \<Rightarrow> bool" where
@@ -3407,6 +3546,19 @@ lemma load_cap_trace_assms_append[simp]:
   by (auto simp: load_cap_trace_assms_def)
 
 sublocale Morello_Axiom_Automaton where use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps" ..
+
+(* Assume fixed cache line size for Morello *)
+lemma DCZID_EL0_assm:
+  assumes "Run (read_reg DCZID_EL0_ref) t a" and "load_cap_trace_assms t"
+  shows "uint (a AND mask 4) = 4"
+proof -
+  have "uint (a AND mask 4) = uint (ucast a :: 4 word)"
+    by auto
+  also have "\<dots> = 4"
+    using assms
+    by (elim Run_read_regE) (auto simp: DCZID_EL0_ref_def load_cap_trace_assms_def)
+  finally show ?thesis .
+qed
 
 definition VA_from_load_auth :: "VirtualAddress \<Rightarrow> bool" where
   "VA_from_load_auth va \<equiv>
@@ -3675,9 +3827,9 @@ locale Morello_Write_Cap_Automaton = Morello_ISA +
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
     and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
-    and no_system_reg_access :: bool
   assumes indirect_regs_indirect_branch: "invoked_indirect_regs \<noteq> {} \<longrightarrow> is_indirect_branch"
 begin
 
@@ -3711,11 +3863,10 @@ sublocale Morello_Load_Cap_Assm_Automaton where enabled = enabled ..
 (* TODO *)
 fun ev_assms :: "register_value event \<Rightarrow> bool" where
   "ev_assms (E_read_reg r v) =
-    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c \<and> (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))) \<and>
-     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps) \<and>
+    ((\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps) \<and>
      (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
      load_cap_ev_assms (E_read_reg r v) \<and>
-     (r = ''EDSCR'' \<longrightarrow> (\<forall>w. v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 6 word) = 2)))" (* Non-debug state *)
+     sysreg_ev_assms (E_read_reg r v))"
 | "ev_assms (E_read_memt rk addr sz (bytes, tag)) =
     (is_indirect_branch \<longrightarrow> (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps))"
 | "ev_assms _ = True"
@@ -3729,6 +3880,8 @@ lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrighta
 lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
   "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
   by (auto simp: trace_assms_def load_cap_trace_assms_def)
+
+declare inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI, simp]
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
@@ -3923,25 +4076,6 @@ lemma sysreg_trace_assmsI[simp, intro, accessible_regsI, derivable_capsI]:
 
 end
 
-lemma HaveAArch32EL_False[simp]:
-  "Run (HaveAArch32EL el) t a \<longleftrightarrow> (t = [] \<and> a = False)"
-  unfolding HaveAArch32EL_def HaveAnyAArch32_def HaveEL_def
-  unfolding EL0_def EL1_def EL2_def EL3_def
-  by (cases el rule: exhaustive_2_word) (auto elim: Run_bindE)
-
-lemma ELUsingAArch32_False:
-  shows "\<not>Run (ELUsingAArch32 el) t True"
-  unfolding ELUsingAArch32_def ELStateUsingAArch32_def ELStateUsingAArch32K_def
-  by (auto elim!: Run_bindE)
-
-lemma AddrTop_63_or_55:
-  assumes "Run (AddrTop address el) t b"
-  shows "b = 63 \<or> b = 55"
-  using assms
-  unfolding AddrTop_def
-  by (auto elim!: Run_bindE simp: ELUsingAArch32_False)
-
-
 (* Assume stubbed out address translation for now *)
 locale Morello_Mem_Automaton =
   Morello_Fixed_Address_Translation
@@ -3950,6 +4084,7 @@ locale Morello_Mem_Automaton =
     and translation_assms = "\<lambda>_. True"*) +
   fixes ex_traces :: bool
     and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
 begin
@@ -3963,10 +4098,9 @@ sublocale Morello_Load_Cap_Assm_Automaton
 
 fun extra_assms :: "register_value event \<Rightarrow> bool" where
   "extra_assms (E_read_reg r v) =
-    ((r = ''PCC'' \<longrightarrow> (\<forall>c \<in> caps_of_regval v. CapIsTagSet c \<and> \<not>CapIsSealed c)) \<and>
-     (r = ''EDSCR'' \<longrightarrow> (\<forall>w. v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 6 word) = 2)) \<and> \<comment> \<open>Non-debug state\<close>
-     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
-     load_cap_ev_assms (E_read_reg r v))"
+    ((\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
+     load_cap_ev_assms (E_read_reg r v) \<and>
+     sysreg_ev_assms (E_read_reg r v))"
 | "extra_assms _ = True"
 
 sublocale Mem_Assm_Automaton
@@ -3984,6 +4118,8 @@ lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrighta
 lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
   "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
   by (auto simp: trace_assms_def load_cap_trace_assms_def)
+
+declare inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI, simp]
 
 lemma translate_address_ISA[simp]:
   "isa.translate_address ISA addr acctype t = translate_address addr"

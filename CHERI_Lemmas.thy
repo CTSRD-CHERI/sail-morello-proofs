@@ -976,35 +976,15 @@ lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
   shows "VA_derivable va s"
   sorry
 
-text \<open>AArch32 is unsupported on Morello\<close>
-
-lemma UsingAArch32_False[simp]:
-  assumes "trace_assms t"
-  shows "\<not>Run (UsingAArch32 ()) t True"
-  apply (simp add: UsingAArch32_def HaveAnyAArch32_def)
-  apply (clarsimp elim!: Run_elims)
-  done
-
-text \<open>Assume that tag setting is disabled\<close>
-
-lemma IsTagSettingDisabled_not_False:
-  assumes "trace_assms t"
-  shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
-  apply (simp add: IsTagSettingDisabled_def)
-  (* FIXME: add to sysreg_ev_assms and ev_assms *)
-  sorry
-
 text \<open>Assume that PCC is not sealed\<close>
+
+declare PCC_sysreg_trace_assms[intro, simp, derivable_capsE]
 
 lemma PCC_read_not_sealed[intro, simp, derivable_capsE]:
   assumes "Run (PCC_read u) t c" and "trace_assms t"
   shows "\<not>CapIsSealed c"
-  sorry
-
-lemma read_PCC_not_sealed[intro, simp, derivable_capsE]:
-  assumes "Run (read_reg PCC_ref) t c" and "trace_assms t"
-  shows "\<not>CapIsSealed c"
-  sorry
+  using assms
+  by (auto simp: PCC_read_def)
 
 end
 
@@ -2522,31 +2502,6 @@ lemma UNKNOWN_Capability_derivable[derivable_capsE]:
 lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
   assumes "Run (UNKNOWN_VirtualAddress u) t va" and "trace_assms t"
   shows "VA_derivable va s"
-  sorry
-
-text \<open>AArch32 is unsupported on Morello\<close>
-
-lemma UsingAArch32_False[simp]:
-  assumes "trace_assms t"
-  shows "\<not>Run (UsingAArch32 ()) t True"
-  (* FIXME: same proof as in another locale above? *)
-  apply (simp add: UsingAArch32_def HaveAnyAArch32_def)
-  apply (clarsimp elim!: Run_elims)
-  done
-
-text \<open>Assume that tag setting is disabled\<close>
-
-lemma IsTagSettingDisabled_not_False:
-  assumes "trace_assms t"
-  shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
-  sorry
-
-text \<open>Assume that a cache line is 64 bytes (hardcoded in
-  MorelloCheckForCMO, and the value used by the actual hardware)\<close>
-
-lemma DCZID_EL0_assm:
-  assumes "Run (read_reg DCZID_EL0_ref) t a" and "trace_assms t"
-  shows "uint (a AND mask 4) = 4"
   sorry
 
 text \<open>Define loop invariant and a helper lemma for the vector_multiple_no_wb instruction with a nested loop\<close>
