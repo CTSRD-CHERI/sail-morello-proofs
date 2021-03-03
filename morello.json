@@ -787,7 +787,9 @@
     "AArch64_ResetControlRegisters",
     "AArch64_ResetSpecialRegisters",
     "TakeReset",
-    "AArch64_TakeReset"
+    "AArch64_TakeReset",
+    "__UNKNOWN_Capability",
+    "__UNKNOWN_VirtualAddress"
   ],
   "reserved_ids": [
     "mask",
