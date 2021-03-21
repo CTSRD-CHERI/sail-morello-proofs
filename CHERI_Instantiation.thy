@@ -3193,6 +3193,10 @@ lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
   by (unfold WriteTaggedMem_def, no_reg_writes_toI)
 
+lemma no_reg_writes_to_write_tag_bool[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (write_tag_bool wk addr sz tag)"
+  by (unfold write_tag_bool_def mword_nondet_def, no_reg_writes_toI)
+
 lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
   by (unfold WriteTags_def, no_reg_writes_toI)

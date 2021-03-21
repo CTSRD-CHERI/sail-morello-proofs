@@ -239,11 +239,16 @@ lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
   by (traces_enabledI assms: assms intro: traces_enabled_return
                       simp: cap_of_mem_bytes_of_word_Capability_of_tag_word nth_ucast)
 
+lemma cap_of_mem_bytes_B0_untagged[simp]:
+  "cap_of_mem_bytes bytes B0 = Some c \<Longrightarrow> c !! 128 = False"
+  by (auto simp: cap_of_mem_bytes_def bind_eq_Some_conv nth_ucast test_bit_above_size)
+
 lemma traces_enabled_WriteTags[traces_enabledI]:
   assumes "tags = 0" and "LENGTH('a) = nat sz"
   shows "traces_enabled (WriteTags addrdesc sz (tags :: 'a::len word) accdesc) s"
-  unfolding WriteTags_def
-  by (traces_enabledI assms: assms intro: traces_enabled_return
+  unfolding WriteTags_def write_tag_bool_def
+  by (traces_enabledI assms: assms intro: traces_enabled_return not_tagged_derivable
+                      intro: non_cap_exp_mword_nondet[THEN non_cap_exp_traces_enabledI]
                       simp: cap_of_mem_bytes_of_word_Capability_of_tag_word[where tag = False, simplified])
 
 text \<open>Capability invocation\<close>
@@ -1111,6 +1116,20 @@ lemma traces_enabled_write_memt:
   unfolding write_memt_def
   by (fastforce intro!: traces_enabled_Write_memt non_cap_expI[THEN non_cap_exp_traces_enabledI]
                 split: option.splits simp: legal_store_def length_mem_bytes_of_word)
+
+lemma traces_enabled_write_tag_bool:
+  assumes "\<And>data :: 128 word. paccess_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) B0" and "\<not>tag"
+  shows "traces_enabled (write_tag_bool wk paddr 16 tag) s"
+  unfolding write_tag_bool_def
+  by (traces_enabledI intro: traces_enabled_write_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] assms: assms)
+
+lemma traces_enabled_WriteTags[traces_enabledI]:
+  assumes "\<And>data :: 128 word. paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) 16 (mem_bytes_of_word data) B0"
+    and "tags = 0" and "sz = 1"
+  shows "traces_enabled (WriteTags addrdesc sz (tags :: 1 word) accdesc) s"
+  unfolding WriteTags_def
+  using assms
+  by (auto intro: traces_enabled_write_tag_bool)
 
 lemma traces_enabled_WriteTaggedMem_single[traces_enabledI]:
   fixes tag :: "1 word" and data :: "128 word"
