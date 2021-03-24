@@ -95,8 +95,8 @@
     },
     "CapSetBounds": {
       "derivable_caps": {
-        "stmts": ["Run (CapSetBounds c__arg req_len exact) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "- (* TODO *)"
+        "stmts": ["Run (CapSetBounds c__arg req_len exact) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> req_len \\<le> 2 ^ 64 \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(auto dest!: CapSetBounds_derivable_proof inv_trace_assms_accessed_caps_invariant(1) elim!: derivable_cap_invariant simp: accessed_caps_invariant_def derivable_caps_def)"
       }
     },
     "CapSquashPostLoadCap": {

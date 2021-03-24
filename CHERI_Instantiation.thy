@@ -11,8 +11,6 @@ theory CHERI_Instantiation
     "Word_Lib.Norm_Words"
 begin
 
-setup \<open>Stat_Traces.setup\<close>
-
 no_notation Sail2_prompt_monad.bind (infixr "\<bind>" 54)
 no_notation Sail2_prompt_monad_lemmas.seq (infixr "\<then>" 54)
 adhoc_overloading bind Sail2_prompt_monad.bind
@@ -1598,6 +1596,8 @@ lemma unat32_and_mask52_eq: "unat (w :: 32 word) mod 4503599627370496 = unat w"
   using unat_lt2p[of w]
   by auto*)
 
+text \<open>
+TODO for now
 
 interpretation Morello_Fixed_Address_Translation
   where translate_address = translate_address
@@ -1608,10 +1608,11 @@ interpretation Morello_Fixed_Address_Translation
   (* apply (auto simp: TranslateAddress_defs return_def unat32_and_mask52_eq elim!: Run_bindE Run_ifE)[] *)
   (* TODO: Show that translation stubs are non_mem_exp's *)
   oops
+\<close>
 
 section \<open>Verification framework\<close>
 
-locale Morello_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled use_mem_caps
+locale Morello_Cap_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled use_mem_caps
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
   and use_mem_caps :: bool +
   fixes no_system_reg_access :: bool
@@ -3866,12 +3867,12 @@ proof -
     by smt_word+
 qed
 
-lemma CapSetBounds_derivable_proof_logic:
+lemma CapSetBounds_derivable_proof:
+  assumes r: "Run (CapSetBounds cap req_len exact) t cap'"
   assumes deriv: "cap \<in> derivable_caps s"
   assumes unsealed: "CapIsTagSet cap \<longrightarrow> \<not>CapIsSealed cap"
   assumes req_len: "req_len \<le> 2 ^ 64"
-  assumes orig_limit_max: "get_limit cap \<le> 2 ^ 64"
-  assumes r: "Run (CapSetBounds cap req_len exact) t cap'"
+  assumes orig_cap_invariant: "CapIsTagSet cap \<longrightarrow> cap_invariant cap"
   shows "cap' \<in> derivable_caps s"
 proof (cases "CapIsTagSet cap'")
   case False
@@ -3920,11 +3921,6 @@ next
   note orig_bounds = CapGetBounds_get_base[OF orig_get_bounds]
     CapGetBounds_get_limit[OF orig_get_bounds]
 
-  have orig_max:
-    "orig_lim \<le> 2 ^ 64"
-    using orig_limit_max
-    by (simp add: word_le_nat_alt orig_bounds)
-
   have constraints:
     "CapIsTagSet cap \<and> orig_base \<le> ucast ?abase \<and> ucast ?req_top \<le> orig_lim"
     using r[unfolded CapSetBounds_def] True
@@ -3943,6 +3939,11 @@ next
 
   note tag = constraints[THEN conjunct1]
   note ineq = constraints[THEN conjunct2]
+
+  have orig_max:
+    "orig_lim \<le> 2 ^ 64"
+    using tag orig_cap_invariant
+    by (simp add: cap_invariant_def word_le_nat_alt orig_bounds)
 
   let ?align = "cap_alignment cap"
   let ?align2 = "cap_alignment cap'"
@@ -4539,17 +4540,9 @@ lemma and_exp_SystemAccessEnabled_TagSettingEnabledE:
 
 end
 
-(*locale Morello_Axiom_Assm_Automaton = Morello_Axiom_Automaton +
-  fixes ex_traces :: bool
-    and ev_assms :: "register_value event \<Rightarrow> bool"
-  assumes non_cap_event_enabled: "\<And>e. non_cap_event e \<Longrightarrow> enabled s e"
-    and read_non_special_regs_enabled: "\<And>r v. r \<notin> PCC ISA \<union> IDC ISA \<union> KCC ISA \<union> privileged_regs ISA \<Longrightarrow> enabled s (E_read_reg r v)"
-begin
-
-sublocale Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA
-  by unfold_locales (blast intro: non_cap_event_enabled read_non_special_regs_enabled)+
-
-end*)
+locale Morello_Axiom_Automaton =
+  Morello_Cap_Axiom_Automaton +
+  Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and cap_invariant = cap_invariant
 
 definition R_name :: "int \<Rightarrow> string set" where
   "R_name n \<equiv>
@@ -4632,7 +4625,7 @@ lemma load_cap_trace_assms_append[simp]:
   "load_cap_trace_assms (t1 @ t2) \<longleftrightarrow> load_cap_trace_assms t1 \<and> load_cap_trace_assms t2"
   by (auto simp: load_cap_trace_assms_def)
 
-sublocale Morello_Axiom_Automaton where use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps" ..
+sublocale Morello_Cap_Axiom_Automaton where use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps" ..
 
 (* Assume fixed cache line size for Morello *)
 lemma DCZID_EL0_assm:
@@ -4961,6 +4954,11 @@ fun ev_assms :: "register_value event \<Rightarrow> bool" where
 sublocale Write_Cap_Assm_Automaton
   where CC = CC and ISA = ISA and ev_assms = ev_assms and cap_invariant = cap_invariant ..
 
+sublocale Morello_Axiom_Automaton
+  where enabled = enabled and use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps"
+    and ev_assms = ev_assms
+  ..
+
 lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
   by (cases e; simp; blast)
 
@@ -5197,6 +5195,11 @@ sublocale Mem_Assm_Automaton
     and use_mem_caps = use_mem_caps
     and extra_assms = extra_assms
     and invoked_indirect_caps = invoked_indirect_caps
+  ..
+
+sublocale Morello_Axiom_Automaton
+  where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled
+    and use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps" and ev_assms = ev_assms
   ..
 
 lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
