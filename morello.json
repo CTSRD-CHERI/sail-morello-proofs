@@ -269,17 +269,10 @@
         "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
-        "assms": ["\\<And>data :: 128 word. aligned (unat vaddr) 16 \\<longrightarrow> store_enabled s acctype (unat vaddr) 16 data False", "tag = 0"],
+        "assms": ["\\<And>data :: 128 word. aligned (unat vaddr) 16 \\<Longrightarrow> store_enabled s acctype (unat vaddr) 16 data False", "tag = 0"],
         "stmts": ["traces_enabled (AArch64_CapabilityTag_set vaddr acctype tag) s"],
         "unfolding": ["AArch64_CapabilityTag_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "- (* TODO: traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct *)"
-      }
-    },
-    "_WriteTags": {
-      "traces_enabled_mem": {
-        "assms": ["\\<And>data :: 128 word. access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word data) B0", "n = 1", "tags = 0"],
-        "stmts": ["traces_enabled (WriteTags desc sz tags addrdesc) s"],
-        "unfolding": ["WriteTags_def", "bind_assoc"]
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else intro: paccess_enabled_runI store_enabled_access_enabled[OF assms(1)])"
       }
     },
     "Mem_read": {
@@ -787,7 +780,9 @@
     "AArch64_ResetControlRegisters",
     "AArch64_ResetSpecialRegisters",
     "TakeReset",
-    "AArch64_TakeReset"
+    "AArch64_TakeReset",
+    "__UNKNOWN_Capability",
+    "__UNKNOWN_VirtualAddress"
   ],
   "reserved_ids": [
     "mask",

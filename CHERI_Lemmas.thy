@@ -239,11 +239,16 @@ lemma traces_enabled_WriteTaggedMem[traces_enabledI]:
   by (traces_enabledI assms: assms intro: traces_enabled_return
                       simp: cap_of_mem_bytes_of_word_Capability_of_tag_word nth_ucast)
 
+lemma cap_of_mem_bytes_B0_untagged[simp]:
+  "cap_of_mem_bytes bytes B0 = Some c \<Longrightarrow> c !! 128 = False"
+  by (auto simp: cap_of_mem_bytes_def bind_eq_Some_conv nth_ucast test_bit_above_size)
+
 lemma traces_enabled_WriteTags[traces_enabledI]:
   assumes "tags = 0" and "LENGTH('a) = nat sz"
   shows "traces_enabled (WriteTags addrdesc sz (tags :: 'a::len word) accdesc) s"
-  unfolding WriteTags_def
-  by (traces_enabledI assms: assms intro: traces_enabled_return
+  unfolding WriteTags_def write_tag_bool_def
+  by (traces_enabledI assms: assms intro: traces_enabled_return not_tagged_derivable
+                      intro: non_cap_exp_mword_nondet[THEN non_cap_exp_traces_enabledI]
                       simp: cap_of_mem_bytes_of_word_Capability_of_tag_word[where tag = False, simplified])
 
 text \<open>Capability invocation\<close>
@@ -267,7 +272,7 @@ definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value)
 lemma derivable_mem_caps_run_imp:
   assumes "c \<in> derivable_mem_caps s"
   shows "c \<in> derivable_mem_caps (run s t)"
-  using assms derivable_mono[OF accessed_mem_caps_run_mono]
+  using assms derivable_mono[OF Un_mono[OF subset_refl[where A = UNKNOWN_caps] accessed_mem_caps_run_mono]]
   by (auto simp: derivable_mem_caps_def)
 
 lemma traces_enabled_PCC_set:
@@ -488,8 +493,8 @@ lemma branch_sealed_pair_enabled_pcc:
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
   assumes "c \<in> invoked_caps" and "invokable CC cc cd"
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
-    and "cc \<in> derivable (accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
-    and "cd \<in> derivable (accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
+    and "cc \<in> derivable (initial_caps \<union> accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
+    and "cd \<in> derivable (initial_caps \<union> accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
     and "name r \<in> IDC ISA - write_privileged_regs ISA"
     and "leq_cap CC c (unseal_method CC cd)"
   shows "traces_enabled (write_reg r v) s"
@@ -513,7 +518,7 @@ lemma traces_enabled_C_set_29_branch_sealed_pair:
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_sentry:
   assumes "c \<in> invoked_indirect_caps"
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
-    and "cs \<in> derivable (accessed_reg_caps s)"
+    and "cs \<in> derivable (initial_caps \<union> accessed_reg_caps s)"
     and "is_indirect_sentry_method CC cs" and "is_sealed_method CC cs"
     and "leq_cap CC c (unseal_method CC cs)"
     and "name r \<in> IDC ISA - write_privileged_regs ISA"
@@ -794,7 +799,7 @@ lemma CapSetObjectType_derivable[derivable_capsI]:
 proof -
   from assms have "permits_seal_method CC c'"
     by (auto simp: CC_def)
-  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
+  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
     using assms
     by (intro derivable.Seal) (auto simp: derivable_caps_def)
   then show ?thesis
@@ -808,7 +813,7 @@ lemma CapSetObjectType_sentry_derivable:
   shows "CapSetObjectType c otype \<in> derivable_caps s"
 proof -
   note simps = CapGetObjectType_CapSetObjectType_and_mask
-  have "seal_method CC c (unat otype) \<in> derivable (accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
+  have "seal_method CC c (unat otype) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.SealEntry)
@@ -849,7 +854,7 @@ proof -
   have "unat (CapGetValue auth) \<in> get_mem_region CC auth"
     using in_bounds
     by (auto simp: elim!: Run_bindE CapIsInBounds_cursor_in_mem_region)
-  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
+  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.Unseal) (auto simp: derivable_caps_def)
@@ -958,24 +963,6 @@ lemma Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access:
                   Run_RMR_EL2_SysRegWrite_system_reg_access
                   Run_RMR_EL3_SysRegWrite_system_reg_access)
 
-text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
-  using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
-  TRWTV and TSNJF in the Morello architecture document (DDI0606 A.c) say that
-  these values must "not increase the Capability defined rights available to
-  software".  Here, we assume that UNKNOWN capabilities are derivable.\<close>
-
-lemma UNKNOWN_Capability_derivable[derivable_capsE]:
-  assumes "Run (UNKNOWN_bits 129) t c" and "trace_assms t"
-  shows "c \<in> derivable_caps s"
-  (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
-     to allow arbitrary register_value's instead of just Booleans might make this easier. *)
-  sorry
-
-lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
-  assumes "Run (UNKNOWN_VirtualAddress u) t va" and "trace_assms t"
-  shows "VA_derivable va s"
-  sorry
-
 text \<open>Assume that PCC is not sealed\<close>
 
 declare PCC_sysreg_trace_assms[intro, simp, derivable_capsE]
@@ -994,7 +981,7 @@ begin
 lemma access_enabled_runI[derivable_caps_runI]:
   assumes "access_enabled s acctype vaddr paddr sz v tag"
   shows "access_enabled (run s t) acctype vaddr paddr sz v tag"
-  using assms derivable_mono[OF accessed_caps_run_mono]
+  using assms derivable_mono[OF Un_mono[OF subset_refl[where A = UNKNOWN_caps] accessed_caps_run_mono]]
   by (auto simp: access_enabled_def)
 
 abbreviation paccess_enabled where
@@ -1129,6 +1116,20 @@ lemma traces_enabled_write_memt:
   unfolding write_memt_def
   by (fastforce intro!: traces_enabled_Write_memt non_cap_expI[THEN non_cap_exp_traces_enabledI]
                 split: option.splits simp: legal_store_def length_mem_bytes_of_word)
+
+lemma traces_enabled_write_tag_bool:
+  assumes "\<And>data :: 128 word. paccess_enabled s Store (unat paddr) 16 (mem_bytes_of_word data) B0" and "\<not>tag"
+  shows "traces_enabled (write_tag_bool wk paddr 16 tag) s"
+  unfolding write_tag_bool_def
+  by (traces_enabledI intro: traces_enabled_write_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] assms: assms)
+
+lemma traces_enabled_WriteTags[traces_enabledI]:
+  assumes "\<And>data :: 128 word. paccess_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) 16 (mem_bytes_of_word data) B0"
+    and "tags = 0" and "sz = 1"
+  shows "traces_enabled (WriteTags addrdesc sz (tags :: 1 word) accdesc) s"
+  unfolding WriteTags_def
+  using assms
+  by (auto intro: traces_enabled_write_tag_bool)
 
 lemma traces_enabled_WriteTaggedMem_single[traces_enabledI]:
   fixes tag :: "1 word" and data :: "128 word"
@@ -2485,24 +2486,6 @@ lemma traces_enabled_bind_VADeref_pair_add[traces_enabled_combinatorI]:
     and "\<And>t1 t2 t3 addr va'. Run (VADeref va (sz * 2) (perms1 OR perms2) acctype1) t1 addr \<Longrightarrow> trace_assms t1  \<Longrightarrow> trace_assms t2 \<Longrightarrow> trace_assms t3 \<Longrightarrow> traces_enabled (f addr) (run (run (run s t1) t2) t3)"
   shows "traces_enabled (VADeref va sz perms1 acctype1 \<bind> (\<lambda>addr. VAAdd va (integer_subrange sz 63 0) \<bind> (\<lambda>va'. VADeref va' sz perms2 acctype2 \<bind> (\<lambda>_. f addr)))) s"
   sorry*)
-
-text \<open>Some instructions have constrained UNPREDICTABLE behaviour that allows
-  using UNKNOWN values for Capabilities and VirtualAddresses.  However, rules
-  TRWTV and TSNJF in the Morello architecture document (DDI0606 A.c) say that
-  these values must "not increase the Capability defined rights available to
-  software".\<close>
-
-lemma UNKNOWN_Capability_derivable[derivable_capsE]:
-  assumes "Run (UNKNOWN_bits 129) t c" and "trace_assms t"
-  shows "c \<in> derivable_caps s"
-  (* TODO: Formulate suitable trace_assms.  Tweaking the Choose constructor of the prompt monad
-     to allow arbitrary register_value's instead of just Booleans might make this easier. *)
-  sorry
-
-lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
-  assumes "Run (UNKNOWN_VirtualAddress u) t va" and "trace_assms t"
-  shows "VA_derivable va s"
-  sorry
 
 text \<open>Define loop invariant and a helper lemma for the vector_multiple_no_wb instruction with a nested loop\<close>
 

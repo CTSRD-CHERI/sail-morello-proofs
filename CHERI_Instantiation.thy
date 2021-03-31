@@ -806,6 +806,9 @@ lemma CC_simps[simp]:
   "clear_global_method CC c = clear_perm CAP_PERM_GLOBAL c"
   by (auto simp: CC_def CapIsExecutePermitted_def get_perms_def CapIsLocal_def)
 
+abbreviation "RV_class \<equiv> instance_Sail2_values_Register_Value_Morello_types_register_value_dict"
+lemmas RV_class_def = instance_Sail2_values_Register_Value_Morello_types_register_value_dict_def
+
 lemma cap_of_mem_bytes_of_word_Capability_of_tag_word:
   fixes data :: "'a::len word"
   assumes "LENGTH('a) = 128"
@@ -869,7 +872,7 @@ where
   "eq_at_bits ns x y = (\<forall>i \<in> ns. i < size x \<longrightarrow> test_bit x i = test_bit y i)"
 
 lemma monad_return_rel_undefined:
-  "monad_return_rel (undefined_bitvector i) (undefined_bitvector j) (eq_at_bits {})"
+  "monad_return_rel (undefined_bitvector RV i) (undefined_bitvector RV j) (eq_at_bits {})"
   by (simp add: monad_return_rel_def eq_at_bits_def)
 
 lemmas monad_return_rel_assert_exp_triv =
@@ -1046,11 +1049,11 @@ lemma foreachM_witness:
   done
 
 lemma choose_bool_witness:
-  "\<exists>t. Run (choose_bool s) t b"
-  apply (simp add: choose_bool_def)
-  apply (rule exI, rule Traces.Step, rule Choose)
-  apply simp
-  done
+  "\<exists>t. Run (choose_bool RV_class s) t b"
+proof
+  show "Run (choose_bool RV_class s) [E_choose s (Regval_bool b)] b"
+    by (auto simp: choose_bool_def choose_convert_def maybe_fail_def RV_class_def)
+qed
 
 lemma fold_append:
   "List.fold (\<lambda>x acc. acc @ f x) xs ys = ys @ List.concat (map f xs)"
@@ -1058,7 +1061,7 @@ lemma fold_append:
 
 lemma of_bits_nondet_witness:
   "set xs \<subseteq> {BU} \<Longrightarrow>
-    \<exists>t. Run (bools_of_bits_nondet xs) t (map (\<lambda>_. False) xs)"
+    \<exists>t. Run (bools_of_bits_nondet instance_Sail2_values_Register_Value_Morello_types_register_value_dict xs) t (map (\<lambda>_. False) xs)"
   using choose_bool_witness[of "''bool_of_bitU''" False]
   apply (simp add: bools_of_bits_nondet_def)
   apply (rule foreachM_witness[where g="\<lambda>_ acc. acc @ [False]"])
@@ -1069,7 +1072,7 @@ lemma of_bits_nondet_witness:
   done
 
 lemma undefined_bitvector_witness:
-  "\<exists>t. Run (undefined_bitvector n) t 0"
+  "\<exists>t. Run (undefined_bitvector instance_Sail2_values_Register_Value_Morello_types_register_value_dict n) t 0"
   using of_bits_nondet_witness[of "replicate (nat n) BU"]
   apply (simp add: undefined_bitvector_def of_bits_nondet_def del: repeat.simps)
   apply fastforce
@@ -1285,6 +1288,7 @@ locale Morello_ISA =
   fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     and uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" \<comment> \<open>TODO\<close>
+    and UNKNOWN_caps :: "Capability set"
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
 begin
 
@@ -1320,7 +1324,7 @@ definition "ISA \<equiv>
    isa.is_translation_event = is_translation_event,
    isa.translate_address = translate_address\<rparr>"
 
-sublocale Capability_Invariant_ISA CC ISA cap_invariant ..
+sublocale Capability_Invariant_ISA CC ISA UNKNOWN_caps cap_invariant ..
 
 lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
@@ -1354,18 +1358,22 @@ lemma no_cap_regvals[simp]:
   "\<And>v. bitvector_48_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. bitvector_63_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. bitvector_64_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bool_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. int_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. bool_of_regval_method RV_class rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. int_of_regval_method RV_class rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. signal_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>xs. vector_of_regval of_rv rv = Some xs \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>xs. caps_of_regval (regval_of_vector rv_of xs) = {}"
   "\<And>v. option_of_regval of_rv rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. caps_of_regval (regval_of_option rv_of v) = {}"
-  by (cases rv; auto simp: vector_of_regval_def regval_of_vector_def option_of_regval_def regval_of_option_def)+
+  by (cases rv; auto simp: vector_of_regval_def regval_of_vector_def option_of_regval_def regval_of_option_def RV_class_def)+
 
 lemma caps_of_regval_of_bitvector_129[simp]:
   "caps_of_regval (regval_of_bitvector_129_dec c) = {c}"
   by (auto simp: regval_of_bitvector_129_dec_def)
+
+lemma member_caps_of_regval_iff[simp]:
+  "c \<in> caps_of_regval rv \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
+  by (cases rv; auto)
 
 lemma bitvector_129_Some_iff[simp]:
   "bitvector_129_dec_of_regval rv = Some c \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
@@ -1503,6 +1511,7 @@ locale Morello_Fixed_Address_Translation =
        e.g. PSTATE.EL *)
     and translation_assms :: "register_value event \<Rightarrow> bool"
     and uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" \<comment> \<open>TODO\<close>
+    and UNKNOWN_caps :: "Capability set"
   assumes translate_correct[simp]:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
           Run (AArch64_FullTranslateWithTag vaddress acctype iswrite wasaligned size iswritevalidcap) t addrdesc \<Longrightarrow>
@@ -1574,7 +1583,7 @@ sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_ad
   using no_cap_load_translation_events
   by unfold_locales auto
 
-sublocale Capability_ISA_Fixed_Translation CC ISA translation_assms
+sublocale Capability_ISA_Fixed_Translation CC ISA UNKNOWN_caps translation_assms
   by unfold_locales (auto simp: ISA_def)
 
 end
@@ -1612,9 +1621,9 @@ interpretation Morello_Fixed_Address_Translation
 
 section \<open>Verification framework\<close>
 
-locale Morello_Cap_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA enabled use_mem_caps
+locale Morello_Cap_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA UNKNOWN_caps enabled use_mem_caps
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
-  and use_mem_caps :: bool +
+    and use_mem_caps :: bool +
   fixes no_system_reg_access :: bool
 begin
 
@@ -1626,19 +1635,27 @@ lemmas privilegeds_accessible_system_reg_access[intro] =
   privileged_accessible_system_reg_access[where r = "''CDLR_EL0''", simplified]
 
 lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
-  "non_cap_exp (undefined_bitvector n)"
+  "non_cap_exp (undefined_bitvector RV n)"
   by (auto simp add: undefined_bitvector_def simp del: repeat.simps intro: non_cap_expI)
 
 lemma non_cap_exp_undefined_bits[non_cap_expI]:
-  "non_cap_exp (undefined_bits n)"
+  "non_cap_exp (undefined_bits RV n)"
   by (unfold undefined_bits_def, non_cap_expI)
+
+lemma non_cap_exp_mword_nondet[non_cap_expI]:
+  "non_cap_exp (mword_nondet RV n)"
+  by (unfold mword_nondet_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_bit[non_cap_expI]:
   "non_cap_exp (undefined_bit u)"
   by (unfold undefined_bit_def, non_cap_expI)
 
+lemma non_cap_exp_undefined_bool[non_cap_expI]:
+  "non_cap_exp (undefined_bool RV u)"
+  by (unfold undefined_bool_def, non_cap_expI)
+
 lemma non_cap_exp_undefined_string[non_cap_expI]:
-  "non_cap_exp (undefined_string u)"
+  "non_cap_exp (undefined_string RV u)"
   by (unfold undefined_string_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_unit[non_cap_expI]:
@@ -1650,39 +1667,64 @@ lemma non_cap_exp_undefined_vector[non_cap_expI]:
   by (auto simp add: undefined_vector_def simp del: repeat.simps intro: non_cap_expI)
 
 lemma non_cap_exp_undefined_int[non_cap_expI]:
-  "non_cap_exp (undefined_int u)"
+  "non_cap_exp (undefined_int RV u)"
   by (unfold undefined_int_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_nat[non_cap_expI]:
-  "non_cap_exp (undefined_nat u)"
+  "non_cap_exp (undefined_nat RV u)"
   by (unfold undefined_nat_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_real[non_cap_expI]:
-  "non_cap_exp (undefined_real u)"
+  "non_cap_exp (undefined_real RV u)"
   by (unfold undefined_real_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_range[non_cap_expI]:
-  "non_cap_exp (undefined_range i j)"
+  "non_cap_exp (undefined_range RV i j)"
   by (unfold undefined_range_def, non_cap_expI)
 
 lemma non_cap_exp_undefined_atom[non_cap_expI]:
   "non_cap_exp (undefined_atom i)"
   by (unfold undefined_atom_def, non_cap_expI)
 
+lemma non_cap_exp_internal_pick[non_cap_expI]:
+  "non_cap_exp (internal_pick RV xs)"
+  by (unfold internal_pick_def, non_cap_expI)
+
+lemma non_cap_exp_UNKNOWN_Capability[non_cap_expI]:
+  "non_cap_exp (UNKNOWN_Capability u)"
+  by (unfold UNKNOWN_Capability_def, non_cap_expI)
+
+lemma non_cap_exp_UNKNOWN_bits[non_cap_expI]:
+  "non_cap_exp (UNKNOWN_bits n)"
+  by (unfold UNKNOWN_bits_def, non_cap_expI)
+
+lemma non_cap_exp_UNKNOWN_VirtualAddress[non_cap_expI]:
+  "non_cap_exp (UNKNOWN_VirtualAddress u)"
+  unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
+  by non_cap_expI
+
 lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bitvector n)"
+  "no_reg_writes_to Rs (undefined_bitvector RV n)"
   by (unfold undefined_bitvector_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bits n)"
+  "no_reg_writes_to Rs (undefined_bits RV n)"
   by (unfold undefined_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_mword_nondet[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (mword_nondet RV n)"
+  by (unfold mword_nondet_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
   "no_reg_writes_to Rs (undefined_bit u)"
   by (unfold undefined_bit_def, no_reg_writes_toI)
 
+lemma no_reg_writes_to_undefined_bool[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bool RV u)"
+  by (unfold undefined_bool_def, no_reg_writes_toI)
+
 lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_string u)"
+  "no_reg_writes_to Rs (undefined_string RV u)"
   by (unfold undefined_string_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
@@ -1694,24 +1736,41 @@ lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
   by (unfold undefined_vector_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_int u)"
+  "no_reg_writes_to Rs (undefined_int RV u)"
   by (unfold undefined_int_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_nat u)"
+  "no_reg_writes_to Rs (undefined_nat RV u)"
   by (unfold undefined_nat_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_real u)"
+  "no_reg_writes_to Rs (undefined_real RV u)"
   by (unfold undefined_real_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_range i j)"
+  "no_reg_writes_to Rs (undefined_range RV i j)"
   by (unfold undefined_range_def, no_reg_writes_toI)
 
 lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
   "no_reg_writes_to Rs (undefined_atom n)"
   by (unfold undefined_atom_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_internal_pick[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (internal_pick RV xs)"
+  by (unfold internal_pick_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_Capability[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (UNKNOWN_Capability n)"
+  by (unfold UNKNOWN_Capability_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_bits[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (UNKNOWN_bits n)"
+  by (unfold UNKNOWN_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_VirtualAddress[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (UNKNOWN_VirtualAddress u)"
+  unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
+  by no_reg_writes_toI
 
 (* The following register write is used inside loops with capability effects in some instructions,
    so we need a footprint lemma for the loop tactic to work automatically. *)
@@ -2941,7 +3000,7 @@ lemma ex_run_return[simp]:
   by (simp add: ex_run_def)
 
 lemma ex_run_undefined_bitvector:
-  "ex_run (undefined_bitvector n)"
+  "ex_run (undefined_bitvector RV_class n)"
   apply (simp add: ex_run_def)
   apply (rule exI, rule undefined_bitvector_witness)
   done
@@ -4222,6 +4281,10 @@ lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
   by (unfold WriteTaggedMem_def, no_reg_writes_toI)
 
+lemma no_reg_writes_to_write_tag_bool[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (write_tag_bool wk addr sz tag)"
+  by (unfold write_tag_bool_def mword_nondet_def, no_reg_writes_toI)
+
 lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
   by (unfold WriteTags_def, no_reg_writes_toI)
@@ -4282,6 +4345,51 @@ lemmas Run_return_VA_derivable[derivable_caps_combinators] =
 lemma VAFromPCC_derivable[derivable_capsE]:
   "Run (VAFromPCC offset) t va \<Longrightarrow> VA_derivable va s"
   by (auto simp: VAFromPCC_def VA_derivable_def elim: Run_bindE)
+
+text \<open>We assume that UNKNOWN capabilities are constrained to reachable capabilities, in line with
+  rule TSNJF of the architecture.
+
+  Formalising this is a bit tricky, as our usual approach of demanding that any newly created
+  capabilities must be derived from previously read or loaded capabilities does not work here;
+  some instructions like STLXR, for example, may generate UNKNOWN capabilities \<^emph>\<open>instead\<close> of
+  reading some of their input registers, so constraining UNKNOWN capabilities to values appearing
+  beforehand in the trace would not allow the likely behaviour of choosing the content of one of
+  those registers.
+
+  Instead, we make use of the \<open>initial_caps\<close> mechanism in T-CHERI:  We assume that UNKNOWN
+  capabilities are drawn from a set that is at this point arbitrary but fixed, but will be
+  constrained later (in the assumptions of the monotonicity theorem) to a subset of the
+  capabilities reachable from the starting state of the concrete exection we are considering.\<close>
+
+fun unknown_ev_assms :: "register_value event \<Rightarrow> bool" where
+  "unknown_ev_assms (E_choose descr (Regval_bitvector_129_dec c)) =
+     (descr = ''UNKNOWN_Capability'' \<longrightarrow> c \<in> UNKNOWN_caps)"
+| "unknown_ev_assms _ = True"
+
+definition "unknown_trace_assms t \<equiv> (\<forall>e \<in> set t. unknown_ev_assms e)"
+
+lemma UNKNOWN_Capability_derivable[derivable_capsE]:
+  assumes "Run (UNKNOWN_Capability ()) t c" and "unknown_trace_assms t"
+  shows "c \<in> derivable_caps s"
+  using assms
+  unfolding UNKNOWN_Capability_def choose_convert_def maybe_fail_def
+  by (fastforce simp: unknown_trace_assms_def derivable_caps_def split: option.splits
+                elim: Traces_cases intro: derivable.Copy)
+
+lemma [derivable_capsE]:
+  assumes "Run (UNKNOWN_bits 129) t c" and "unknown_trace_assms t"
+  shows "c \<in> derivable_caps s"
+  using assms
+  unfolding UNKNOWN_bits_def
+  by (auto elim: UNKNOWN_Capability_derivable)
+
+lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
+  assumes "Run (UNKNOWN_VirtualAddress ()) t va" and "unknown_trace_assms t"
+  shows "VA_derivable va s"
+  using assms
+  unfolding UNKNOWN_VirtualAddress_def
+  by (fastforce simp: VA_derivable_def unknown_trace_assms_def split: VirtualAddressType.splits
+                elim!: Run_bindE dest!: UNKNOWN_Capability_derivable intro: derivable_caps_run_imp)
 
 (* System register access *)
 
@@ -4542,7 +4650,7 @@ end
 
 locale Morello_Axiom_Automaton =
   Morello_Cap_Axiom_Automaton +
-  Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and cap_invariant = cap_invariant
+  Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and cap_invariant = cap_invariant
 
 definition R_name :: "int \<Rightarrow> string set" where
   "R_name n \<equiv>
@@ -4936,7 +5044,7 @@ definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
      (if CapGetObjectType c = CAP_SEAL_TYPE_RB then {c} \<union> branch_caps (CapUnseal c)
       else branch_caps c \<union> branch_caps (clear_perm mutable_perms c))"
 
-sublocale Write_Cap_Automaton where CC = CC and ISA = ISA ..
+sublocale Write_Cap_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps ..
 
 sublocale Morello_Load_Cap_Assm_Automaton where enabled = enabled ..
 
@@ -4949,17 +5057,20 @@ fun ev_assms :: "register_value event \<Rightarrow> bool" where
      sysreg_ev_assms (E_read_reg r v))"
 | "ev_assms (E_read_memt rk addr sz (bytes, tag)) =
     (is_indirect_branch \<longrightarrow> (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps))"
+| "ev_assms (E_choose descr rv) = unknown_ev_assms (E_choose descr rv)"
 | "ev_assms _ = True"
 
 sublocale Write_Cap_Assm_Automaton
-  where CC = CC and ISA = ISA and ev_assms = ev_assms and cap_invariant = cap_invariant ..
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and cap_invariant = cap_invariant ..
 
 sublocale Morello_Axiom_Automaton
   where enabled = enabled and use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps"
     and ev_assms = ev_assms
   ..
 
-lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
+lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]:
+  "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
   by (cases e; simp; blast)
 
 lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
@@ -4967,6 +5078,16 @@ lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
   by (auto simp: trace_assms_def load_cap_trace_assms_def)
 
 declare inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI, simp]
+
+lemma unknown_ev_assmsI[intro, simp, derivable_capsI]:
+  "ev_assms e \<Longrightarrow> unknown_ev_assms e"
+  by (cases e rule: unknown_ev_assms.cases; auto)
+
+lemma unknown_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> unknown_trace_assms t"
+  by (auto simp: trace_assms_def unknown_trace_assms_def)
+
+declare inv_trace_assms_trace_assms[THEN unknown_trace_assmsI, simp]
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
@@ -5174,7 +5295,7 @@ locale Morello_Mem_Automaton =
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
 begin
 
-sublocale Mem_Automaton where CC = CC and ISA = ISA and is_fetch = False ..
+sublocale Mem_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and is_fetch = False ..
 
 sublocale Morello_Load_Cap_Assm_Automaton
   where translate_address = "\<lambda>addr _ _. translate_address addr"
@@ -5186,10 +5307,11 @@ fun extra_assms :: "register_value event \<Rightarrow> bool" where
     ((\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
      load_cap_ev_assms (E_read_reg r v) \<and>
      sysreg_ev_assms (E_read_reg r v))"
+| "extra_assms (E_choose descr rv) = unknown_ev_assms (E_choose descr rv)"
 | "extra_assms _ = True"
 
 sublocale Mem_Assm_Automaton
-  where CC = CC and ISA = ISA and cap_invariant = cap_invariant
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and cap_invariant = cap_invariant
     (* and translation_assms = "\<lambda>_. True" *)
     and is_fetch = "False"
     and use_mem_caps = use_mem_caps
@@ -5210,6 +5332,16 @@ lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
   by (auto simp: trace_assms_def load_cap_trace_assms_def)
 
 declare inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI, simp]
+
+lemma unknown_ev_assmsI[intro, simp, derivable_capsI]:
+  "ev_assms e \<Longrightarrow> unknown_ev_assms e"
+  by (cases e rule: unknown_ev_assms.cases; auto simp: ev_assms_def)
+
+lemma unknown_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
+  "trace_assms t \<Longrightarrow> unknown_trace_assms t"
+  by (auto simp: trace_assms_def unknown_trace_assms_def)
+
+declare inv_trace_assms_trace_assms[THEN unknown_trace_assmsI, simp]
 
 lemma translate_address_ISA[simp]:
   "isa.translate_address ISA addr acctype t = translate_address addr"
