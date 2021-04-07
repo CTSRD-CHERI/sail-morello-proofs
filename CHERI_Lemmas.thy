@@ -7,13 +7,10 @@ begin
 
 declare CapSquashPostLoadCap_derivable[derivable_capsE del]
 
-lemma MemCP_fst_derivable[derivable_capsE]:
-  "Run (MemCP address acctype) t a \<Longrightarrow> use_mem_caps \<Longrightarrow> fst a \<in> derivable_caps (run s t)"
-  by (unfold MemCP_def, derivable_capsI)
-
-lemma MemCP_snd_derivable[derivable_capsE]:
-  "Run (MemCP address acctype) t a \<Longrightarrow> use_mem_caps \<Longrightarrow> snd a \<in> derivable_caps (run s t)"
-  by (unfold MemCP_def, derivable_capsI)
+declare load_cap_trace_assmsI[accessible_regsI, derivable_capsI]
+declare invocation_trace_assmsI[accessible_regsI, derivable_capsI]
+declare sysreg_trace_assmsI[accessible_regsI, derivable_capsI]
+declare unknown_trace_assmsI[accessible_regsI, derivable_capsI]
 
 definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
@@ -592,9 +589,9 @@ proof cases
   moreover have "c' \<in> derivable_mem_caps s"
     using assms(1,4)
     by (elim CapSquashPostLoadCap_cases leq_cap_derivable_mem_caps[of c s c']) (auto intro: clear_perm_leq_cap)
-  moreover have *: use_mem_caps
+  moreover have *: use_mem_caps if "invoked_indirect_caps = {}"
     using tagged assms(1-3)
-    by (elim Run_CapSquashPostLoadCap_use_mem_caps) auto
+    by (elim Run_CapSquashPostLoadCap_use_mem_caps[OF _ _ _ _ that]) auto
   ultimately have "c' \<in> derivable_mem_caps s \<and> invokes_indirect_caps \<or> c' \<in> derivable_caps s"
     using assms(5) derivable_mem_caps_derivable_caps[of c' s]
     unfolding derivable_caps_def
@@ -647,7 +644,7 @@ proof (cases "invokes_indirect_caps")
 next
   case False
   then have "c' \<in> derivable_caps s"
-    using assms
+    using assms load_cap_trace_assmsI
     by (elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps) auto
   then show ?thesis
     by (auto intro: derivable_enabled_branch_target)
@@ -722,7 +719,7 @@ lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
 
 declare derivable_mem_caps_run_imp[derivable_caps_runI]
 
-declare MemAtomicCompareAndSwapC_derivable[derivable_capsE del]
+(* declare MemAtomicCompareAndSwapC_derivable[derivable_capsE del] *)
 
 lemma MemAtomicCompareAndSwapC_from_load_auth_derivable_caps[derivable_capsE]:
   assumes "Run (MemAtomicCompareAndSwapC vaddr address expectedcap newcap ldacctype stacctype) t c" and "trace_assms t"
@@ -747,10 +744,14 @@ lemma traces_enabled_C_set_if_sentry:
   shows "traces_enabled (C_set n (if indirect_sentry then CapUnseal c else c)) s"
 proof cases
   assume indirect_sentry
+  then have "c \<in> derivable (UNKNOWN_caps \<union> accessed_reg_caps s)"
+    using no_invoked_indirect_caps_if_use_mem_caps assms
+    unfolding indirect_sentry_def derivable_caps_def accessed_caps_def
+    by auto
   then show ?thesis
-    using assms
+    using assms \<open>indirect_sentry\<close>
     unfolding C_set_def R_set_def indirect_sentry_def
-    by (auto simp: register_defs is_indirect_sentry_def derivable_caps_def accessed_caps_def
+    by (auto simp: register_defs is_indirect_sentry_def derivable_caps_def
              intro!: traces_enabled_write_IDC_sentry split: if_splits)
 next
   assume "\<not>indirect_sentry"
@@ -1332,7 +1333,7 @@ lemma store_enabled_reverse_endianness[simp]:
 
 lemma trace_assms_translation_trace_assms[intro, simp]:
   "trace_assms t \<Longrightarrow> translation_assms_trace t"
-  by (auto simp: trace_assms_def ev_assms_def)
+  by (auto simp: trace_assms_def intro: translation_assmsI)
 
 declare inv_trace_assms_trace_assms[THEN trace_assms_translation_trace_assms, simp]
 
@@ -1614,7 +1615,7 @@ lemma TranslateAddress_aligned_vaddr_aligned_paddr:
 proof -
   have *: "translate_address (unat vaddr) = Some ?paddr"
     using assms
-    by (auto simp: trace_assms_def ev_assms_def)
+    by (auto simp: trace_assms_def)
   show ?thesis
     using \<open>aligned (unat vaddr) sz\<close>
     unfolding translate_address_aligned_iff[OF * \<open>sz dvd 2^12\<close>] .
@@ -2225,7 +2226,8 @@ proof (cases "VAIsPCCRelative va")
     if t: "Run (read_reg PCC_ref) t c" "trace_assms t" and tag: "tagged \<and> use_mem_caps" for t c
     using True t \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
     unfolding VAIsPCCRelative_def VA_from_load_auth_def
-    by (elim Run_read_regE) (simp add: ev_assms_def PCC_ref_def, use tag in blast)
+    by (elim Run_read_regE)
+       (simp add: PCC_ref_def, use tag no_invoked_indirect_caps_if_use_mem_caps in blast)
   show ?thesis
     using assms
     unfolding VACheckAddress_def Let_def
@@ -2241,7 +2243,8 @@ next
       using False t \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
       unfolding DDC_read_def Let_def VA_from_load_auth_def VAIsPCCRelative_def
       by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE)
-         (simp add: ev_assms_def register_defs DDC_names_def; use tag in blast)+
+         (simp add: register_defs DDC_names_def;
+          use tag no_invoked_indirect_caps_if_use_mem_caps in blast)+
     show ?thesis
       using assms
       unfolding VACheckAddress_def VAIsBits64_def Let_def
@@ -2251,6 +2254,7 @@ next
     case VA_Capability
     then have "cap_permits CAP_PERM_LOAD_CAP (VirtualAddress_base va)" if "tagged \<and> use_mem_caps"
       using False that \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
+      using no_invoked_indirect_caps_if_use_mem_caps
       unfolding VA_from_load_auth_def load_cap_ev_assms.simps VAIsPCCRelative_def
       by auto
     then show ?thesis
