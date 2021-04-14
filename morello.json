@@ -369,13 +369,6 @@
       }
     },
     "MemAtomicCompareAndSwapC": {
-      "derivable_caps": {
-        "assms": ["Run (MemAtomicCompareAndSwapC vaddr address expectedcap newcap ldacctype stacctype) t c", "use_mem_caps"],
-        "stmts": ["c \\<in> derivable_caps (run s t)"],
-        "using": ["assms(1)"],
-        "unfolding": ["MemAtomicCompareAndSwapC_def"],
-        "proof": "- (derivable_capsI intro: assms(2))"
-      },
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "expectedcap \\<in> derivable_caps s", "newcap \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
@@ -827,6 +820,10 @@
     "__UNKNOWN_Capability",
     "__UNKNOWN_VirtualAddress"
   ],
+  "skip_lemmas": {
+    "MemAtomicCompareAndSwapC": ["derivable_caps"],
+    "MemC_read": ["derivable_caps"]
+  },
   "reserved_ids": [
     "mask",
     "id",
