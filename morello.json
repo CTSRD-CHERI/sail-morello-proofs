@@ -527,6 +527,16 @@
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
       }
     },
+    "execute_SCBNDS_C_CI_C": {
+      "traces_enabled": {
+        "extra_assms": ["length__arg \\<le> 2^64"]
+      }
+    },
+    "execute_SCBNDS_C_CI_S": {
+      "traces_enabled": {
+        "extra_assms": ["length__arg \\<le> 2^64"]
+      }
+    },
     "execute_aarch64_instrs_memory_single_general_immediate_signed_post_idx": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms elim: Run_case_MemOp_LOAD_STORE_not_VAIsSealedCap_generic)"

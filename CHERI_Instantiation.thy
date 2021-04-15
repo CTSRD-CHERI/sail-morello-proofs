@@ -4286,6 +4286,23 @@ next
     done
 qed
 
+lemma zero_extend_65_le_2p64:
+  fixes w :: "'a::len word"
+  assumes "LENGTH('a) \<le> 64"
+  shows "zero_extend w 65 \<le> (2 ^ 64 :: 65 word)"
+  using assms power_increasing[OF assms, where a = 2]
+  by (auto simp add: word_le_def intro!: uint_less[of w, THEN order_trans])
+
+lemmas [derivable_capsI] =
+  zero_extend_65_le_2p64[of w for w :: "64 word"]
+  zero_extend_65_le_2p64[of w for w :: "6 word"]
+
+lemma place_slice_6_65_le_2p64[derivable_capsI]:
+  "place_slice 65 (imm6 :: 6 word) 0 6 4 \<le> (2 ^ 64 :: 65 word)"
+  by (simp add: place_slice_def slice_mask_def sail_ones_def zeros_def word_le_def uint_shiftl bintrunc_shiftl bintr_uint, auto simp: shiftl_int_def)
+
+declare if_split[where P = "\<lambda>w. w \<le> (2 ^ 64 :: 65 word)", THEN iffD2, derivable_capsI]
+
 lemma update_tag_bit_zero_derivable[derivable_capsI]:
   "update_vec_dec c CAP_TAG_BIT (Morello.Bit 0) \<in> derivable_caps s"
   by (auto simp: derivable_caps_def test_bit_set)
