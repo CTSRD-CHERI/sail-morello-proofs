@@ -5567,7 +5567,7 @@ lemma BranchAddr_not_sealed:
 end
 
 (* Assume stubbed out address translation for now *)
-locale Morello_Mem_Automaton =
+locale Morello_Mem_Axiom_Automaton =
   Morello_Fixed_Address_Translation
   (*where translate_address = translate_address
     and is_translation_event = "\<lambda>_. False"
@@ -5579,14 +5579,14 @@ locale Morello_Mem_Automaton =
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
+    and is_fetch :: bool
   assumes no_invoked_indirect_caps_if_use_mem_caps: "use_mem_caps \<longrightarrow> invoked_indirect_caps = {}"
 begin
 
-sublocale Mem_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and is_fetch = False
+sublocale Mem_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
   using no_invoked_indirect_caps_if_use_mem_caps
   by unfold_locales
 
-print_locale Morello_Axiom_Instr_Assm_Automaton
 sublocale Morello_Axiom_Instr_Assm_Automaton
   where translate_address = "\<lambda>addr _ _. translate_address addr"
     and enabled = enabled
@@ -5605,7 +5605,6 @@ sublocale Morello_Axiom_Instr_Assm_Automaton
 sublocale Mem_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and cap_invariant = cap_invariant
     (* and translation_assms = "\<lambda>_. True" *)
-    and is_fetch = "False" (* TODO *)
     and ev_assms = ev_assms
 proof
   fix e
@@ -5623,5 +5622,9 @@ lemma translate_address_ISA[simp]:
   by (auto simp: ISA_def)
 
 end
+
+locale Morello_Mem_Automaton = Morello_Mem_Axiom_Automaton where is_fetch = False
+
+locale Morello_Fetch_Automaton = Morello_Mem_Axiom_Automaton where is_fetch = True
 
 end

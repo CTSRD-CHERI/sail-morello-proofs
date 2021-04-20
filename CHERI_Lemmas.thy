@@ -976,7 +976,7 @@ lemma PCC_read_not_sealed[intro, simp, derivable_capsE]:
 
 end
 
-context Morello_Mem_Automaton
+context Morello_Mem_Axiom_Automaton
 begin
 
 lemma access_enabled_runI[derivable_caps_runI]:
@@ -1020,20 +1020,22 @@ lemma paccess_enabled_runI[derivable_caps_runI]:
   by (auto intro: derivable_caps_runI)
 
 lemma traces_enabled_ReadMemory:
-  assumes "\<And>v. paccess_enabled s Load (unat paddr) sz v B0"
+  assumes "\<And>v. paccess_enabled s Load (unat paddr) sz v B0" and "\<not>is_fetch"
   shows "traces_enabled (ReadMemory sz paddr) s"
-  using assms
+  using assms(1)
   unfolding ReadMemory_def
-  by (intro traces_enabled_read_mem) (auto)
+  by (intro traces_enabled_read_mem) (auto; simp add: assms(2))
 
 lemma traces_enabled_Mem_read[traces_enabledI]:
   assumes "\<And>v. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
+    and "\<not>is_fetch"
   shows "traces_enabled (Mem_read desc sz accdesc) s"
   unfolding Mem_read_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
+  by (traces_enabledI intro: traces_enabled_read_mem assms: assms(1); simp add: assms(2))
 
 lemma traces_enabled_ReadMem[traces_enabledI]:
   assumes "\<And>v. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
+    and "\<not>is_fetch"
   shows "traces_enabled (ReadMem desc sz accdesc) s"
   unfolding ReadMem_def bind_assoc
   by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
@@ -1042,16 +1044,18 @@ lemma traces_enabled_ReadTaggedMem[traces_enabledI]:
   assumes "\<And>v tag. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 v tag"
     and "\<And>v tag. sz = 32 \<Longrightarrow> paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc)) + 16) 16 v tag"
     and "sz = 16 \<or> sz = 32"
+    and "\<not>is_fetch"
   shows "traces_enabled (ReadTaggedMem desc sz accdesc) s"
   unfolding ReadTaggedMem_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] paccess_enabled_runI assms: assms; fastforce)
+  by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] paccess_enabled_runI assms: assms(1-3); fastforce simp: assms(4))
 
 lemma traces_enabled_ReadTags[traces_enabledI]:
   assumes "\<And>v tag. paccess_enabled s Load (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 v tag"
+    and "\<not>is_fetch"
   shows "traces_enabled (ReadTags desc 1 accdesc) s"
   unfolding ReadTags_def bind_assoc
   by (traces_enabledI intro: traces_enabled_read_memt non_cap_expI[THEN non_cap_exp_traces_enabledI] paccess_enabled_runI
-                      assms: assms; fastforce)
+                      assms: assms(1); fastforce simp: assms(2))
 
 (* TODO: Move? *)
 lemma traces_enabled_Write_mem:
@@ -1184,7 +1188,7 @@ definition load_enabled where
      (\<forall>paddr data tag.
         translate_address vaddr = Some paddr \<longrightarrow>
         bounds_address acctype vaddr + nat sz \<le> 2 ^ 64 \<and>
-        access_enabled s Load (bounds_address acctype vaddr) paddr (nat sz) data (if tagged then tag else B0))"
+        access_enabled s (if is_fetch then Fetch else Load) (bounds_address acctype vaddr) paddr (nat sz) data (if tagged then tag else B0))"
 
 lemma store_enabled_runI[derivable_caps_runI]:
   assumes "store_enabled s acctype vaddr sz data tag"
@@ -1207,23 +1211,23 @@ lemma addrs_in_mem_region_subset:
   unfolding addrs_in_mem_region_def
   by (auto simp: get_mem_region_def)
 
-lemma access_enabled_data_load_subset:
-  assumes "access_enabled s Load vaddr paddr sz data tag"
+lemma access_enabled_data_subset:
+  assumes "access_enabled s acctype vaddr paddr sz data tag"
     and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
     and "translate_address vaddr' = Some paddr'"
-  shows "access_enabled s Load vaddr' paddr' sz' data' B0"
+  shows "access_enabled s acctype vaddr' paddr' sz' data' B0"
   using assms
   unfolding access_enabled_def authorises_access_def has_access_permission_def
-  by (auto intro: addrs_in_mem_region_subset)
+  by (cases acctype; auto intro: addrs_in_mem_region_subset)
 
-lemma access_enabled_data_load_offset:
-  assumes "access_enabled s Load vaddr paddr sz data tag"
+lemma access_enabled_data_offset:
+  assumes "access_enabled s acctype vaddr paddr sz data tag"
     and "offset + sz' \<le> sz"
     and "translate_address (vaddr + offset) = Some paddr'"
-  shows "access_enabled s Load (vaddr + offset) paddr' sz' data' B0"
+  shows "access_enabled s acctype (vaddr + offset) paddr' sz' data' B0"
   using assms
   unfolding access_enabled_def authorises_access_def has_access_permission_def
-  by (fastforce intro: addrs_in_mem_region_subset[where vaddr = vaddr and paddr = paddr and sz = sz])
+  by (cases acctype; fastforce intro: addrs_in_mem_region_subset[where vaddr = vaddr and paddr = paddr and sz = sz])
 
 lemma bounds_address_lteq_2p64:
   assumes "bounds_address acctype addr + sz \<le> 2^64"
@@ -1263,7 +1267,7 @@ proof -
     by (auto simp: load_enabled_def intro!: bounds_address_offset translate_address_valid)
   then show ?thesis
     using offset sz' vaddr paddr lteq_2p64 translate_bounds_address[of acctype vaddr']
-    by (auto simp: load_enabled_def translate_address_valid intro!: access_enabled_data_load_offset)
+    by (auto simp: load_enabled_def translate_address_valid intro!: access_enabled_data_offset)
 qed
 
 lemma load_enabled_access_enabled[intro]:
@@ -1271,28 +1275,11 @@ lemma load_enabled_access_enabled[intro]:
     and "sz' = nat sz"
     and "translate_address vaddr = Some paddr"
     and "tagged \<or> tag = B0"
+    and "\<not>is_fetch"
   shows "\<exists>vaddr. access_enabled s Load vaddr paddr sz' data tag"
   using assms
   unfolding load_enabled_def
   by (cases tagged) auto
-
-lemma access_enabled_data_store_subset:
-  assumes "access_enabled s Store vaddr paddr sz data tag"
-    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
-    and "translate_address vaddr' = Some paddr'"
-  shows "access_enabled s Store vaddr' paddr' sz' data' B0"
-  using assms
-  unfolding access_enabled_def authorises_access_def has_access_permission_def
-  by (auto intro: addrs_in_mem_region_subset)
-
-lemma access_enabled_data_store_offset:
-  assumes "access_enabled s Store vaddr paddr sz data tag"
-    and "offset + sz' \<le> sz"
-    and "translate_address (vaddr + offset) = Some paddr'"
-  shows "access_enabled s Store (vaddr + offset) paddr' sz' data' B0"
-  using assms
-  unfolding access_enabled_def authorises_access_def has_access_permission_def
-  by (fastforce intro: addrs_in_mem_region_subset[where vaddr = vaddr and paddr = paddr and sz = sz])
 
 lemma store_enabled_data_subset[intro]:
   assumes vaddr: "store_enabled s acctype vaddr sz data tag"
@@ -1315,7 +1302,7 @@ proof -
     by (auto simp: store_enabled_def intro!: bounds_address_offset translate_address_valid)
   then show ?thesis
     using offset sz' vaddr paddr lteq_2p64 translate_bounds_address[of acctype vaddr']
-    by (auto simp: store_enabled_def translate_address_valid intro!: access_enabled_data_store_offset)
+    by (auto simp: store_enabled_def translate_address_valid intro!: access_enabled_data_offset)
 qed
 
 lemma store_enabled_access_enabled[intro]:
@@ -1760,12 +1747,12 @@ lemma
 lemma CheckCapability_load_enabled:
   assumes t: "Run (CheckCapability c vaddr sz req_perms acctype') t addr" "inv_trace_assms s t"
     and sz: "sz > 0" "sz < 2^52" (*"unat vaddr + nat sz \<le> 2^64"*)
-    and sz': "sz' > 0" "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "perm_bits_included CAP_PERM_LOAD req_perms"
+    and sz': "sz' > 0" "unat vaddr + nat sz \<le> 2^64 \<and> addr = vaddr \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
+    and "perm_bits_included (if is_fetch then CAP_PERM_EXECUTE else CAP_PERM_LOAD) req_perms"
     and "tagged \<and> use_mem_caps \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
-    and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
-    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
-    and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
+    and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> \<not>is_fetch"
+    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
+    and "valid_address acctype vaddr' \<and> addr = vaddr \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' tagged"
 proof (unfold load_enabled_def, intro conjI allI impI)
@@ -1778,29 +1765,31 @@ next
   let ?is_local_cap = "mem_val_is_local_cap CC ISA data ?tag \<and> tag = B1"
   let ?bvaddr = "bounds_address acctype (unat vaddr)"
   let ?bvaddr' = "bounds_address acctype vaddr'"
+  let ?loadtype = "if is_fetch then Fetch else Load"
   assume paddr': "translate_address vaddr' = Some paddr'"
   from translate_address_valid[OF this, where acctype = acctype]
-  have "valid_address acctype (unat vaddr)"
-    using assms
+  have vaddr_valid: "valid_address acctype (unat vaddr)" if "addr = vaddr"
+    using assms that
     by blast
   from t obtain t' bvaddr
     where t': "Run (CapIsRangeInBounds c bvaddr (word_of_int sz)) t' True" "trace_assms t'"
       and bvaddr: "bounds_address acctype (unat vaddr) = unat bvaddr"
+      and addr: "addr = vaddr"
       and "CapIsTagSet c" and"\<not>CapIsSealed c"
       and "cap_permits req_perms c"
     unfolding CheckCapability_def bounds_address_def has_ttbr1_def \<open>acctype' = acctype\<close>
     by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E
              split: if_splits dest!: translation_el s1_enabled tbi_enabled' in_host)
-  have aligned: "nat sz' = 16 \<and> aligned paddr' 16" if "tagged"
+  have aligned: "nat sz' = 16 \<and> aligned paddr' 16 \<and> \<not>is_fetch" if "tagged"
     using assms paddr' that
     by auto
   obtain c' where c': "c' \<in> derivable_caps s"
-    and c: "c = c' \<or> (is_indirect_sentry c' \<and> c = CapUnseal c' \<and> c \<in> invoked_indirect_caps)"
+    and c: "c = c' \<or> (is_indirect_sentry c' \<and> c = CapUnseal c' \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
     using assms \<open>\<not>CapIsSealed c\<close>
     by blast
   then have tagged: "CapIsTagSet c'"
-    and sentry_if_sealed: "CapIsSealed c' \<longrightarrow> is_indirect_sentry c' \<and> CapUnseal c' \<in> invoked_indirect_caps"
+    and sentry_if_sealed: "CapIsSealed c' \<longrightarrow> is_indirect_sentry c' \<and> CapUnseal c' \<in> invoked_indirect_caps \<and> \<not>is_fetch"
     using \<open>CapIsTagSet c\<close> \<open>\<not>CapIsSealed c\<close>
     by auto
   from c' tagged have c_limit: "get_limit c' \<le> 2 ^ 64"
@@ -1818,31 +1807,31 @@ next
     using sz
     by (auto simp: get_mem_region_def split: if_splits)
   then have "unat vaddr + nat sz \<le> 2^64"
-    using \<open>valid_address acctype (unat vaddr)\<close> \<open>sz < 2^52\<close> unat_lt2p[of vaddr]
+    using vaddr_valid addr \<open>sz < 2^52\<close> unat_lt2p[of vaddr]
     by (intro bounds_address_lteq_2p64[where addr = "unat vaddr"]) (auto)
   then obtain offset where offset: "vaddr' = unat vaddr + offset" "offset + nat sz' \<le> nat sz"
-    using sz'
+    using sz' addr
     by (auto simp: le_iff_add)
   then have bvaddr': "?bvaddr' = ?bvaddr + offset"
-    using \<open>valid_address acctype (unat vaddr)\<close> mem_region_2p64 \<open>sz < 2^52\<close> \<open>sz' > 0\<close>
+    using vaddr_valid addr mem_region_2p64 \<open>sz < 2^52\<close> \<open>sz' > 0\<close>
     unfolding \<open>vaddr' = unat vaddr + offset\<close>
     by (intro bounds_address_offset) auto
   then show "?bvaddr' + nat sz' \<le> 2 ^ 64"
     using mem_region_2p64 offset
     by auto
-  have "addrs_in_mem_region c' Load ?bvaddr' paddr' (nat sz')"
+  have "addrs_in_mem_region c' ?loadtype ?bvaddr' paddr' (nat sz')"
     using mem_region offset paddr'
     using translate_address_valid[OF paddr', THEN translate_bounds_address, of acctype]
     unfolding bvaddr' addrs_in_mem_region_def
     by (auto intro!: translate_bounds_address translate_address_valid)
-  moreover have "\<forall>is_local_cap. has_access_permission c' Load ?is_cap is_local_cap"
+  moreover have "\<forall>is_local_cap. has_access_permission c' ?loadtype ?is_cap is_local_cap"
     using assms cap_perm_bits_included_trans[OF \<open>cap_permits req_perms c\<close>]
     unfolding has_access_permission_def
-    by (auto simp: CC_def perms')
-  ultimately have "\<forall>is_local_cap. authorises_access c' Load ?is_cap is_local_cap ?bvaddr' paddr' (nat sz')"
+    by (cases is_fetch; auto simp: CC_def perms' CapIsExecutePermitted_def)
+  ultimately have "\<forall>is_local_cap. authorises_access c' ?loadtype ?is_cap is_local_cap ?bvaddr' paddr' (nat sz')"
     using assms tagged sentry_if_sealed
     by (auto simp: authorises_access_def)
-  then show "access_enabled (run s t) Load ?bvaddr' paddr' (nat sz') data ?tag"
+  then show "access_enabled (run s t) ?loadtype ?bvaddr' paddr' (nat sz') data ?tag"
     using derivable_caps_run_imp[OF c', where t = t] aligned tagged
     by (fastforce simp: access_enabled_def derivable_caps_def)
 qed
@@ -2170,7 +2159,7 @@ lemma Run_VAToCapability_iff:
 abbreviation
   "derivable_or_invoked c s \<equiv>
      c \<in> derivable_caps s
-     \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps)"
+     \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
 
 lemma derivable_or_invokedI1:
   "c \<in> derivable_caps s \<Longrightarrow> derivable_or_invoked c s"
@@ -2186,7 +2175,7 @@ lemma VA_derivable_imp_VA_derivable_or_invoked[intro]:
 lemma VAFromCapability_derivable_or_invoked[derivable_capsE]:
   assumes "Run (VAFromCapability (if sentry then CapUnseal c else c)) t va"
     and "c \<in> derivable_caps s"
-    and "sentry \<longrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB} \<and> CapUnseal c \<in> invoked_indirect_caps"
+    and "sentry \<longrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB} \<and> CapUnseal c \<in> invoked_indirect_caps \<and> \<not>is_fetch"
   shows "VA_derivable_or_invoked va s"
   using assms
   by (auto simp: VA_derivable_or_invoked_def is_indirect_sentry_def)
@@ -2212,9 +2201,9 @@ lemma VADeref_load_enabled:
   assumes "Run (VACheckAddress va vaddr sz perms acctype') t u" "inv_trace_assms s t"
     and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
-    and "perm_bits_included CAP_PERM_LOAD perms"
+    and "perm_bits_included (if is_fetch then CAP_PERM_EXECUTE else CAP_PERM_LOAD) perms"
     and "tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va"
-    and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16"
+    and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> \<not>is_fetch"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
@@ -2275,8 +2264,9 @@ lemma VADeref_data_load_enabled[derivable_capsE]:
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
+    and "\<not>is_fetch"
   shows "load_enabled (run s t) acctype vaddr' sz' False"
-  using assms
+  using assms VA_derivable_imp_VA_derivable_or_invoked
   by (elim VADeref_load_enabled) auto
 
 lemma VADeref_cap_load_enabled[derivable_capsE]:
@@ -2289,8 +2279,9 @@ lemma VADeref_cap_load_enabled[derivable_capsE]:
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
+    and "\<not>is_fetch"
   shows "load_enabled (run s t) acctype vaddr' sz' True"
-  using assms
+  using assms VA_derivable_imp_VA_derivable_or_invoked
   by (elim VADeref_load_enabled) auto
 
 lemma VADeref_load_data_access_enabled[derivable_capsE]:
@@ -2299,6 +2290,7 @@ lemma VADeref_load_data_access_enabled[derivable_capsE]:
     and "translate_address (unat vaddr) = Some paddr"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
+    and "\<not>is_fetch"
   shows "paccess_enabled (run s t) Load paddr (nat sz) data B0"
   using assms
   by (elim VADeref_data_load_enabled[THEN load_enabled_access_enabled]) auto
