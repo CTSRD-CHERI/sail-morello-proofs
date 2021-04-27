@@ -1829,6 +1829,7 @@ locale Morello_Cap_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA UN
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
     and use_mem_caps :: bool +
   fixes no_system_reg_access :: bool
+    and is_fetch :: bool
 begin
 
 lemmas privilegeds_accessible_system_reg_access[intro] =
@@ -4628,8 +4629,9 @@ lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
 
 fun sysreg_ev_assms :: "register_value event \<Rightarrow> bool" where
   "sysreg_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)) =
-     (r = ''PCC'' \<longrightarrow> CapIsTagSet c \<and> \<not>CapIsSealed c \<and>
-                      (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))"
+     (r = ''PCC'' \<and> \<not>is_fetch \<longrightarrow>
+        CapIsTagSet c \<and> \<not>CapIsSealed c \<and>
+        (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))"
 | "sysreg_ev_assms (E_read_reg r (Regval_bitvector_32_dec v)) =
      ((r = ''CSCR_EL3'' \<longrightarrow> no_system_reg_access \<or> v !! 0) \<and>
       (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2))" (* Non-debug state *)
@@ -4677,14 +4679,14 @@ lemma Run_Halted_accessible_regs[accessible_regsE]:
      (auto intro: no_reg_writes_runs_no_reg_writes no_reg_writes_to_Halted split: if_splits)
 
 lemma PCC_sysreg_trace_assms:
-  assumes "Run (read_reg PCC_ref) t c" and "sysreg_trace_assms t"
+  assumes "Run (read_reg PCC_ref) t c" and "sysreg_trace_assms t" and "\<not>is_fetch"
   shows "CapIsTagSet c" and "\<not>CapIsSealed c"
-  using assms
-  by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def)
+  using assms(1,2)
+  by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def) (auto simp: assms(3))
 
 lemma CapIsSystemAccessEnabled_trace_allows_system_reg_access:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
-    and "{''PCC''} \<subseteq> accessible_regs s"
+    and "{''PCC''} \<subseteq> accessible_regs s" and "\<not>is_fetch"
   shows "trace_allows_system_reg_access t s"
 proof -
   obtain t1 t2 c
@@ -4692,11 +4694,11 @@ proof -
       and t2: "Run (read_reg PCC_ref :: Capability M) t2 c" "sysreg_trace_assms t2"
       and c: "CapIsSystemAccessPermitted c"
       and t: "t = t1 @ t2"
-    using assms PCC_sysreg_trace_assms
+    using assms(1-4) PCC_sysreg_trace_assms
     by (auto simp: CapIsSystemAccessEnabled_def PCC_read_def
              elim!: Run_bindE dest: Halted_False)
   moreover have "CapIsTagSet c" and "\<not>CapIsSealed c"
-    using PCC_sysreg_trace_assms[OF t2]
+    using PCC_sysreg_trace_assms[OF t2 \<open>\<not>is_fetch\<close>]
     by auto
   moreover have "{''PCC''} \<subseteq> accessible_regs (run s t1)"
     using t t1 assms(2,4)
@@ -4706,15 +4708,15 @@ proof -
 qed
 
 lemma CapIsSystemAccessEnabled_no_system_reg_access_cases:
-  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "\<not>is_fetch"
   obtains "a" and "\<not>no_system_reg_access" | "\<not>a"
-  using assms
-  unfolding CapIsSystemAccessEnabled_def CapIsSystemAccessPermitted_def PCC_read_def
+  using assms sysreg_ev_assms.simps(1) Run_Halted_True_False
+  unfolding CapIsSystemAccessEnabled_def CapIsSystemAccessPermitted_def PCC_read_def sysreg_trace_assms_def
   by (elim Run_bindE Run_ifE Run_read_regE; auto simp: PCC_ref_def sysreg_trace_assms_def)
 
 lemma CapIsSystemAccessEnabled_system_reg_access[derivable_capsE]:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
-    and "{''PCC''} \<subseteq> accessible_regs s"
+    and "{''PCC''} \<subseteq> accessible_regs s" and "\<not>is_fetch"
   shows "system_reg_access (run s t)"
   using CapIsSystemAccessEnabled_trace_allows_system_reg_access[OF assms]
   by (auto simp: system_reg_access_run_iff)
@@ -4725,7 +4727,7 @@ lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
   by (no_reg_writes_toI)
 
 lemma CapIsSystemAccessEnabled_accessible_regs[accessible_regsE]:
-  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "\<not>is_fetch"
     and "Rs - (if a then read_privileged_regs ISA else {}) \<union> {''PCC''} \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
 proof -
@@ -4736,7 +4738,7 @@ proof -
     using assms
     by - (accessible_regsI)
   ultimately show ?thesis
-    using CapIsSystemAccessEnabled_system_reg_access[OF assms(1,2), THEN system_reg_access_accessible_regs, of s Rs]
+    using CapIsSystemAccessEnabled_system_reg_access[OF assms(1,2) _ _ assms(3), THEN system_reg_access_accessible_regs, of s Rs]
     by (cases a) auto
 qed
 
@@ -4755,7 +4757,7 @@ abbreviation
        (Halted () \<bind> (\<lambda>y. return (\<not>y)))"
 
 lemma system_access_disabled_accessible_regs[accessible_regsE]:
-  assumes "Run system_access_disabled t a" and "sysreg_trace_assms t"
+  assumes "Run system_access_disabled t a" and "sysreg_trace_assms t" and "\<not>is_fetch"
     and "Rs - (if a then {} else read_privileged_regs ISA) \<union> {''PCC''} \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
 proof (cases a)
@@ -4766,10 +4768,10 @@ proof (cases a)
 next
   case False
   then have "Run (CapIsSystemAccessEnabled ()) t True"
-    using assms
+    using assms(1,2,4)
     by (auto elim!: Run_bindE Run_and_boolM_E dest: Halted_False)
   then show ?thesis
-    using assms(2,3) False
+    using assms(2,3,4) False
     by - accessible_regsI
 qed
 
@@ -4778,10 +4780,11 @@ lemmas system_access_disabled_accessible_regs_or_ex[accessible_regsE] =
 
 lemma system_access_disabled_system_reg_access[derivable_capsE]:
   assumes "Run system_access_disabled t a" and "sysreg_trace_assms t" and "\<not>a"
-    and "{''PCC''} \<subseteq> accessible_regs s"
+    and "{''PCC''} \<subseteq> accessible_regs s" and "\<not>is_fetch"
   shows "system_reg_access (run s t)"
-  using assms
-  by (auto elim!: Run_bindE Run_and_boolM_E CapIsSystemAccessEnabled_system_reg_access dest: Halted_False)
+  using assms(1-4)
+  by (auto elim!: Run_bindE Run_and_boolM_E CapIsSystemAccessEnabled_system_reg_access[OF _ _ _ _ assms(5)]
+           dest: Halted_False)
 
 lemmas system_access_disabled_system_reg_access_or_ex[derivable_capsE] =
   system_access_disabled_system_reg_access[THEN disjI1]
@@ -4856,13 +4859,13 @@ abbreviation
                (IsTagSettingDisabled () \<bind> (\<lambda>w__2. return (\<not> w__2)))"
 
 lemma and_SystemAccessEnabled_TagSettingEnabledE:
-  assumes "Run and_SystemAccessEnabled_TagSettingEnabled t a" and "sysreg_trace_assms t"
+  assumes "Run and_SystemAccessEnabled_TagSettingEnabled t a" and "sysreg_trace_assms t" and "\<not>is_fetch"
   obtains "\<not>a"
 proof -
-  from assms have "\<not>no_system_reg_access" if "a"
+  from assms(1,2) have "\<not>no_system_reg_access" if "a"
     using that
-    by (elim Run_and_boolM_E CapIsSystemAccessEnabled_no_system_reg_access_cases; auto)
-  from IsTagSettingDisabled_not_False[OF _ this] assms
+    by (elim Run_and_boolM_E CapIsSystemAccessEnabled_no_system_reg_access_cases[OF _ _ assms(3)]; auto)
+  from IsTagSettingDisabled_not_False[OF _ this] assms(1,2)
   show thesis
     by (auto elim!: Run_and_boolM_E intro: that)
 qed
@@ -4873,11 +4876,11 @@ abbreviation
                (IsTagSettingDisabled () \<bind> (\<lambda>w__2. return (\<not> w__2)))"
 
 lemma and_exp_SystemAccessEnabled_TagSettingEnabledE:
-  assumes "Run (and_exp_SystemAccessEnabled_TagSettingEnabled m) t a" and "sysreg_trace_assms t"
+  assumes "Run (and_exp_SystemAccessEnabled_TagSettingEnabled m) t a" and "sysreg_trace_assms t" and "\<not>is_fetch"
   obtains "\<not>a"
-  using assms
+  using assms(1,2)
   unfolding and_boolM_assoc
-  by (elim and_SystemAccessEnabled_TagSettingEnabledE Run_and_boolM_E; auto)
+  by (elim and_SystemAccessEnabled_TagSettingEnabledE[OF _ _ assms(3)] Run_and_boolM_E; auto)
 
 end
 
@@ -5346,7 +5349,7 @@ locale Morello_Axiom_Instr_Assm_Automaton = Morello_ISA +
     and ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
     and is_indirect_branch :: bool
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
@@ -5443,7 +5446,7 @@ locale Morello_Write_Cap_Automaton = Morello_ISA +
   fixes ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
@@ -5575,11 +5578,10 @@ locale Morello_Mem_Axiom_Automaton =
   fixes ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
-    and is_fetch :: bool
   assumes no_invoked_indirect_caps_if_use_mem_caps: "use_mem_caps \<longrightarrow> invoked_indirect_caps = {}"
 begin
 

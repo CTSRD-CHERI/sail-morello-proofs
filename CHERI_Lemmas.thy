@@ -927,36 +927,42 @@ qed
 text \<open>Resetting the system requires system access permission\<close>
 
 lemma CapIsSystemAccessEnabled_True_no_system_reg_access_False:
-  assumes "Run (CapIsSystemAccessEnabled u) t True" and "trace_assms t"
+  assumes "Run (CapIsSystemAccessEnabled u) t True" and "sysreg_trace_assms t" and "\<not>is_fetch"
   obtains "\<not>no_system_reg_access"
-  using assms sysreg_trace_assmsI[THEN Run_Halted_True_False]
-  unfolding CapIsSystemAccessEnabled_def CapIsSystemAccessPermitted_def PCC_read_def trace_assms_def
-  by (elim Run_bindE Run_ifE Run_read_regE; auto simp: PCC_ref_def)
+  using assms(1,2)
+  by (elim CapIsSystemAccessEnabled_no_system_reg_access_cases[OF _ _ assms(3)]) auto
 
 lemma Run_RMR_EL1_SysRegWrite_system_reg_access:
-  assumes "Run (RMR_EL1_SysRegWrite_0ae19f794f511c7a el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  assumes "Run (RMR_EL1_SysRegWrite_0ae19f794f511c7a el op0 op1 crn op2 crm v) t u" and "sysreg_trace_assms t"
+    and "\<not>is_fetch"
   obtains "\<not>no_system_reg_access"
-  using assms
+  using assms(1,2)
   by (auto simp: RMR_EL1_SysRegWrite_0ae19f794f511c7a_def HaveCapabilitiesExt_def
-           elim!: Run_bindE Run_ifE Run_and_boolM_E CapIsSystemAccessEnabled_True_no_system_reg_access_False)
+           elim!: Run_bindE Run_ifE Run_and_boolM_E
+                  CapIsSystemAccessEnabled_True_no_system_reg_access_False[OF _ _ assms(3)])
 
 lemma Run_RMR_EL2_SysRegWrite_system_reg_access:
-  assumes "Run (RMR_EL2_SysRegWrite_df7b9a989e2495d2 el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  assumes "Run (RMR_EL2_SysRegWrite_df7b9a989e2495d2 el op0 op1 crn op2 crm v) t u" and "sysreg_trace_assms t"
+    and "\<not>is_fetch"
   obtains "\<not>no_system_reg_access"
-  using assms
+  using assms(1,2)
   by (auto simp: RMR_EL2_SysRegWrite_df7b9a989e2495d2_def HaveCapabilitiesExt_def
-           elim!: Run_bindE Run_ifE Run_and_boolM_E CapIsSystemAccessEnabled_True_no_system_reg_access_False)
+           elim!: Run_bindE Run_ifE Run_and_boolM_E
+                  CapIsSystemAccessEnabled_True_no_system_reg_access_False[OF _ _ assms(3)])
 
 lemma Run_RMR_EL3_SysRegWrite_system_reg_access:
-  assumes "Run (RMR_EL3_SysRegWrite_2849130fc457929e el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  assumes "Run (RMR_EL3_SysRegWrite_2849130fc457929e el op0 op1 crn op2 crm v) t u" and "sysreg_trace_assms t"
+    and "\<not>is_fetch"
   obtains "\<not>no_system_reg_access"
-  using assms
+  using assms(1,2)
   by (auto simp: RMR_EL3_SysRegWrite_2849130fc457929e_def HaveCapabilitiesExt_def
-           elim!: Run_bindE Run_ifE Run_and_boolM_E CapIsSystemAccessEnabled_True_no_system_reg_access_False)
+           elim!: Run_bindE Run_ifE Run_and_boolM_E
+                  CapIsSystemAccessEnabled_True_no_system_reg_access_False[OF _ _ assms(3)])
 
 lemma Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access:
-  assumes "Run (AArch64_AutoGen_SysRegWrite el op0 op1 crn op2 crm v) t u" and "trace_assms t"
+  assumes "Run (AArch64_AutoGen_SysRegWrite el op0 op1 crn op2 crm v) t u" and "sysreg_trace_assms t"
     and "op0 = 3 \<and> op1 \<in> {0, 4, 6} \<and> op2 = 2 \<and> crn = 12 \<and> crm = 0"
+    and "\<not>is_fetch"
   obtains "\<not>no_system_reg_access"
   using assms
   by (auto simp: AArch64_AutoGen_SysRegWrite_def
@@ -969,10 +975,11 @@ text \<open>Assume that PCC is not sealed\<close>
 declare PCC_sysreg_trace_assms[intro, simp, derivable_capsE]
 
 lemma PCC_read_not_sealed[intro, simp, derivable_capsE]:
-  assumes "Run (PCC_read u) t c" and "trace_assms t"
+  assumes "Run (PCC_read u) t c" and "sysreg_trace_assms t" and "\<not>is_fetch"
   shows "\<not>CapIsSealed c"
   using assms
-  by (auto simp: PCC_read_def)
+  unfolding PCC_read_def
+  by (elim PCC_sysreg_trace_assms)
 
 end
 
