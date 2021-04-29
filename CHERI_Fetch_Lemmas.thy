@@ -1,4 +1,4 @@
-theory CHERI_Fetch_Properties
+theory CHERI_Fetch_Lemmas
   imports CHERI_Mem_Properties "Sail.Hoare"
 begin
 
