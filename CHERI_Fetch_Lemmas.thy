@@ -2,7 +2,7 @@ theory CHERI_Fetch_Lemmas
   imports CHERI_Mem_Properties "Sail.Hoare"
 begin
 
-context Morello_Fetch_Automaton
+context Morello_Fetch_Mem_Automaton
 begin
 
 lemmas non_cap_exp_traces_enabled[traces_enabledI] = non_cap_expI[THEN non_cap_exp_traces_enabledI]
