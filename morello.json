@@ -491,7 +491,7 @@
     "execute_LDPBLR_C_C_C": {
       "traces_enabled": {
         "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] traces_enabled_C_set_mem_cap[where n = 29] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
       },
       "traces_enabled_mem": {
         "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
@@ -509,7 +509,7 @@
     "execute_LDPBR_C_C_C": {
       "traces_enabled": {
         "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
       },
       "traces_enabled_mem": {
         "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],

@@ -396,7 +396,7 @@ lemmas Run_int_set_member_combinators[derivable_caps_combinators] =
 
 lemma Run_return_resultE:
   assumes "Run (return x) t a"
-    and "P x"
+    and "a = x \<Longrightarrow> P x"
   shows "P a"
   using assms
   by auto
@@ -4589,10 +4589,6 @@ declare Run_letE[where thesis = "VA_derivable va s" and a = va for va s, derivab
 lemmas Run_return_VA_derivable[derivable_caps_combinators] =
    Run_return_resultE[where P = "\<lambda>va. VA_derivable va s" for s]
 
-lemma VAFromPCC_derivable[derivable_capsE]:
-  "Run (VAFromPCC offset) t va \<Longrightarrow> VA_derivable va s"
-  by (auto simp: VAFromPCC_def VA_derivable_def elim: Run_bindE)
-
 text \<open>We assume that UNKNOWN capabilities are constrained to reachable capabilities, in line with
   rule TSNJF of the architecture.
 
@@ -4960,9 +4956,9 @@ qed
 
 definition VA_from_load_auth :: "VirtualAddress \<Rightarrow> bool" where
   "VA_from_load_auth va \<equiv>
-     (if VirtualAddress_isPCC va = 1 then loads_via_pcc
-      else if VirtualAddress_vatype va = VA_Bits64 then loads_via_ddc
-      else (\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec (VirtualAddress_base va)))))"
+     (if VirtualAddress_vatype va = VA_Bits64 then loads_via_ddc
+      else ((\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec (VirtualAddress_base va))))
+            \<or> (loads_via_pcc \<and> load_cap_ev_assms (E_read_reg ''PCC'' (Regval_bitvector_129_dec (VirtualAddress_base va))))))"
 
 lemma CapSquashPostLoadCap_cases:
   assumes "Run (CapSquashPostLoadCap c base) t c'"
@@ -4978,38 +4974,22 @@ lemma Run_CapSquashPostLoadCap_use_mem_caps:
     and c': "CapIsTagSet c'"
     and no_indirect: "invoked_indirect_caps = {}"
   shows "use_mem_caps"
-proof cases
-  assume PCC: "VirtualAddress_isPCC base = 1"
-  then have *: "loads_via_pcc"
-    using base
-    by (auto simp: VA_from_load_auth_def)
-  from no_indirect have [simp]: "c \<in> invoked_indirect_caps \<longleftrightarrow> False" for c
-    by auto
-  show "use_mem_caps"
-    using t c' PCC *
-    unfolding CapSquashPostLoadCap_def Let_def
-    by (auto simp: PCC_read_def register_defs VAIsPCCRelative_def load_cap_trace_assms_def
-             elim!: Run_bindE Run_read_regE split: if_splits)
+proof (cases "VirtualAddress_vatype base")
+  case VA_Bits64
+  then show ?thesis
+    using t c' base
+    unfolding CapSquashPostLoadCap_def DDC_read_def Let_def bind_assoc
+    by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE;
+        simp add: DDC_names_def VA_from_load_auth_def register_defs load_cap_trace_assms_def;
+        use no_indirect in auto)
 next
-  assume not_PCC: "\<not>VirtualAddress_isPCC base = 1"
-  then show "use_mem_caps"
-  proof (cases "VirtualAddress_vatype base")
-    case VA_Bits64
-    then show ?thesis
-      using t c' not_PCC base
-      unfolding CapSquashPostLoadCap_def DDC_read_def Let_def bind_assoc
-      by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE;
-          simp add: VAIsPCCRelative_def DDC_names_def VA_from_load_auth_def register_defs load_cap_trace_assms_def;
-          use no_indirect in auto)
-  next
-    case VA_Capability
-    then show ?thesis
-      using t c' not_PCC base
-      unfolding CapSquashPostLoadCap_def VAToCapability_def Let_def
-      by (elim Run_bindE Run_ifE;
-          simp add: VAIsPCCRelative_def VA_from_load_auth_def VAIsBits64_def;
-          use no_indirect in auto)
-  qed
+  case VA_Capability
+  then show ?thesis
+    using t c' base
+    unfolding CapSquashPostLoadCap_def VAToCapability_def Let_def
+    by (elim Run_bindE Run_ifE;
+        simp add: VA_from_load_auth_def VAIsBits64_def;
+        use no_indirect in auto)
 qed
 
 lemma (in Cap_Axiom_Automaton) not_tagged_derivable:
@@ -5041,20 +5021,6 @@ lemma Run_IsInC64_E:
   using assms
   by (auto simp: IsInC64_def load_cap_trace_assms_def PSTATE_ref_def
            elim!: Run_read_regE ProcState_of_regval.elims)
-
-lemma VAFromCapability_not_isPCC[simp]:
-  assumes "Run (VAFromCapability c) t va"
-  shows "VirtualAddress_isPCC va = 0"
-  using assms
-  unfolding VAFromCapability_def
-  by auto
-
-lemma VAFromBits64_not_isPCC[simp]:
-  assumes "Run (VAFromBits64 addr) t va"
-  shows "VirtualAddress_isPCC va = 0"
-  using assms
-  unfolding VAFromBits64_def
-  by auto
 
 lemma CSP_read_load_cap_ev_assms:
   assumes "Run (CSP_read u) t c" and "load_cap_trace_assms t"
@@ -5154,14 +5120,6 @@ lemma AltBaseReg_read__1_VA_from_load_auth[derivable_capsE]:
   unfolding AltBaseReg_read__1_def
   by (elim AltBaseReg_read_VA_from_load_auth)
 
-lemma VAFromPCC_VA_from_load_auth[derivable_capsE]:
-  assumes "Run (VAFromPCC addr) t va"
-    and "loads_via_pcc"
-  shows "VA_from_load_auth va"
-  using assms
-  unfolding VAFromPCC_def VA_from_load_auth_def
-  by auto
-
 lemma VAFromBits64_VA_from_load_auth[derivable_capsE]:
   assumes "Run (VAFromBits64 addr) t va"
     and "loads_via_ddc"
@@ -5171,7 +5129,12 @@ lemma VAFromBits64_VA_from_load_auth[derivable_capsE]:
   by auto
 
 definition
-  "load_auth_reg_cap c \<equiv> (\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)))"
+  "load_auth_reg_cap c \<equiv>
+     ((\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)))
+      \<or> (loads_via_pcc \<and> load_cap_ev_assms (E_read_reg ''PCC'' (Regval_bitvector_129_dec c))))"
+
+declare Run_ifE[where thesis = "load_auth_reg_cap c" and a = c for c, derivable_caps_combinators]
+declare Run_bindE[where thesis = "load_auth_reg_cap c" and a = c for c, derivable_caps_combinators]
 
 lemma VAFromCapability_VA_from_load_auth[derivable_capsE]:
   assumes "Run (VAFromCapability c) t va"
@@ -5202,6 +5165,13 @@ lemma CSP_or_C_read_load_auth_reg_cap[derivable_capsE]:
   using assms
   by (auto split: if_splits elim: derivable_capsE)
 
+lemma aligned_CSP_or_C_read_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (if n = 31 then CheckSPAlignment u \<then> CSP_read u' else C_read n) t c" and "load_cap_trace_assms t"
+    and "loads_via_cap_reg n"
+  shows "load_auth_reg_cap c"
+  using assms
+  by (auto split: if_splits elim: derivable_capsE elim!: Run_bindE)
+
 lemma RegAuth_loads_via_cap_regI[derivable_capsI, intro, simp]:
   "RegAuth n \<in> load_auths \<Longrightarrow> loads_via_cap_reg n"
   by (auto simp: loads_via_cap_reg_def)
@@ -5216,6 +5186,14 @@ lemma load_auth_reg_cap_if_CapUnsealI[intro, derivable_capsI]:
   shows "load_auth_reg_cap (if unseal then CapUnseal c else c)"
   using assms
   by auto
+
+lemma PCC_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (read_reg PCC_ref) t c" and "load_cap_trace_assms t"
+    and "loads_via_pcc"
+  shows "load_auth_reg_cap c"
+  using assms
+  unfolding load_cap_trace_assms_def load_auth_reg_cap_def
+  by (elim Run_read_regE) (auto simp: PCC_ref_def)
 
 lemma loads_via_pccI[derivable_capsI, intro, simp]:
   assumes "PCCAuth \<in> load_auths"
@@ -5338,6 +5316,9 @@ lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
   shows "CapUnseal c \<in> invoked_indirect_caps"
   using assms
   by (auto elim!: derivable_capsE split: if_splits)
+
+declare Run_ifE[where thesis = "CapUnseal c \<in> invoked_indirect_caps" and a = c for c, derivable_caps_combinators]
+declare Run_bindE[where thesis = "CapUnseal c \<in> invoked_indirect_caps" and a = c for c, derivable_caps_combinators]
 
 lemma accessed_mem_cap_of_trace_sealed_invoked_caps:
   assumes "accessed_mem_cap_of_trace_if_tagged c t"
