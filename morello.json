@@ -681,7 +681,7 @@
     },
     "execute_STCT_R_R__": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms; auto elim: and_SystemAccessEnabled_TagSettingEnabledE)"
+        "proof": "(traces_enabledI assms: assms elim: and_SystemAccessEnabled_TagSettingEnabledE[where thesis = \"(if a then x else y) = z\" and a = a for a x y z])"
       },
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled and_SystemAccessEnabled_TagSettingEnabledE[where thesis = \"(if a then x else y) = z\" and a = a for a x y z])"
