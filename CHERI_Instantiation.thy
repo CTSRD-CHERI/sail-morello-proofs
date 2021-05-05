@@ -1325,6 +1325,15 @@ fun instr_load_auths :: "instr_ast \<Rightarrow> load_auth set" where
 | "instr_load_auths (Instr_LDCT_R_R (opc, Rn, Rt)) = {BaseRegAuth (uint Rn)}"
 | "instr_load_auths _ = {}"
 
+definition cap_reg_in_load_auths :: "bool \<Rightarrow> int \<Rightarrow> load_auth set \<Rightarrow> bool" where
+  "cap_reg_in_load_auths c64 n auths \<equiv> (RegAuth n \<in> auths \<or> (if c64 then BaseRegAuth n \<in> auths else AltBaseRegAuth n \<in> auths))"
+
+definition ddc_in_load_auths :: "bool \<Rightarrow> load_auth set \<Rightarrow> bool" where
+  "ddc_in_load_auths c64 auths \<equiv> (\<exists>n. if c64 then AltBaseRegAuth n \<in> auths else BaseRegAuth n \<in> auths)"
+
+definition pcc_in_load_auths :: "load_auth set \<Rightarrow> bool" where
+  "pcc_in_load_auths auths \<equiv> PCCAuth \<in> auths"
+
 definition R_name :: "int \<Rightarrow> string set" where
   "R_name n \<equiv>
      (if n =  0 then {''_R00''} else
@@ -1363,6 +1372,12 @@ definition R_name :: "int \<Rightarrow> string set" where
 
 definition DDC_names :: "string set" where
   "DDC_names \<equiv> {''DDC_EL0'', ''RDDC_EL0'', ''DDC_EL1'', ''DDC_EL2'', ''DDC_EL3''}"
+
+fun load_auth_reg_names :: "bool \<Rightarrow> load_auth \<Rightarrow> string set" where
+  "load_auth_reg_names c64 (RegAuth n) = R_name n"
+| "load_auth_reg_names c64 (BaseRegAuth n) = (if c64 then R_name n else DDC_names)"
+| "load_auth_reg_names c64 (AltBaseRegAuth n) = (if c64 then DDC_names else R_name n)"
+| "load_auth_reg_names c64 (PCCAuth) = {''PCC''}"
 
 abbreviation mutable_perms where
   "mutable_perms \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
@@ -1431,6 +1446,26 @@ definition trace_invokes_caps :: "register_value trace \<Rightarrow> Capability 
 definition invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "invokes_caps instr t \<equiv> trace_invokes_caps t"
 
+definition trace_is_in_c64 :: "register_value trace \<Rightarrow> bool" where
+  "trace_is_in_c64 t \<equiv> (\<exists>pstate. E_read_reg ''PSTATE'' (Regval_ProcState pstate) \<in> set t \<and> ProcState_C64 pstate = 1)"
+
+definition trace_uses_mem_caps :: "register_value trace \<Rightarrow> bool" where
+  "trace_uses_mem_caps t \<equiv>
+     (\<exists>instr auth r c.
+        instr_of_trace t = Some instr \<and>
+        auth \<in> instr_load_auths instr \<and>
+        r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
+        E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
+        cap_permits CAP_PERM_LOAD_CAP c)"
+
+abbreviation uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
+  "uses_mem_caps instr t \<equiv> trace_uses_mem_caps t"
+
+definition trace_has_system_reg_access :: "register_value trace \<Rightarrow> bool" where
+  "trace_has_system_reg_access t \<equiv>
+     (\<exists>c. E_read_reg ''PCC'' (Regval_bitvector_129_dec c) \<in> set t \<and>
+          cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c)"
+
 definition instrs_of_exp :: "(register_value, 'a, 'e) monad \<Rightarrow> instr_ast set" where
   "instrs_of_exp m \<equiv> {instr. \<exists>t m'. (m, t, m') \<in> Traces \<and> instr_of_trace t = Some instr}"
 
@@ -1491,7 +1526,6 @@ fun is_mem_event :: "'regval event \<Rightarrow> bool" where
 locale Morello_ISA =
   fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
-    and uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" \<comment> \<open>TODO\<close>
     and UNKNOWN_caps :: "Capability set"
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
 begin
@@ -1715,7 +1749,6 @@ locale Morello_Fixed_Address_Translation =
        allowing us to make assumptions about register values/fields that might change over time,
        e.g. PSTATE.EL *)
     and translation_assms :: "register_value event \<Rightarrow> bool"
-    and uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" \<comment> \<open>TODO\<close>
     and UNKNOWN_caps :: "Capability set"
   assumes translate_correct[simp]:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
@@ -4647,6 +4680,8 @@ fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> r
       (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2))" (* Non-debug state *)
 | "sysreg_ev_assms s (E_read_reg r (Regval_ProcState v)) =
      (r = ''PSTATE'' \<longrightarrow> no_system_reg_access \<or> ProcState_EL v \<noteq> EL3)"
+| "sysreg_ev_assms s (E_read_reg r (Regval_bool v)) =
+     (r = ''__BranchTaken'' \<longrightarrow> v \<or> ''PCC'' \<notin> written_regs s)"
 | "sysreg_ev_assms _ _ = True"
 
 abbreviation "sysreg_trace_assms \<equiv> holds_along_trace sysreg_ev_assms"
@@ -4902,6 +4937,13 @@ lemma and_exp_SystemAccessEnabled_TagSettingEnabledE:
   unfolding and_boolM_assoc
   by (elim and_SystemAccessEnabled_TagSettingEnabledE Run_and_boolM_E) auto
 
+lemma BranchTaken_or_PCC_accessible:
+  assumes "Run (read_reg BranchTaken_ref) t b"
+    and "(\<forall>s'. sysreg_trace_assms s' t \<longrightarrow> b \<or> {''PCC''} \<subseteq> accessible_regs s') \<longrightarrow> {''PCC''} \<subseteq> accessible_regs s"
+  shows "{''PCC''} \<subseteq> accessible_regs s"
+  using assms
+  by (auto elim!: Run_read_regE simp: BranchTaken_ref_def accessible_regs_def split: register_value.splits)
+
 end
 
 locale Morello_Load_Cap_Assms = Morello_ISA +
@@ -4912,14 +4954,14 @@ locale Morello_Load_Cap_Assms = Morello_ISA +
     and invoked_indirect_caps :: "Capability set"
 begin
 
-definition loads_via_cap_reg :: "int \<Rightarrow> bool" where
-  "loads_via_cap_reg n \<equiv> (RegAuth n \<in> load_auths \<or> (if is_in_c64 then BaseRegAuth n \<in> load_auths else AltBaseRegAuth n \<in> load_auths))"
+abbreviation loads_via_cap_reg :: "int \<Rightarrow> bool" where
+  "loads_via_cap_reg n \<equiv> cap_reg_in_load_auths is_in_c64 n load_auths"
 
-definition loads_via_ddc :: "bool" where
-  "loads_via_ddc \<equiv> (\<exists>n. if is_in_c64 then AltBaseRegAuth n \<in> load_auths else BaseRegAuth n \<in> load_auths)"
+abbreviation loads_via_ddc :: "bool" where
+  "loads_via_ddc \<equiv> ddc_in_load_auths is_in_c64 load_auths"
 
-definition loads_via_pcc :: "bool" where
-  "loads_via_pcc \<equiv> PCCAuth \<in> load_auths"
+abbreviation loads_via_pcc :: "bool" where
+  "loads_via_pcc \<equiv> pcc_in_load_auths load_auths"
 
 fun load_cap_ev_assms :: "register_value event \<Rightarrow> bool" where
   "load_cap_ev_assms (E_read_reg r v) =
@@ -5049,7 +5091,7 @@ proof (cases is_in_c64)
     by (auto elim: Run_IsInC64_E)
   have "loads_via_cap_reg n"
     using True n
-    unfolding loads_via_cap_reg_def
+    unfolding cap_reg_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5063,7 +5105,7 @@ next
     by (auto elim: Run_IsInC64_E)
   have "loads_via_ddc"
     using False n
-    unfolding loads_via_ddc_def
+    unfolding ddc_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5090,7 +5132,7 @@ proof (cases is_in_c64)
     by (auto elim: Run_IsInC64_E)
   have "loads_via_ddc"
     using True n
-    unfolding loads_via_ddc_def
+    unfolding ddc_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5103,7 +5145,7 @@ next
     by (auto elim: Run_IsInC64_E)
   have "loads_via_cap_reg n"
     using False n
-    unfolding loads_via_cap_reg_def
+    unfolding cap_reg_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5174,7 +5216,7 @@ lemma aligned_CSP_or_C_read_load_auth_reg_cap[derivable_capsE]:
 
 lemma RegAuth_loads_via_cap_regI[derivable_capsI, intro, simp]:
   "RegAuth n \<in> load_auths \<Longrightarrow> loads_via_cap_reg n"
-  by (auto simp: loads_via_cap_reg_def)
+  by (auto simp: cap_reg_in_load_auths_def)
 
 lemma load_auth_reg_cap_CapUnseal_iff[simp]:
   "load_auth_reg_cap (CapUnseal c) \<longleftrightarrow> load_auth_reg_cap c"
@@ -5199,7 +5241,7 @@ lemma loads_via_pccI[derivable_capsI, intro, simp]:
   assumes "PCCAuth \<in> load_auths"
   shows "loads_via_pcc"
   using assms
-  by (auto simp: loads_via_pcc_def)
+  by (auto simp: pcc_in_load_auths_def)
 
 definition load_instr_exp_assms :: "(register_value, 'a, 'e) monad \<Rightarrow> bool" where
   "load_instr_exp_assms m \<equiv> load_auths = exp_load_auths m"
