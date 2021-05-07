@@ -703,22 +703,22 @@
     },
     "ExecuteA64": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "execute_assms instr", "no_system_reg_access"],
-        "proof": "(traces_enabledI assms: assms simp: execute_assms_def)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (ExecuteA64 instr)", "no_system_reg_access"],
+        "proof": "(traces_enabledI assms: assms simp: ExecuteA64_def)"
       },
       "traces_enabled_mem": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "execute_assms instr", "no_system_reg_access"],
-        "proof": "(traces_enabledI assms: assms simp: execute_assms_def)"
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (ExecuteA64 instr)", "no_system_reg_access"],
+        "proof": "(traces_enabledI assms: assms simp: ExecuteA64_def)"
       }
     },
     "__DecodeExecute": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "execute_assms instr", "no_system_reg_access"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (DecodeExecute enc instr)", "no_system_reg_access"],
         "unfolding": [],
         "proof": "(cases enc; simp; traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "execute_assms instr", "no_system_reg_access"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (DecodeExecute enc instr)", "no_system_reg_access"],
         "unfolding": [],
         "proof": "(cases enc; simp; traces_enabledI assms: assms)"
       }

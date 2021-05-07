@@ -1238,12 +1238,15 @@ type_synonym instr = "(InstrEnc * 32 word)"
 text \<open>TODO: Split up toplevel fetch-decode-execute function and use here.\<close>
 
 definition instr_sem :: "instr \<Rightarrow> unit M" where
-  "instr_sem instr = (case instr of (enc, opcode) \<Rightarrow> DecodeExecute enc opcode)"
+  "instr_sem instr = do {
+     let (enc, opcode) = instr;
+     TryInstructionExecute enc opcode
+   }"
 
 definition instr_fetch :: "instr M" where
   "instr_fetch \<equiv> do {
-     (pc :: 64 word) \<leftarrow> ThisInstrAddr 64;
-     FetchInstr pc
+     CheckPendingInterrupts ();
+     FetchNextInstr ()
    }"
 
 fun caps_of_regval :: "register_value \<Rightarrow> Capability set" where
@@ -1408,11 +1411,15 @@ lemma instr_of_trace_Some_iff:
   "instr_of_trace t = Some instr \<longleftrightarrow> (\<exists>t'. t = E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr) # t')"
   by (cases t rule: instr_of_trace.cases) auto
 
+definition trace_invokes_indirect_regs :: "register_value trace \<Rightarrow> int set" where
+  "trace_invokes_indirect_regs t \<equiv>
+    (case instr_of_trace t of Some instr \<Rightarrow> instr_invokes_indirect_regs instr | None \<Rightarrow> {})"
+
 definition trace_invokes_indirect_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_invokes_indirect_caps t =
      {CapUnseal c' | c'.
-        \<exists>i n r.
-         instr_of_trace t = Some i \<and> n \<in> instr_invokes_indirect_regs i \<and> r \<in> R_name n \<and>
+        \<exists>n r.
+         n \<in> trace_invokes_indirect_regs t \<and> r \<in> R_name n \<and>
          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
          CapIsTagSet c' \<and> CapIsSealed c' \<and> is_indirect_sentry c'}"
 
@@ -1421,6 +1428,10 @@ abbreviation invokes_indirect_caps :: "instr \<Rightarrow> register_value trace 
 
 definition trace_is_indirect_branch :: "register_value trace \<Rightarrow> bool" where
   "trace_is_indirect_branch t \<equiv> (\<exists>instr. instr_of_trace t = Some instr \<and> instr_is_indirect_branch instr)"
+
+definition trace_invokes_regs :: "register_value trace \<Rightarrow> int set" where
+  "trace_invokes_regs t \<equiv>
+    (case instr_of_trace t of Some instr \<Rightarrow> instr_invokes_regs instr | None \<Rightarrow> {})"
 
 definition trace_invokes_mem_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_invokes_mem_caps t \<equiv>
@@ -1436,8 +1447,8 @@ abbreviation invokes_mem_caps :: "instr \<Rightarrow> register_value trace \<Rig
 
 definition trace_invokes_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_invokes_caps t =
-     {c. \<exists>i n r c'.
-          instr_of_trace t = Some i \<and> n \<in> instr_invokes_regs i \<and> r \<in> R_name n \<and>
+     {c. \<exists>n r c'.
+          n \<in> trace_invokes_regs t \<and> r \<in> R_name n \<and>
           E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
           CapIsTagSet c' \<and> CapIsSealed c' \<and>
           c \<in> branch_caps (CapUnseal c')}
@@ -1449,11 +1460,14 @@ definition invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarro
 definition trace_is_in_c64 :: "register_value trace \<Rightarrow> bool" where
   "trace_is_in_c64 t \<equiv> (\<exists>pstate. E_read_reg ''PSTATE'' (Regval_ProcState pstate) \<in> set t \<and> ProcState_C64 pstate = 1)"
 
+definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth set" where
+  "trace_load_auths t \<equiv>
+     (case instr_of_trace t of Some instr \<Rightarrow> instr_load_auths instr | None \<Rightarrow> {})"
+
 definition trace_uses_mem_caps :: "register_value trace \<Rightarrow> bool" where
   "trace_uses_mem_caps t \<equiv>
-     (\<exists>instr auth r c.
-        instr_of_trace t = Some instr \<and>
-        auth \<in> instr_load_auths instr \<and>
+     (\<exists>auth r c.
+        auth \<in> trace_load_auths t \<and>
         r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
         E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
         cap_permits CAP_PERM_LOAD_CAP c)"
@@ -1481,15 +1495,41 @@ definition exp_invokes_indirect_caps :: "(register_value, 'a, 'e) monad \<Righta
 definition exp_load_auths :: "(register_value, 'a, 'e) monad \<Rightarrow> load_auth set" where
   "exp_load_auths m \<equiv> \<Union>i \<in> instrs_of_exp m. instr_load_auths i"
 
-(* abbreviation "exp_is_indirect_branch m \<equiv> (exp_invokes_indirect_regs m \<noteq> {})" *)
 abbreviation "exp_is_indirect_branch m \<equiv> (\<exists>instr \<in> instrs_of_exp m. instr_is_indirect_branch instr)"
 
 lemma exp_invokes_indirect_caps_empty_if_regs_empty[simp]:
   assumes "instr_invokes_indirect_regs instr = {}"
   shows "exp_invokes_indirect_caps (write_reg ThisInstrAbstract_ref instr \<bind> f) = {}"
   using assms
-  unfolding exp_invokes_indirect_caps_def trace_invokes_indirect_caps_def write_reg_def
+  unfolding exp_invokes_indirect_caps_def trace_invokes_indirect_caps_def trace_invokes_indirect_regs_def write_reg_def hasTrace_iff_Traces_final
   by (auto simp: instr_of_trace_Some_iff register_defs regval_of_instr_ast_def elim!: Write_reg_TracesE)
+
+lemma instr_of_trace_bind_write_reg_ThisInstrAbstract:
+  assumes "hasTrace t (write_reg ThisInstrAbstract_ref instr \<bind> f)"
+  shows "instr_of_trace t = Some instr"
+  using assms
+  unfolding write_reg_def ThisInstrAbstract_ref_def regval_of_instr_ast_def
+  by (elim hasTrace_bind_cases)
+     (auto simp: hasFailure_iff_Traces_Fail hasException_iff_Traces_Exception elim!: Write_reg_TracesE)
+
+lemma no_reg_writes_to_instr_of_trace:
+  assumes "(m, t, m') \<in> Traces" and "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "instr_of_trace t = None"
+  using assms
+  by (cases "instr_of_trace t";
+      fastforce simp: instr_of_trace_Some_iff no_reg_writes_to_def hasTrace_iff_Traces_final)
+
+lemma no_reg_writes_to_instrs_of_exp:
+  assumes "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "instrs_of_exp m = {}"
+  using assms
+  by (auto simp: instrs_of_exp_def no_reg_writes_to_instr_of_trace)
+
+lemma instrs_of_exp_write_reg_ThisInstrAbstract[simp]:
+  "instrs_of_exp (write_reg ThisInstrAbstract_ref instr \<bind> f) = {instr}"
+  by (auto simp: instrs_of_exp_def  write_reg_def register_defs regval_of_instr_ast_def
+           elim!: Write_reg_TracesE
+           intro!: exI[where x = "[E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr)]"])
 
 definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
   "instr_raises_ex instr t \<equiv> hasException t (instr_sem instr)"
@@ -2022,18 +2062,6 @@ declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
 declare datatype_splits[where P = "no_reg_writes_to Rs" for Rs, THEN iffD2, no_reg_writes_toI]
 declare datatype_splits[where P = "runs_no_reg_writes_to Rs" for Rs, THEN iffD2, runs_no_reg_writes_toI]
-
-lemma no_reg_writes_to_instrs_of_exp:
-  assumes "no_reg_writes_to {''__ThisInstrAbstract''} m"
-  shows "instrs_of_exp m = {}"
-  using assms
-  by (fastforce simp: instrs_of_exp_def instr_of_trace_Some_iff no_reg_writes_to_def)
-
-lemma instrs_of_exp_write_reg_ThisInstrAbstract[simp]:
-  "instrs_of_exp (write_reg ThisInstrAbstract_ref instr \<bind> f) = {instr}"
-  by (auto simp: instrs_of_exp_def write_reg_def register_defs regval_of_instr_ast_def
-           elim!: Write_reg_TracesE
-           intro!: exI[where x = "[E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr)]"])
 
 lemma DDC_read_derivable[derivable_capsE]:
   "Run (DDC_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
@@ -5282,14 +5310,14 @@ definition invocation_instr_exp_assms :: "(register_value, 'a, 'e) monad \<Right
   "invocation_instr_exp_assms m \<equiv>
      invoked_regs = exp_invokes_regs m \<and>
      invoked_indirect_regs = exp_invokes_indirect_regs m \<and>
-     invoked_indirect_caps \<subseteq> exp_invokes_indirect_caps m \<and>
+     (exp_invokes_indirect_regs m = {} \<longrightarrow> invoked_indirect_caps = {}) \<and>
      is_indirect_branch = exp_is_indirect_branch m"
 
 lemma invocation_instr_exp_assms_write_ThisInstrAbstract_iff:
   "invocation_instr_exp_assms (write_reg ThisInstrAbstract_ref instr \<bind> f)
    \<longleftrightarrow> (invoked_regs = instr_invokes_regs instr
      \<and> invoked_indirect_regs = instr_invokes_indirect_regs instr
-     \<and> invoked_indirect_caps \<subseteq> exp_invokes_indirect_caps (write_reg ThisInstrAbstract_ref instr \<bind> f)
+     \<and> (instr_invokes_indirect_regs instr = {} \<longrightarrow> invoked_indirect_caps = {})
      \<and> is_indirect_branch = instr_is_indirect_branch instr)"
   by (auto simp: invocation_instr_exp_assms_def exp_invokes_regs_def exp_invokes_indirect_regs_def)
 
@@ -5500,10 +5528,8 @@ lemma instr_exp_assms_traces_enabled_letE:
   by auto
 
 (* For some (probably ArchEx-related) reason, __ExecuteA64 reads the PC and passes it to
-   __DecodeA64 as its first argument. *)
-definition "execute_assms opcode \<equiv> (\<forall>pc. instr_exp_assms (DecodeA64 pc opcode))"
-
-(* The __DecodeA64 function we generate doesn't actually use the pc argument. *)
+   __DecodeA64 as its first argument.  However, the __DecodeA64 function we generate doesn't
+   actually use the pc argument. *)
 lemma DecodeA64_ignore_pc: "DecodeA64 pc opcode = DecodeA64 0 opcode"
   by (unfold DecodeA64_def, rule refl)
 
