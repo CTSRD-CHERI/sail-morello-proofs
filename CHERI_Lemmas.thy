@@ -871,14 +871,18 @@ lemma CapIsSubSetOf_WithTagSet_derivable:
     and "get_base c \<le> get_limit c"
   shows "CapWithTagSet c \<in> derivable_caps s"
 proof -
-  have "leq_perms (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
+  have *: "leq_bools (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
     using assms
-    unfolding leq_perms_to_bl_iff CapIsSubSetOf_def
+    unfolding leq_bools_to_bl_iff leq_perms_def CapIsSubSetOf_def
     by (auto elim!: Run_bindE simp: AND_NOT_eq_0_iff)
-  then have "leq_cap CC (CapWithTagSet c) c'"
+  then have "leq_perms CC c c'"
+    by (auto simp: leq_perms_def leq_bools_cap_permits_imp CapIsSystemAccessPermitted_def)
+  moreover have "leq_perms CC (CapWithTagSet c) c"
+    by (rule CapGetPermissions_eq_leq_perms) auto
+  ultimately have "leq_cap CC (CapWithTagSet c) c'"
     using assms
     unfolding leq_cap_def leq_bounds_def CapIsSubSetOf_def
-    by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit
+    by (auto simp: CapGetBounds_get_base CapGetBounds_get_limit intro: leq_perms_trans
              elim: leq_perms_cap_permits_imp elim!: Run_bindE)
   then show "CapWithTagSet c \<in> derivable_caps s"
     using \<open>c' \<in> derivable_caps s\<close> and \<open>CapIsTagSet c'\<close>

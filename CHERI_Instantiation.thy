@@ -83,24 +83,6 @@ lemma concat_take_chunks_eq:
   "n > 0 \<Longrightarrow> List.concat (take_chunks n xs) = xs"
   by (induction n xs rule: take_chunks.induct) auto
 
-lemma leq_bounds_trans:
-  assumes "leq_bounds CC c c'" and "leq_bounds CC c' c''"
-  shows "leq_bounds CC c c''"
-  using assms
-  by (auto simp: leq_bounds_def)
-
-lemma leq_perms_trans:
-  assumes "leq_perms p p'" and "leq_perms p' p''"
-  shows "leq_perms p p''"
-  using assms
-  by (auto simp: leq_perms_def leq_bools_iff)
-
-lemma leq_cap_trans:
-  assumes "leq_cap CC c c'" and "leq_cap CC c' c''"
-  shows "leq_cap CC c c''"
-  using assms
-  by (auto simp: leq_cap_def elim: leq_bounds_trans leq_perms_trans)
-
 lemma bits_of_mem_bytes_of_word_to_bl:
   "bits_of_mem_bytes (mem_bytes_of_word w) = map bitU_of_bool (to_bl w)"
   unfolding bits_of_mem_bytes_def mem_bytes_of_word_def bits_of_bytes_def
@@ -267,25 +249,25 @@ lemma unat_add_l2p_distrib:
   using no_olen_add unat_plus_simple
   by auto
 
-lemma leq_perms_to_bl_iff:
+lemma leq_bools_to_bl_iff:
   fixes x y :: "'a::len word"
-  shows "leq_perms (to_bl x) (to_bl y) \<longleftrightarrow> (\<forall>n. x !! n \<longrightarrow> y !! n)"
+  shows "leq_bools (to_bl x) (to_bl y) \<longleftrightarrow> (\<forall>n. x !! n \<longrightarrow> y !! n)"
 proof
-  assume leq: "leq_perms (to_bl x) (to_bl y)"
+  assume leq: "leq_bools (to_bl x) (to_bl y)"
   show "\<forall>n. x !! n \<longrightarrow> y !! n"
   proof
     fix n
     have "to_bl x ! (size x - Suc n) \<longrightarrow> to_bl y ! (size y - Suc n)"
       using leq
-      unfolding leq_perms_def leq_bools_iff
+      unfolding leq_bools_iff
       by auto
     then show "x !! n \<longrightarrow> y !! n"
       by (cases "n < LENGTH('a)") (auto simp: to_bl_nth dest: test_bit_len)
   qed
 next
   assume "\<forall>n. x !! n \<longrightarrow> y !! n"
-  then show "leq_perms (to_bl x) (to_bl y)"
-    unfolding leq_perms_def leq_bools_iff
+  then show "leq_bools (to_bl x) (to_bl y)"
+    unfolding leq_bools_iff
     by (auto simp: to_bl_nth)
 qed
 
@@ -796,10 +778,15 @@ lemma CC_simps[simp]:
   "get_top_method CC c = get_limit c"
   "get_obj_type_method CC c = unat (CapGetObjectType c)"
   "cap_of_mem_bytes_method CC = cap_of_mem_bytes"
-  "permits_store_method CC c = cap_permits CAP_PERM_STORE c"
   "permits_execute_method CC c = cap_permits CAP_PERM_EXECUTE c"
-  "permits_unseal_method CC c = cap_permits CAP_PERM_UNSEAL c"
   "permits_ccall_method CC c = cap_permits CAP_PERM_BRANCH_SEALED_PAIR c"
+  "permits_load_method CC c = cap_permits CAP_PERM_LOAD c"
+  "permits_load_cap_method CC c = cap_permits CAP_PERM_LOAD_CAP c"
+  "permits_seal_method CC c = cap_permits CAP_PERM_SEAL c"
+  "permits_store_method CC c = cap_permits CAP_PERM_STORE c"
+  "permits_store_cap_method CC c = cap_permits CAP_PERM_STORE_CAP c"
+  "permits_store_local_cap_method CC c = cap_permits CAP_PERM_STORE_LOCAL c"
+  "permits_unseal_method CC c = cap_permits CAP_PERM_UNSEAL c"
   "permits_system_access_method CC c = CapIsSystemAccessPermitted c"
   "get_perms_method CC c = to_bl (CapGetPermissions c)"
   "is_global_method CC c = cap_permits CAP_PERM_GLOBAL c"
@@ -1843,12 +1830,24 @@ lemma CapIsSealed_set_bit_0_iff[simp]:
   "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
   by (auto simp: CapIsSealed_def)
 
-lemma leq_perms_cap_permits_imp:
-  assumes "leq_perms (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
+lemma leq_bools_cap_permits_imp:
+  assumes "leq_bools (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
     and "cap_permits perms c"
   shows "cap_permits perms c'"
   using assms
-  by (auto simp: CapCheckPermissions_def word_eq_iff word_ops_nth_size nth_ucast leq_perms_to_bl_iff)
+  by (auto simp: CapCheckPermissions_def word_eq_iff word_ops_nth_size nth_ucast leq_bools_to_bl_iff)
+
+lemma leq_perms_cap_permits_imp:
+  assumes "leq_perms CC c c'"
+    and "cap_permits perms c"
+  shows "cap_permits perms c'"
+  by (rule leq_bools_cap_permits_imp[where c = c]) (use assms in \<open>auto simp: leq_perms_def\<close>)
+
+lemma CapGetPermissions_eq_leq_perms:
+  assumes "CapGetPermissions c = CapGetPermissions c'"
+  shows "leq_perms CC c c'"
+  using assms leq_bools_cap_permits_imp[of c c']
+  by (auto simp: CapGetPermissions_def CapIsSystemAccessPermitted_def leq_perms_def)
 
 lemma set_bit_low_get_bounds_helpers_eq:
   "int i < 64 \<Longrightarrow> CapGetExponent (set_bit c i b) = CapGetExponent c"
@@ -2009,7 +2008,7 @@ lemma leq_bounds_CapSetFlags:
 lemma leq_cap_CapSetFlags:
   "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (CapSetFlags c flags) c"
   using leq_perms_cap_permits_imp[rotated]
-  by (auto simp: leq_cap_def leq_bounds_CapSetFlags)
+  by (auto simp: leq_cap_def leq_bounds_CapSetFlags CapGetPermissions_eq_leq_perms)
 
 lemma leq_bounds_set_0th:
   "leq_bounds CC (set_bit c 0 b) c"
@@ -2019,7 +2018,7 @@ lemma leq_bounds_set_0th:
 lemma leq_cap_set_0th:
   "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<Longrightarrow> leq_cap CC (set_bit c 0 b) c"
   using leq_perms_cap_permits_imp[rotated]
-  by (auto simp: leq_cap_def test_bit_set_gen leq_bounds_set_0th)
+  by (auto simp: leq_cap_def test_bit_set_gen leq_bounds_set_0th CapGetPermissions_eq_leq_perms)
 
 lemma Capability_of_tag_word_False_derivable[intro, simp, derivable_capsI]:
   "Capability_of_tag_word False data \<in> derivable_caps s"
@@ -2035,19 +2034,19 @@ lemma clear_perm_leq_cap:
   assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "leq_cap CC (clear_perm perms c) c"
 proof -
-  have perms: "leq_perms (to_bl (CapGetPermissions (clear_perm perms c))) (to_bl (CapGetPermissions c))"
-    unfolding leq_perms_def leq_bools_iff CapGetPermissions_def CapClearPerms_def
+  have perms: "leq_bools (to_bl (CapGetPermissions (clear_perm perms c))) (to_bl (CapGetPermissions c))"
+    unfolding leq_bools_iff CapGetPermissions_def CapClearPerms_def
     by (auto simp: to_bl_nth nth_slice update_subrange_vec_dec_test_bit word_ops_nth_size)
-  moreover have "cap_permits CAP_PERM_GLOBAL (clear_perm perms c) \<longrightarrow> cap_permits CAP_PERM_GLOBAL c"
-    using perms
-    by (auto simp: leq_perms_to_bl_iff CapCheckPermissions_def word_eq_iff word_ops_nth_size)
+  moreover have "cap_permits perms' (clear_perm perms c) \<longrightarrow> cap_permits perms' c" for perms'
+    using perms leq_bools_cap_permits_imp[OF perms]
+    by auto
   moreover have tag: "CapIsTagSet (clear_perm perms c) \<longleftrightarrow> CapIsTagSet c"
     and "CapIsSealed (clear_perm perms c) \<longleftrightarrow> CapIsSealed c"
     unfolding CapClearPerms_def CapIsSealed_def CapGetObjectType_def
     by (auto simp: update_subrange_vec_dec_test_bit slice_update_subrange_vec_dec_above)
   ultimately show "leq_cap CC (clear_perm perms c) c"
     using assms
-    by (auto simp: leq_cap_def leq_bounds_def get_bounds_CapClearPerms_eq)
+    by (auto simp: leq_cap_def leq_bounds_def leq_perms_def get_bounds_CapClearPerms_eq CapIsSystemAccessPermitted_def)
 qed
 
 lemma clear_perm_derivable:
@@ -2108,7 +2107,7 @@ proof -
     using perms
     by (auto simp: CapCheckPermissions_def)
   ultimately have "leq_cap CC ?c' c"
-    using assms(4)
+    using assms(4) CapGetPermissions_eq_leq_perms[OF perms]
     unfolding derivable_caps_def
     by (auto simp: leq_cap_def)
   from derivable.Restrict[OF assms(3) this]
@@ -2854,7 +2853,7 @@ lemma update_subrange_addr_CapIsRepresentableFast_derivable:
   apply (rule Restrict, assumption)
   apply (rule leq_cap_def[THEN iffD2, OF disjI2])
   apply (simp add: test_bit_word_update cap_permits_word_update_drop)
-  apply (simp add: CapIsSealed_def CapGetObjectType_def slice_word_update_drop CapGetPermissions_def)
+  apply (simp add: CapIsSealed_def CapGetObjectType_def slice_word_update_drop CapGetPermissions_def CapGetPermissions_eq_leq_perms)
   apply (rule CapGetBounds_eq_leq_bounds)
   apply (clarsimp simp: CapIsRepresentableFast_def word_less_nat_alt[symmetric] word_le_nat_alt[symmetric]
                  elim!: Run_elims cong: if_cong)
@@ -4636,7 +4635,7 @@ next
   from True tag ineq decoding show ?thesis
     apply (simp add: derivable_caps_def)
     apply (rule Restr, simp_all)
-    apply (rule leq_cap_def[THEN iffD2, OF disjI2], simp add: unsealed encoding)
+    apply (rule leq_cap_def[THEN iffD2, OF disjI2], simp add: unsealed encoding CapGetPermissions_eq_leq_perms)
     apply (rule leq_bounds_def[THEN iffD2, OF disjI2])
     apply (clarsimp simp: orig_bounds new_bounds word_le_nat_alt[symmetric] le)
     apply (intro conjI)
@@ -5727,7 +5726,7 @@ lemma leq_cap_CapSetFlags:
   assumes "\<not>CapIsSealed c"
   shows "leq_cap CC (CapSetFlags c flags) c"
   using assms leq_perms_cap_permits_imp[of "CapSetFlags c flags" c]
-  by (auto simp: leq_cap_def intro: leq_bounds_CapSetFlags)
+  by (auto simp: leq_cap_def CapGetPermissions_eq_leq_perms intro: leq_bounds_CapSetFlags)
 
 lemma CapSetFlags_CapWithTagClear_commute[simp]:
   "CapSetFlags (CapWithTagClear c) flags = CapWithTagClear (CapSetFlags c flags)"
