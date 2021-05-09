@@ -150,6 +150,158 @@ lemmas VA_derivable_combinators[derivable_caps_combinators] =
 
 end
 
+definition "determ_instrs_of_exp m \<equiv>
+  (\<forall>t. hasTrace t m \<longrightarrow> instrs_of_exp m = set_option (instr_of_trace t))"
+
+lemma hasTrace_determ_instrs_eqs:
+  assumes "hasTrace t m" and "determ_instrs_of_exp m"
+  shows "exp_invokes_regs m = trace_invokes_regs t"
+    and "exp_invokes_indirect_regs m = trace_invokes_indirect_regs t"
+    and "exp_load_auths m = trace_load_auths t"
+    and "exp_is_indirect_branch m = trace_is_indirect_branch t"
+  using assms
+  unfolding exp_invokes_regs_def trace_invokes_regs_def
+  unfolding exp_invokes_indirect_regs_def trace_invokes_indirect_regs_def
+  unfolding exp_load_auths_def trace_load_auths_def
+  unfolding trace_is_indirect_branch_def
+  by (auto simp: determ_instrs_of_exp_def split: option.splits)
+
+lemma T_bind_leftI:
+  assumes "(m, e, m') \<in> T"
+  shows "(bind m f, e, bind m' f) \<in> T"
+  using assms
+  by induction auto
+
+lemma Traces_bind_leftI:
+  assumes "(m, t, m') \<in> Traces"
+  shows "(bind m f, t, bind m' f) \<in> Traces"
+  using assms
+  by induction (auto intro: T_bind_leftI)
+
+lemma instr_of_trace_no_writes_None:
+  assumes "\<nexists>v. E_write_reg ''__ThisInstrAbstract'' v \<in> set t"
+  shows "instr_of_trace t = None"
+  using assms
+  by (cases t rule: instr_of_trace.cases) auto
+
+lemma instr_of_trace_append_no_writes:
+  assumes "\<nexists>v. E_write_reg ''__ThisInstrAbstract'' v \<in> set t2"
+  shows "instr_of_trace (t1 @ t2) = instr_of_trace t1"
+  using assms
+  by (cases t1 rule: instr_of_trace.cases) (auto simp: instr_of_trace_no_writes_None)
+
+lemma instrs_of_exp_bind_no_writes:
+  assumes "\<forall>a. no_reg_writes_to {''__ThisInstrAbstract''} (f a)"
+  shows "instrs_of_exp (bind m f) = instrs_of_exp m"
+  using assms
+  by (fastforce simp: instrs_of_exp_def instr_of_trace_append_no_writes no_reg_writes_to_def
+                intro: Traces_bind_leftI elim!: bind_Traces_cases)
+
+lemma determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract:
+  "determ_instrs_of_exp (write_reg ThisInstrAbstract_ref instr \<bind> f)"
+  by (auto simp: determ_instrs_of_exp_def instr_of_trace_bind_write_reg_ThisInstrAbstract)
+
+lemma no_reg_writes_to_instr_of_trace_None:
+  assumes "hasTrace t m" and "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "instr_of_trace t = None"
+  using assms
+  by (intro instr_of_trace_no_writes_None) (auto simp: no_reg_writes_to_def hasTrace_iff_Traces_final)
+
+lemma no_reg_writes_to_determ_instrs_of_exp:
+  assumes "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "determ_instrs_of_exp m"
+  using assms
+  by (auto simp: determ_instrs_of_exp_def no_reg_writes_to_instrs_of_exp no_reg_writes_to_instr_of_trace_None)
+
+lemma if_split_no_asm: "P x \<Longrightarrow> P y \<Longrightarrow> P (if b then x else y)"
+  by auto
+
+lemmas determ_instrs_of_exp_if_split_no_asm = if_split_no_asm[where P = determ_instrs_of_exp]
+
+lemma hasTrace_intros:
+  "Run m t a \<Longrightarrow> hasTrace t m"
+  "hasException t m \<Longrightarrow> hasTrace t m"
+  "hasFailure t m \<Longrightarrow> hasTrace t m"
+  by (auto simp: hasTrace_iff_Traces_final hasException_iff_Traces_Exception hasFailure_iff_Traces_Fail)
+
+lemma determ_instrs_of_exp_bind_no_reg_writes:
+  assumes "determ_instrs_of_exp m" and"\<forall>a. no_reg_writes_to {''__ThisInstrAbstract''} (f a)"
+  shows "determ_instrs_of_exp (bind m f)"
+proof (unfold determ_instrs_of_exp_def, intro allI impI)
+  fix t
+  assume "hasTrace t (m \<bind> f)"
+  then show "instrs_of_exp (m \<bind> f) = set_option (instr_of_trace t)"
+  proof (cases rule: hasTrace_bind_cases)
+    case (Bind tm am tf)
+    then have "instr_of_trace (tm @ tf) = instr_of_trace tm"
+      using assms(2)
+      by (intro instr_of_trace_append_no_writes)
+         (auto simp: no_reg_writes_to_def hasTrace_iff_Traces_final)
+    with assms Bind show ?thesis
+      by (auto simp: determ_instrs_of_exp_def instrs_of_exp_bind_no_writes hasTrace_intros)
+  next
+    case Fail
+    with assms show ?thesis
+      by (auto simp: determ_instrs_of_exp_def instrs_of_exp_bind_no_writes hasTrace_intros)
+  next
+    case Ex
+    with assms show ?thesis
+      by (auto simp: determ_instrs_of_exp_def instrs_of_exp_bind_no_writes hasTrace_intros)
+  qed
+qed
+
+lemma trace_invokes_indirect_regs_None[simp]:
+  assumes "instr_of_trace t = None"
+  shows "trace_invokes_indirect_regs t = {}"
+  using assms
+  by (auto simp: trace_invokes_indirect_regs_def)
+
+lemma instr_trace_invokes_indirect_regs[simp]:
+  assumes "instr_of_trace t = Some instr"
+  shows "trace_invokes_indirect_regs t = instr_invokes_indirect_regs instr"
+  using assms
+  by (auto simp: trace_invokes_indirect_regs_def)
+
+lemma trace_invokes_indirect_caps_no_regs[simp]:
+  assumes "trace_invokes_indirect_regs t = {}"
+  shows "trace_invokes_indirect_caps t = {}"
+  using assms
+  by (auto simp: trace_invokes_indirect_caps_def)
+
+context Morello_Axiom_Automaton
+begin
+
+lemma determ_instrs_of_exp_DecodeA64:
+  "determ_instrs_of_exp (DecodeA64 pc opcode)"
+  by (unfold DecodeA64_def Let_def)
+     (intro determ_instrs_of_exp_if_split_no_asm determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract no_reg_writes_to_determ_instrs_of_exp;
+            no_reg_writes_toI)
+
+lemma determ_instrs_of_exp_DecodeExecute:
+  "determ_instrs_of_exp (DecodeExecute enc opcode)"
+  by (cases enc; auto simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32_def determ_instrs_of_exp_DecodeA64 no_reg_writes_to_determ_instrs_of_exp)
+
+lemma determ_instrs_instr_sem:
+  "determ_instrs_of_exp (instr_sem instr)"
+  unfolding instr_sem_def TryInstructionExecute_def
+  by (auto intro!: determ_instrs_of_exp_DecodeExecute[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)
+
+lemma instrs_eq_instr_exp_assms_iff:
+  assumes "instrs_of_exp m1 = instrs_of_exp m2"
+  shows "instr_exp_assms m1 \<longleftrightarrow> instr_exp_assms m2"
+  using assms
+  unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def
+  unfolding exp_invokes_regs_def exp_invokes_indirect_regs_def exp_load_auths_def
+  by auto
+
+lemma instr_exp_assms_TryInstructionExecute_iff:
+  "instr_exp_assms (TryInstructionExecute enc instr) \<longleftrightarrow> instr_exp_assms (DecodeExecute enc instr)"
+  unfolding TryInstructionExecute_def SSAdvance_def bind_assoc
+  by (intro instrs_eq_instr_exp_assms_iff instrs_of_exp_bind_no_writes allI)
+     (no_reg_writes_toI simp: register_defs)
+
+end
+
 context Morello_Write_Cap_Automaton
 begin
 
