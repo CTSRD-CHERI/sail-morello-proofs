@@ -1454,7 +1454,7 @@ definition trace_invokes_caps :: "register_value trace \<Rightarrow> Capability 
           c \<in> branch_caps (CapUnseal c')}
      \<union> invokes_mem_caps instr t"
 
-definition invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+abbreviation invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "invokes_caps instr t \<equiv> trace_invokes_caps t"
 
 definition trace_is_in_c64 :: "register_value trace \<Rightarrow> bool" where
@@ -1466,6 +1466,7 @@ definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth set
 
 definition trace_uses_mem_caps :: "register_value trace \<Rightarrow> bool" where
   "trace_uses_mem_caps t \<equiv>
+     (trace_invokes_indirect_caps t = {}) \<and>
      (\<exists>auth r c.
         auth \<in> trace_load_auths t \<and>
         r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
@@ -1532,10 +1533,10 @@ lemma instrs_of_exp_write_reg_ThisInstrAbstract[simp]:
            intro!: exI[where x = "[E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr)]"])
 
 definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
-  "instr_raises_ex instr t \<equiv> hasException t (instr_sem instr)"
+  "instr_raises_ex instr t \<equiv> hasException t (instr_sem instr) \<or> hasFailure t (instr_sem instr)" \<comment> \<open>TODO\<close>
 
 definition fetch_raises_ex :: "register_value trace \<Rightarrow> bool" where
-  "fetch_raises_ex t \<equiv> hasException t instr_fetch"
+  "fetch_raises_ex t \<equiv> hasException t instr_fetch \<or> hasFailure t instr_fetch" \<comment> \<open>TODO\<close>
 
 text \<open>Over-approximation of allowed exception targets
 TODO: Restrict to valid branch targets of KCC caps with (small) offset?\<close>
@@ -1617,6 +1618,10 @@ lemma ISA_simps[simp]:
   "isa.caps_of_regval ISA = caps_of_regval"
   "isa.is_translation_event ISA = is_translation_event"
   "isa.exception_targets ISA = exception_targets"
+  "isa.instr_raises_ex ISA instr t = instr_raises_ex instr t"
+  "isa.uses_mem_caps ISA instr t = trace_uses_mem_caps t"
+  "isa.invokes_caps ISA instr t = trace_invokes_caps t"
+  "isa.invokes_indirect_caps ISA instr t = trace_invokes_indirect_caps t"
   by (auto simp: ISA_def)
 
 lemma no_cap_regvals[simp]:
