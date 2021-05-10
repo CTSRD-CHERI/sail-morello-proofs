@@ -1640,28 +1640,6 @@ lemma perm_bits_included_OR[simp, intro]:
 
 lemmas perm_bits_included_if[simp] = if_split[where P = "\<lambda>p. perm_bits_included p' p" for p']
 
-lemma tag_granule_16[simp]: "tag_granule ISA = 16"
-  by (auto simp: ISA_def)
-
-lemma address_tag_aligned_iff_aligned_16[simp]:
-  "address_tag_aligned ISA addr \<longleftrightarrow> aligned addr 16"
-  by (auto simp: address_tag_aligned_def aligned_def)
-
-lemma translate_address_aligned_iff[simp]:
-  assumes "translate_address vaddr = Some paddr"
-    and "sz dvd 2^12"
-  shows "aligned paddr sz \<longleftrightarrow> aligned vaddr sz"
-proof -
-  have "aligned paddr sz \<longleftrightarrow> aligned (2^12 * (paddr div 2^12) + vaddr mod 2^12) sz"
-    using assms translate_address_paged[OF assms(1), where vaddr' = vaddr]
-    by auto
-  also have "\<dots> \<longleftrightarrow> aligned vaddr sz"
-    using assms(2)
-    by (auto simp: aligned_def dvd_add_right_iff dvd_mod_iff)
-  finally show ?thesis
-    .
-qed
-
 lemma Align__1_iff_aligned[simp]:
   assumes "addr \<ge> 0" and "sz > 0"
   shows "addr = Align__1 addr sz \<longleftrightarrow> aligned (nat addr) (nat sz)"

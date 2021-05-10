@@ -1609,6 +1609,7 @@ lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
   "KCC ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "IDC ISA = {''_R29''}"
+  "tag_granule ISA = 16"
   "read_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "write_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs"
   "read_exception_regs ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
@@ -1622,6 +1623,8 @@ lemma ISA_simps[simp]:
   "isa.uses_mem_caps ISA instr t = trace_uses_mem_caps t"
   "isa.invokes_caps ISA instr t = trace_invokes_caps t"
   "isa.invokes_indirect_caps ISA instr t = trace_invokes_indirect_caps t"
+  "isa.fetch_raises_ex ISA t = fetch_raises_ex t"
+  "isa.translate_address ISA vaddr load t = translate_address vaddr load t"
   by (auto simp: ISA_def)
 
 lemma no_cap_regvals[simp]:
@@ -1662,6 +1665,10 @@ lemma member_caps_of_regval_iff[simp]:
 lemma bitvector_129_Some_iff[simp]:
   "bitvector_129_dec_of_regval rv = Some c \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
   by (cases rv) auto
+
+lemma address_tag_aligned_iff_aligned_16[simp]:
+  "address_tag_aligned ISA addr \<longleftrightarrow> aligned addr 16"
+  by (auto simp: address_tag_aligned_def aligned_def)
 
 end
 
@@ -1834,6 +1841,21 @@ proof -
     .
 qed
 
+lemma translate_address_aligned_iff[simp]:
+  assumes "translate_address vaddr = Some paddr"
+    and "sz dvd 2^12"
+  shows "aligned paddr sz \<longleftrightarrow> aligned vaddr sz"
+proof -
+  have "aligned paddr sz \<longleftrightarrow> aligned (2^12 * (paddr div 2^12) + vaddr mod 2^12) sz"
+    using assms translate_address_paged[OF assms(1), where vaddr' = vaddr]
+    by auto
+  also have "\<dots> \<longleftrightarrow> aligned vaddr sz"
+    using assms(2)
+    by (auto simp: aligned_def dvd_add_right_iff dvd_mod_iff)
+  finally show ?thesis
+    .
+qed
+
 lemma AArch64_FullTranslate_translate_address[simp]:
   assumes "Run (AArch64_FullTranslate vaddress acctype iswrite wasaligned sz) t addrdesc"
     and "\<not>IsFault addrdesc" and "\<forall>e \<in> set t. translation_assms e"
@@ -1901,6 +1923,136 @@ interpretation Morello_Fixed_Address_Translation
   (* TODO: Show that translation stubs are non_mem_exp's *)
   oops
 \<close>
+
+section \<open>Register footprint lemmas\<close>
+
+text \<open>The bulk of these lemmas are auto-generated in CHERI_Gen_Lemmas, but we manually prove them
+  for built-ins and for helper functions we prove further lemmas about below.\<close>
+
+lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bitvector RV n)"
+  by (unfold undefined_bitvector_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bits RV n)"
+  by (unfold undefined_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_mword_nondet[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (mword_nondet RV n)"
+  by (unfold mword_nondet_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bit u)"
+  by (unfold undefined_bit_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bool[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bool RV u)"
+  by (unfold undefined_bool_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_string RV u)"
+  by (unfold undefined_string_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_unit u)"
+  by (unfold undefined_unit_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_vector len v)"
+  by (unfold undefined_vector_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_int RV u)"
+  by (unfold undefined_int_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_nat RV u)"
+  by (unfold undefined_nat_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_real RV u)"
+  by (unfold undefined_real_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_range RV i j)"
+  by (unfold undefined_range_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_atom n)"
+  by (unfold undefined_atom_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_internal_pick[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (internal_pick RV xs)"
+  by (unfold internal_pick_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_Capability[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (UNKNOWN_Capability n)"
+  by (unfold UNKNOWN_Capability_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_bits[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (UNKNOWN_bits n)"
+  by (unfold UNKNOWN_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_VirtualAddress[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (UNKNOWN_VirtualAddress u)"
+  unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
+  by no_reg_writes_toI
+
+(* The following register write is used inside loops with capability effects in some instructions,
+   so we need a footprint lemma for the loop tactic to work automatically. *)
+lemma no_reg_writes_to_write_reg_FPSR[no_reg_writes_toI]:
+  "''FPSR'' \<notin> Rs \<Longrightarrow> no_reg_writes_to Rs (write_reg FPSR_ref v)"
+  by (intro no_reg_writes_to_write_reg) (auto simp: register_defs)
+
+declare datatype_splits[split]
+declare datatype_splits[where P = "no_reg_writes_to Rs" for Rs, THEN iffD2, no_reg_writes_toI]
+declare datatype_splits[where P = "runs_no_reg_writes_to Rs" for Rs, THEN iffD2, runs_no_reg_writes_toI]
+
+lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
+  by (unfold Mem_read_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_Mem_set[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Mem_set x0 x1 x2 x3)"
+  by (unfold Mem_set_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadMem x0 x1 x2)"
+  by (unfold ReadMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadTaggedMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadTaggedMem x0 x1 x2)"
+  by (unfold ReadTaggedMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadTags[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadTags x0 x1 x2)"
+  by (unfold ReadTags_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteMem x0 x1 x2 x3)"
+  by (unfold WriteMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
+  by (unfold WriteTaggedMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_write_tag_bool[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (write_tag_bool wk addr sz tag)"
+  by (unfold write_tag_bool_def mword_nondet_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
+  by (unfold WriteTags_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Halted u)"
+  unfolding Halted_def
+  by (no_reg_writes_toI)
+
+lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (CapIsSystemAccessEnabled u)"
+  unfolding CapIsSystemAccessEnabled_def Halted_def PCC_read_def bind_assoc
+  by (no_reg_writes_toI)
 
 section \<open>Verification framework\<close>
 
@@ -1987,86 +2139,8 @@ lemma non_cap_exp_UNKNOWN_VirtualAddress[non_cap_expI]:
   unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
   by non_cap_expI
 
-lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bitvector RV n)"
-  by (unfold undefined_bitvector_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bits RV n)"
-  by (unfold undefined_bits_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_mword_nondet[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (mword_nondet RV n)"
-  by (unfold mword_nondet_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bit u)"
-  by (unfold undefined_bit_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bool[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bool RV u)"
-  by (unfold undefined_bool_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_string RV u)"
-  by (unfold undefined_string_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_unit u)"
-  by (unfold undefined_unit_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_vector len v)"
-  by (unfold undefined_vector_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_int RV u)"
-  by (unfold undefined_int_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_nat RV u)"
-  by (unfold undefined_nat_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_real RV u)"
-  by (unfold undefined_real_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_range RV i j)"
-  by (unfold undefined_range_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_atom n)"
-  by (unfold undefined_atom_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_internal_pick[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (internal_pick RV xs)"
-  by (unfold internal_pick_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_UNKNOWN_Capability[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (UNKNOWN_Capability n)"
-  by (unfold UNKNOWN_Capability_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_UNKNOWN_bits[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (UNKNOWN_bits n)"
-  by (unfold UNKNOWN_bits_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_UNKNOWN_VirtualAddress[no_reg_writes_toI]:
-  "no_reg_writes_to Rs (UNKNOWN_VirtualAddress u)"
-  unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
-  by no_reg_writes_toI
-
-(* The following register write is used inside loops with capability effects in some instructions,
-   so we need a footprint lemma for the loop tactic to work automatically. *)
-lemma no_reg_writes_to_write_reg_FPSR[no_reg_writes_toI]:
-  "''FPSR'' \<notin> Rs \<Longrightarrow> no_reg_writes_to Rs (write_reg FPSR_ref v)"
-  by (intro no_reg_writes_to_write_reg) (auto simp: register_defs)
-
-declare datatype_splits[split]
 declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
-declare datatype_splits[where P = "no_reg_writes_to Rs" for Rs, THEN iffD2, no_reg_writes_toI]
-declare datatype_splits[where P = "runs_no_reg_writes_to Rs" for Rs, THEN iffD2, runs_no_reg_writes_toI]
 
 lemma DDC_read_derivable[derivable_capsE]:
   "Run (DDC_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
@@ -4566,42 +4640,6 @@ lemma size_64_word_eq_64[derivable_capsI]:
   "int (size (w :: 64 word)) = 64"
   by auto
 
-lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
-  by (unfold Mem_read_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_Mem_set[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (Mem_set x0 x1 x2 x3)"
-  by (unfold Mem_set_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_ReadMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (ReadMem x0 x1 x2)"
-  by (unfold ReadMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_ReadTaggedMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (ReadTaggedMem x0 x1 x2)"
-  by (unfold ReadTaggedMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_ReadTags[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (ReadTags x0 x1 x2)"
-  by (unfold ReadTags_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (WriteMem x0 x1 x2 x3)"
-  by (unfold WriteMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
-  by (unfold WriteTaggedMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_write_tag_bool[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (write_tag_bool wk addr sz tag)"
-  by (unfold write_tag_bool_def mword_nondet_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
-  by (unfold WriteTags_def, no_reg_writes_toI)
-
 definition VA_derivable :: "VirtualAddress \<Rightarrow> (129 word, register_value) axiom_state \<Rightarrow> bool" where
   "VA_derivable va s \<equiv>
      (case VirtualAddress_vatype va of
@@ -4739,11 +4777,6 @@ lemma Run_Halted_True_False[simp]:
   using assms
   by (auto dest: Halted_False)
 
-lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
-  "no_reg_writes_to Rs (Halted u)"
-  unfolding Halted_def
-  by (no_reg_writes_toI)
-
 lemma Run_Halted_accessible_regs[accessible_regsE]:
   assumes "Run (Halted u) t h" and "sysreg_trace_assms s t"
     and "Rs - (if h then read_privileged_regs ISA else {}) \<subseteq> accessible_regs s"
@@ -4805,11 +4838,6 @@ lemma CapIsSystemAccessEnabled_system_reg_access[derivable_capsE]:
   shows "system_reg_access (run s t)"
   using CapIsSystemAccessEnabled_trace_allows_system_reg_access[OF assms]
   by (auto simp: system_reg_access_run_iff)
-
-lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
-  "no_reg_writes_to Rs (CapIsSystemAccessEnabled u)"
-  unfolding CapIsSystemAccessEnabled_def Halted_def PCC_read_def bind_assoc
-  by (no_reg_writes_toI)
 
 lemma CapIsSystemAccessEnabled_accessible_regs[accessible_regsE]:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms s t"

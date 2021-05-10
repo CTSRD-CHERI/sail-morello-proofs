@@ -2,9 +2,6 @@ theory CHERI_Monotonicity
   imports CHERI_Cap_Properties CHERI_Mem_Properties CHERI_Fetch_Properties "Sail-T-CHERI.Properties"
 begin
 
-print_locale Morello_Fixed_Address_Translation
-print_locale CHERI_ISA_State
-
 interpretation Register_Accessors get_regval set_regval
   apply standard
   sorry
@@ -12,22 +9,6 @@ interpretation Register_Accessors get_regval set_regval
 locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: "register_value trace"
 
 locale Morello_Instr_Trace_Automaton = Morello_Trace_Automaton + fixes instr :: instr
-
-(*sublocale Morello_Instr_Trace_Automaton \<subseteq> Morello_Axiom_Automaton
-  where ex_traces = "instr_raises_ex instr t"
-    and invoked_caps = "invokes_caps instr t"
-    and invoked_regs = "trace_invokes_regs t"
-    and invoked_indirect_caps = "invokes_indirect_caps instr t"
-    and invoked_indirect_regs = "trace_invokes_indirect_regs t"
-    and load_auths = "trace_load_auths t"
-    and use_mem_caps = "uses_mem_caps instr t"
-    and is_fetch = False
-    and is_indirect_branch = "trace_is_indirect_branch t"
-    and no_system_reg_access = "\<not>trace_has_system_reg_access t"
-    and is_in_c64 = "trace_is_in_c64 t"
-    and translate_address = "\<lambda>addr _ _. translate_address addr"
-  apply standard
-  oops*)
 
 locale Morello_Instr_Trace_Write_Cap_Automaton =
   Morello_Instr_Trace_Automaton + Morello_Instr_Write_Cap_Automaton
@@ -107,14 +88,8 @@ begin
 abbreviation "instr_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms translate_address is_translation_event translation_assms UNKNOWN_caps t"
 abbreviation "fetch_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms translate_address is_translation_event translation_assms UNKNOWN_caps t"
 
-lemma more_ISA_simps[simp]:
-  "isa.fetch_raises_ex ISA t = fetch_raises_ex t"
-  by (auto simp: ISA_def)
-
 (* TODO:
-   - Later: Restrict ex_traces case to only exceptions, not failures; clean up instr/fetch_raises_ex again
-   - Move translate_address_aligned_iff to Morello_Fixed_Address_Translation
-   - Move no_reg_writes_to lemmas outisde of context (to speed up interpretation)
+   - Restrict ex_traces case to only exceptions, not failures; clean up instr/fetch_raises_ex again
  *)
 
 sublocale CHERI_ISA CC ISA cap_invariant UNKNOWN_caps fetch_assms instr_assms
@@ -171,18 +146,7 @@ qed
 abbreviation "s_translate_address addr acctype s \<equiv> translate_address addr"
 
 sublocale CHERI_ISA_State CC ISA cap_invariant UNKNOWN_caps fetch_assms instr_assms get_regval set_regval s_translate_address
-proof
-  fix t s vaddr paddr load
-  assume "s_allows_trace t s" and "isa.translate_address ISA vaddr load t = Some paddr"
-  then show "translate_address vaddr = Some paddr"
-    by (auto simp: ISA_def)
-next
-  fix s vaddr paddr load
-  assume "translate_address vaddr = Some paddr"
-  then show "address_tag_aligned ISA paddr = address_tag_aligned ISA vaddr"
-    thm Morello_Mem_Axiom_Automaton.translate_address_aligned_iff
-    sorry
-qed
+  by standard auto
 
 thm reachable_caps_instrs_trace_intradomain_monotonicity
 
