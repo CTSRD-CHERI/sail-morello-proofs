@@ -1,43 +1,9 @@
 theory CHERI_Fetch_Lemmas
-  imports CHERI_Mem_Properties "Sail.Hoare"
+  imports CHERI_Mem_Properties "Sail.Hoare" "Sail-T-CHERI.Properties"
 begin
 
-context Morello_Fetch_Mem_Automaton
-begin
-
-lemmas non_cap_exp_traces_enabled[traces_enabledI] = non_cap_expI[THEN non_cap_exp_traces_enabledI]
-
-lemmas non_mem_exp_traces_enabled[traces_enabledI] = non_mem_expI[THEN non_mem_exp_traces_enabledI]
-
-lemma traces_enabled_Mem_read_Fetch[traces_enabledI]:
-  assumes "\<And>v. paccess_enabled s Fetch (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
-  shows "traces_enabled (Mem_read desc sz accdesc) s"
-  unfolding Mem_read_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
-
-lemma load_enabled_access_enabled_Fetch[intro]:
-  assumes "load_enabled s acctype vaddr sz tagged"
-    and "sz' = nat sz"
-    and "translate_address vaddr = Some paddr"
-    and "tagged \<or> tag = B0"
-  shows "\<exists>vaddr. access_enabled s Fetch vaddr paddr sz' data tag"
-  using assms
-  unfolding load_enabled_def
-  by (cases tagged) auto
-
-lemma traces_enabled_AArch64_MemSingle_read[traces_enabledI]:
-  assumes "translate_address (unat address) \<noteq> None \<longrightarrow> load_enabled s acctype (unat address) size__arg False"
-  shows "traces_enabled (AArch64_MemSingle_read address size__arg acctype wasaligned :: 'size_times_p8::len word M) s"
-  unfolding AArch64_MemSingle_read_def bind_assoc
-  by (traces_enabledI assms: assms intro: traces_enabled_Mem_read_Fetch simp: exp_fails_if_then_else)
-
-lemma traces_enabled_FetchInstr[traces_enabledI]:
-  assumes "{''PCC''} \<subseteq> accessible_regs s"
-  shows "traces_enabled (FetchInstr pc) s"
-  unfolding FetchInstr_def CheckPCCCapability_def bind_assoc
-  by (traces_enabledI assms: assms elim: CheckCapability_load_enabled intro: derivable_or_invokedI1)
-
-end
+(* TODO: Move Register_Accessors from Sail-T-CHERI.Properties to an earlier T-CHERI theory or
+   the Sail library. *)
 
 lemma Run_Read_mem_iff:
   "Run (Read_mem rk addr sz k) t a \<longleftrightarrow> (\<exists>t' data. t = E_read_mem rk addr sz data # t' \<and> Run (k data) t' a)"
@@ -387,6 +353,165 @@ lemma
       apply (non_mem_expI)
      apply (simp add: PCC_ref_def)
   done
+
+end
+
+abbreviation "runs_preserve_invariant m P \<equiv> \<lbrace>P\<rbrace> m \<lbrace>\<lambda>_ s. P s \<bar> \<lambda>_ _. True\<rbrace>"
+
+lemma runs_preserve_invariant_conjI:
+  assumes "runs_preserve_invariant m P" and "runs_preserve_invariant m (\<lambda>s. P s \<longrightarrow> Q s)"
+  shows "runs_preserve_invariant m (\<lambda>s. P s \<and> Q s)"
+  by (rule PrePostE_conj_conds_consequence[OF assms]) auto
+
+lemma runs_preserve_invariant_imp_conjI:
+  assumes "runs_preserve_invariant m (\<lambda>s. P s \<longrightarrow> Q s)"
+    and "runs_preserve_invariant m (\<lambda>s. P s \<and> Q s \<longrightarrow> R s)"
+  shows "runs_preserve_invariant m (\<lambda>s. P s \<longrightarrow> (Q s \<and> R s))"
+  by (rule PrePostE_conj_conds_consequence[OF assms]) auto
+
+abbreviation "runs_establish_invariant m P \<equiv> \<lbrace>\<lambda>_. True\<rbrace> m \<lbrace>\<lambda>_ s. P s \<bar> \<lambda>_ _. True\<rbrace>"
+
+lemma runs_establish_invariant_runs_preserve_invariant:
+  "runs_establish_invariant m P \<Longrightarrow> runs_preserve_invariant m P"
+  by (auto intro: PrePostE_strengthen_pre)
+
+lemma runs_establish_invariant_bindS_left:
+  assumes "runs_establish_invariant m P"
+    and "\<And>s a s'. (Value a, s') \<in> m s \<Longrightarrow> runs_preserve_invariant (f a) P"
+  shows "runs_establish_invariant (bindS m f) P"
+  using assms
+  by (intro PrePostE_bindS) auto
+
+lemma runs_establish_invariant_bindS_right:
+  assumes "\<And>s a s'. (Value a, s') \<in> m s \<Longrightarrow> runs_establish_invariant (f a) P"
+  shows "runs_establish_invariant (bindS m f) P"
+  using assms
+  by (intro PrePostE_bindS) auto
+
+lemma runs_preserve_invariant_bindS:
+  assumes "runs_preserve_invariant m P"
+    and "\<And>s a s'. (Value a, s') \<in> m s \<Longrightarrow> P s \<Longrightarrow> P s' \<Longrightarrow> runs_preserve_invariant (f a) P"
+  shows "runs_preserve_invariant (bindS m f) P"
+  using assms
+  apply (auto simp: PrePostE_def PrePost_def elim!: bindS_cases split: result.splits prod.splits)
+  subgoal for s s' a' a s''
+    apply (erule allE[where x = s])
+    apply simp
+    apply (erule ballE[where x = "(Value a, s'')"])
+     apply (use assms(2)[of a s'' s] in \<open>auto elim: PrePostE_elim[where s = s'']\<close>)
+    done
+  done
+
+context Register_Accessors
+begin
+
+abbreviation liftS where "liftS \<equiv> liftState (read_regval, write_regval)"
+
+(* TODO: Move get_reg_val from CHERI_ISA_State to Register_Accessors *)
+definition "reg_inv r P s \<equiv> (\<forall>v. read_regval r (regstate s) = Some v \<longrightarrow> P v)"
+
+lemma runs_establish_reg_inv_write_reg:
+  assumes "P (regval_of r v)" and "name r = n"
+  shows "runs_establish_invariant (liftS (write_reg r v)) (reg_inv n P)"
+  using assms
+  by (intro PrePostE_I)
+     (auto simp: write_reg_def Value_bindS_iff reg_inv_def read_absorb_write split: option.splits)
+
+lemma runs_preserve_reg_inv_write_reg_other:
+  assumes "name r \<noteq> n"
+  shows "runs_preserve_invariant (liftS (write_reg r v)) (reg_inv n P)"
+  using assms
+  by (intro PrePostE_I)
+     (auto simp: write_reg_def Value_bindS_iff reg_inv_def read_ignore_write split: option.splits)
+
+lemma runs_preserve_reg_inv_no_reg_writes[simp]:
+  assumes "runs_no_reg_writes_to {r} m"
+  shows "runs_preserve_invariant (liftS m) (reg_inv r P)"
+proof (intro PrePostE_I)
+  fix s a s'
+  assume s: "reg_inv r P s" and "(Value a, s') \<in> liftS m s"
+  then obtain t where "Run m t a" and s': "runTraceS (read_regval, write_regval) t s = Some s'"
+    by (elim Value_liftState_Run_runTraceS)
+  then have "\<nexists>v. E_write_reg r v \<in> set t"
+    using assms
+    by (auto simp: runs_no_reg_writes_to_def)
+  then have "read_regval r (regstate s') = read_regval r (regstate s)"
+    using s'
+    by (induction t arbitrary: s;
+        fastforce elim!: emitEventS.elims split: bind_splits if_splits simp: read_ignore_write)
+  then show "reg_inv r P s'"
+    using s
+    by (auto simp: reg_inv_def)
+qed auto
+
+end
+
+locale Morello_Register_Accessors = Register_Accessors
+  where read_regval = get_regval and write_regval = set_regval
+begin
+
+fun PCC_regval_inv where
+  "PCC_regval_inv (Regval_bitvector_129_dec c) = (CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c)"
+| "PCC_regval_inv _ = True"
+
+abbreviation "PCC_inv \<equiv> reg_inv ''PCC'' PCC_regval_inv"
+
+lemma runs_establish_PCC_inv_write_PCC:
+  assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "runs_establish_invariant (write_regS PCC_ref c) PCC_inv"
+  unfolding liftState_simp[symmetric]
+  using assms
+  by (intro runs_establish_reg_inv_write_reg)
+     (auto simp: PCC_ref_def regval_of_bitvector_129_dec_def)
+
+(* TODO: Move (and strengthen!) these lemmas in CHERI_Instantiation out of their too narrow context *)
+lemma CapGetObjectType_CapSetFlags_eq[simp]:
+  "CapGetObjectType (CapSetFlags c flags) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def CapSetFlags_def word_ao_nth slice_update_subrange_vec_dec_below)
+
+lemma CapIsSealed_CapSetFlags_iff[simp]:
+  "CapIsSealed (CapSetFlags c flags) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
+lemma Run_BranchAddr_not_CapIsSealed_if:
+  assumes "Run (BranchAddr c el) t c'"
+    and "CapIsTagSet c'"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE split: if_splits)
+
+lemma runs_establish_PCC_inv_BranchToCapability:
+  "runs_establish_invariant (liftS (BranchToCapability c branch_type)) PCC_inv"
+  unfolding BranchToCapability_def Let_def bind_assoc liftState_bind comp_def
+  apply (rule runs_establish_invariant_bindS_right)
+  apply (rule runs_establish_invariant_bindS_right)
+  apply (rule runs_establish_invariant_bindS_right)
+  apply (rule runs_establish_invariant_bindS_right)
+  apply (rule runs_establish_invariant_bindS_right)
+  apply (rule runs_establish_invariant_bindS_right)
+  apply (rule runs_establish_invariant_bindS_left)
+  apply (rule runs_establish_reg_inv_write_reg)
+  apply (auto simp: PCC_ref_def BranchTaken_ref_def regval_of_bitvector_129_dec_def Run_BranchAddr_not_CapIsSealed_if elim!: Value_liftState_Run intro: runs_preserve_reg_inv_write_reg_other)
+  done
+
+lemma runs_establish_PCC_inv_BranchXToCapability:
+  "runs_establish_invariant (liftS (BranchXToCapability c branch_type)) PCC_inv"
+  unfolding BranchXToCapability_def Let_def bind_assoc liftState_bind comp_def
+  by (intro runs_establish_invariant_bindS_right runs_establish_PCC_inv_BranchToCapability)
+
+lemma
+  "runs_preserve_invariant (liftS (decode_BLR_C_C opc Cn)) PCC_inv"
+  unfolding decode_BLR_C_C_def execute_BLR_C_C_def
+  unfolding Let_def bind_assoc liftState_bind comp_def
+  by (intro runs_establish_invariant_runs_preserve_invariant
+            runs_establish_invariant_bindS_right
+            runs_establish_PCC_inv_BranchXToCapability)
+
+lemma
+  "runs_preserve_invariant (liftS (decode_frinti_float_aarch64_instrs_float_arithmetic_round_frint Rd Rn rmode ftype S M)) PCC_inv"
+  by auto
 
 end
 
