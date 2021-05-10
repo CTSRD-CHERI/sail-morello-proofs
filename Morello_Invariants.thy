@@ -1,4 +1,4 @@
-theory CHERI_Fetch_Lemmas
+theory Morello_Invariants
   imports CHERI_Mem_Properties "Sail.Hoare" "Sail-T-CHERI.Properties"
 begin
 
