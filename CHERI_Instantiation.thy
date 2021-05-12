@@ -608,6 +608,47 @@ lemma Run_CapAdd_tag_imp:
   by (auto simp: test_bit_set update_subrange_vec_dec_test_bit
            elim!: Run_bindE Run_letE split: if_splits)
 
+lemma CapGetPermissions_CapWithTagSet_eq[simp]:
+  "CapGetPermissions (CapWithTagSet c) = CapGetPermissions c"
+  unfolding CapGetPermissions_def CapWithTagSet_def
+  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
+
+lemma CapGetObjectType_CapWithTagSet_eq[simp]:
+  "CapGetObjectType (CapWithTagSet c) = CapGetObjectType c"
+  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapIsSealed_CapWithTagSet_iff[simp]:
+  "CapIsSealed (CapWithTagSet c) \<longleftrightarrow> CapIsSealed c"
+  unfolding CapIsSealed_def
+  by auto
+
+lemma CapGetObjectType_CapSetFlags_eq[simp]:
+  "CapGetObjectType (CapSetFlags c flags) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def CapSetFlags_def word_ao_nth slice_update_subrange_vec_dec_below)
+
+lemma CapIsSealed_CapSetFlags_iff[simp]:
+  "CapIsSealed (CapSetFlags c flags) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
+lemma Run_BranchAddr_not_CapIsSealed_if:
+  assumes "Run (BranchAddr c el) t c'"
+    and "CapIsTagSet c'"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE split: if_splits)
+
+lemma CapGetObjectType_set_bit_0_eq[simp]:
+  "CapGetObjectType (set_bit c 0 b) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapIsSealed_set_bit_0_iff[simp]:
+  "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
 (*lemma no_Run_EndOfInstruction[simp]:
   "Run (EndOfInstruction u) t a \<longleftrightarrow> False"
   by (auto simp: EndOfInstruction_def)
@@ -1222,6 +1263,10 @@ lemma get_bounds_CapSetObjectType_eq:
   "get_limit (CapSetObjectType c otype) = get_limit c"
   unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapSetObjectType_eq
   by auto
+
+lemma cap_permits_CapWithTagSet_iff[simp]:
+  "cap_permits perms (CapWithTagSet c) \<longleftrightarrow> cap_permits perms c"
+  by (auto simp: CapCheckPermissions_def)
 
 (* TODO: Move to Morello_Compartment locale and add system register access invariant? *)
 definition cap_invariant :: "Capability \<Rightarrow> bool" where
@@ -2167,51 +2212,6 @@ lemma CapWithTagSet_bounds_eq[simp]:
   "get_limit (CapWithTagSet c) = get_limit c"
   unfolding get_base_def get_limit_def CapGetBase_def CapGetBounds_CapWithTagSet_eq
   by auto
-
-lemma CapGetPermissions_CapWithTagSet_eq[simp]:
-  "CapGetPermissions (CapWithTagSet c) = CapGetPermissions c"
-  unfolding CapGetPermissions_def CapWithTagSet_def
-  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
-
-lemma cap_permits_CapWithTagSet_iff[simp]:
-  "cap_permits perms (CapWithTagSet c) \<longleftrightarrow> cap_permits perms c"
-  by (auto simp: CapCheckPermissions_def)
-
-lemma CapGetObjectType_CapWithTagSet_eq[simp]:
-  "CapGetObjectType (CapWithTagSet c) = CapGetObjectType c"
-  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def
-  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
-
-lemma CapIsSealed_CapWithTagSet_iff[simp]:
-  "CapIsSealed (CapWithTagSet c) \<longleftrightarrow> CapIsSealed c"
-  unfolding CapIsSealed_def
-  by auto
-
-lemma CapGetObjectType_CapSetFlags_eq[simp]:
-  "CapGetObjectType (CapSetFlags c flags) = CapGetObjectType c"
-  by (intro word_eqI)
-     (auto simp: CapGetObjectType_def CapSetFlags_def word_ao_nth slice_update_subrange_vec_dec_below)
-
-lemma CapIsSealed_CapSetFlags_iff[simp]:
-  "CapIsSealed (CapSetFlags c flags) = CapIsSealed c"
-  by (auto simp: CapIsSealed_def)
-
-lemma Run_BranchAddr_not_CapIsSealed_if:
-  assumes "Run (BranchAddr c el) t c'"
-    and "CapIsTagSet c'" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "\<not>CapIsSealed c'"
-  using assms
-  unfolding BranchAddr_def
-  by (auto elim!: Run_bindE Run_letE Run_ifE split: if_splits)
-
-lemma CapGetObjectType_set_bit_0_eq[simp]:
-  "CapGetObjectType (set_bit c 0 b) = CapGetObjectType c"
-  by (intro word_eqI)
-     (auto simp: CapGetObjectType_def word_ao_nth nth_slice test_bit_set_gen)
-
-lemma CapIsSealed_set_bit_0_iff[simp]:
-  "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
-  by (auto simp: CapIsSealed_def)
 
 lemma leq_perms_cap_permits_imp:
   assumes "leq_perms (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
