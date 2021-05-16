@@ -5,6 +5,11 @@ begin
 context Morello_Axiom_Automaton
 begin
 
+(* TODO: Formulate wellformedness assumptions and generate lemmas for this function and its dependencies. *)
+lemma AArch64_TakeException_raises_isa_ex:
+  "exp_raises_isa_ex (AArch64_TakeException target_el exception preferred_exception_return vect_offset)"
+  sorry
+
 definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
 
@@ -1206,7 +1211,7 @@ lemma traces_enabled_Write_mem:
     and "\<And>r. enabled s (E_write_mem wk paddr sz v r)"
   shows "traces_enabled (Write_mem wk paddr sz v m) s"
   using assms
-  by (fastforce simp: traces_enabled_def take_Cons pre_inv_trace_assms_Cons split: nat.splits elim!: Traces_cases[where m = "Write_mem wk paddr sz v m"])
+  by (fastforce simp: traces_enabled_def take_Cons split: nat.splits elim!: Traces_cases[where m = "Write_mem wk paddr sz v m"])
 
 lemma length_take_chunks:
   assumes "n > 0" and "n dvd length xs"
@@ -1249,7 +1254,7 @@ lemma traces_enabled_Write_memt:
     and "\<And>r. enabled s (E_write_memt wk paddr sz v tag r)"
   shows "traces_enabled (Write_memt wk paddr sz v tag m) s"
   using assms
-  by (fastforce simp: traces_enabled_def take_Cons pre_inv_trace_assms_Cons split: nat.splits elim!: Traces_cases[where m = "Write_memt wk paddr sz v tag m"])
+  by (fastforce simp: traces_enabled_def take_Cons split: nat.splits elim!: Traces_cases[where m = "Write_memt wk paddr sz v tag m"])
 
 fun bitU_nonzero :: "bitU \<Rightarrow> bool" where
   "bitU_nonzero B0 = False"

@@ -1,10 +1,13 @@
 theory CHERI_Monotonicity
-  imports CHERI_Cap_Properties CHERI_Mem_Properties CHERI_Fetch_Properties "Sail-T-CHERI.Properties"
+  imports
+    "Sail-Morello.Morello_lemmas"
+    CHERI_Instantiation
+    CHERI_Cap_Properties
+    CHERI_Mem_Properties
+    CHERI_Fetch_Properties
+    "Sail-T-CHERI.Trace_Assumptions"
+    "Sail-T-CHERI.Properties"
 begin
-
-interpretation Register_Accessors get_regval set_regval
-  apply standard
-  sorry
 
 locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: "register_value trace"
 
@@ -95,32 +98,35 @@ abbreviation "fetch_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fet
 sublocale CHERI_ISA CC ISA cap_invariant UNKNOWN_caps fetch_assms instr_assms
 proof
   fix t :: "register_value trace" and instr :: instr and n :: nat
-  interpret Write_Cap?: Morello_Instr_Trace_Write_Cap_Automaton where instr = instr and t = t
+  interpret Write_Cap: Morello_Instr_Trace_Write_Cap_Automaton where instr = instr and t = t
     by standard (auto simp: trace_uses_mem_caps_def)
   assume t: "hasTrace t (instr_sem_ISA instr)"
     and inv: "instr_available_caps_invariant instr t n"
     and ia: "instr_assms instr t"
     and n: "n \<le> length t"
-  from t have iea: "instr_exp_assms (instr_sem instr)"
-    by (intro instr_exp_assms_instr_semI) simp
+  from t have iea: "Write_Cap.instr_exp_assms (instr_sem instr)"
+    by (intro Write_Cap.instr_exp_assms_instr_semI) simp
   from ia have no_asr: "\<not>trace_has_system_reg_access t"
     by simp
-  have *: "Write_Cap.traces_enabled (instr_sem instr) initial"
+  have *: "Write_Cap.traces_enabled (instr_sem instr) Write_Cap.initial"
+    using iea no_asr
     unfolding instr_sem_def
-    by (traces_enabledI assms: iea simp: instr_sem_def intro: no_asr)
+    by (intro Write_Cap.traces_enabledI) auto
   interpret Mem: Morello_Instr_Trace_Mem_Automaton where instr = instr and t = t
     by standard (auto simp: trace_uses_mem_caps_def)
-  have **: "Mem.traces_enabled (instr_sem instr) initial"
-    unfolding instr_sem_def TryInstructionExecute_def bind_assoc
-    by (traces_enabledI assms: iea simp: instr_sem_def instr_exp_assms_TryInstructionExecute_iff intro: no_asr)
+  have **: "Mem.traces_enabled (instr_sem instr) Mem.initial"
+    using iea no_asr
+    unfolding instr_sem_def
+    by (intro Mem.traces_enabledI) auto
   show "instr_cheri_axioms instr t n"
     using * ** t inv ia n
     unfolding cheri_axioms_def ISA_simps
-    by (intro conjI; elim traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
-       (auto simp: instr_raises_ex_def intro: holds_along_trace_take)
+    by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
+       (auto simp: instr_raises_ex_def Write_Cap.trace_raises_isa_exception_def
+             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)
 next
   fix t :: "register_value trace" and n :: nat
-  interpret Write_Cap?: Morello_Fetch_Trace_Write_Cap_Automaton where t = t
+  interpret Write_Cap: Morello_Fetch_Trace_Write_Cap_Automaton where t = t
     by standard auto
   assume t: "hasTrace t (isa.instr_fetch ISA)"
     and inv: "fetch_available_caps_invariant t n"
@@ -128,22 +134,28 @@ next
     and n: "n \<le> length t"
   from ia have no_asr: "\<not>trace_has_system_reg_access t"
     by simp
-  have *: "Write_Cap.traces_enabled (instr_fetch) initial"
+  have *: "Write_Cap.traces_enabled (instr_fetch) Write_Cap.initial"
+    using no_asr
     unfolding instr_fetch_def bind_assoc
-    by traces_enabledI
+    by (intro Write_Cap.traces_enabledI Write_Cap.accessible_regs_no_writes_run_subset) auto
   interpret Mem: Morello_Fetch_Trace_Mem_Automaton where t = t
     by standard auto
-  have **: "Mem.traces_enabled (instr_fetch) initial"
+  have **: "Mem.traces_enabled (instr_fetch) Mem.initial"
     unfolding instr_fetch_def bind_assoc
-    by traces_enabledI
+    by (intro Mem.traces_enabledI Mem.accessible_regs_no_writes_run_subset) auto
   show "fetch_cheri_axioms t n"
     using * ** t inv ia n
-    unfolding cheri_axioms_def ISA_simps more_ISA_simps
-    by (intro conjI; elim traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
-       (auto simp: fetch_raises_ex_def intro: holds_along_trace_take)
+    unfolding cheri_axioms_def ISA_simps
+    by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
+       (auto simp: fetch_raises_ex_def Write_Cap.trace_raises_isa_exception_def
+             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)
 qed
 
 abbreviation "s_translate_address addr acctype s \<equiv> translate_address addr"
+
+interpretation Morello_Register_State: Register_State get_regval set_regval
+  apply standard
+  sorry
 
 sublocale CHERI_ISA_State CC ISA cap_invariant UNKNOWN_caps fetch_assms instr_assms get_regval set_regval s_translate_address
   by standard auto

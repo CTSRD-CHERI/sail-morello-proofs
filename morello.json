@@ -44,8 +44,8 @@
         "proof": "(auto simp: runs_no_reg_writes_to_def)"
       },
       "traces_enabled": {
-	"unfolding": [],
-	"proof": "(rule exp_fails_traces_enabled, simp, unfold AArch64_TakeException_def bind_assoc, traces_enabledI assms: assms elim: CapSetValue_exception_target_enabled_branch_target)"
+        "unfolding": [],
+        "proof": "(rule AArch64_TakeException_raises_isa_ex[THEN exp_raises_ex_traces_enabled], unfold AArch64_TakeException_def bind_assoc, traces_enabledI assms: assms elim: CapSetValue_exception_target_enabled_branch_target)"
       }
     },
     "AArch64_TakeVirtualSErrorException": {

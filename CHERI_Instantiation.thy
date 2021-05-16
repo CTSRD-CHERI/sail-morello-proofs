@@ -1577,11 +1577,15 @@ lemma instrs_of_exp_write_reg_ThisInstrAbstract[simp]:
            elim!: Write_reg_TracesE
            intro!: exI[where x = "[E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr)]"])
 
+fun is_isa_exception :: "exception \<Rightarrow> bool" where
+  "is_isa_exception (Error_ExceptionTaken u) = True"
+| "is_isa_exception _ = False"
+
 definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
-  "instr_raises_ex instr t \<equiv> hasException t (instr_sem instr) \<or> hasFailure t (instr_sem instr)" \<comment> \<open>TODO\<close>
+  "instr_raises_ex instr t \<equiv> runTrace t (instr_sem instr) = Some (Exception (Error_ExceptionTaken ()))"
 
 definition fetch_raises_ex :: "register_value trace \<Rightarrow> bool" where
-  "fetch_raises_ex t \<equiv> hasException t instr_fetch \<or> hasFailure t instr_fetch" \<comment> \<open>TODO\<close>
+  "fetch_raises_ex t \<equiv> runTrace t instr_fetch = Some (Exception (Error_ExceptionTaken ()))"
 
 text \<open>Over-approximation of allowed exception targets
 TODO: Restrict to valid branch targets of KCC caps with (small) offset?\<close>
@@ -5479,12 +5483,16 @@ fun ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> register
     (unknown_ev_assms (E_choose descr rv) \<and> translation_assms (E_choose descr rv))"
 | "ev_assms s e = translation_assms e"
 
+fun wellformed_ev :: "register_value event \<Rightarrow> bool" where
+  "wellformed_ev e = True" \<comment> \<open>TODO\<close>
+
 end
 
 locale Morello_Axiom_Automaton =
   Morello_Axiom_Assms +
   Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
     and cap_invariant = cap_invariant and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
 begin
 
 (* sublocale Morello_Cap_Axiom_Automaton .. *)
@@ -5592,6 +5600,7 @@ sublocale Morello_Axiom_Assms where enabled = enabled ..
 (* TODO *)
 sublocale Write_Cap_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
     and cap_invariant = cap_invariant ..
 
 sublocale Morello_Axiom_Automaton where enabled = enabled ..
@@ -5742,6 +5751,7 @@ sublocale Mem_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and cap_invariant = cap_invariant
     (* and translation_assms = "\<lambda>_. True" *)
     and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
 proof
   fix s e
   assume "ev_assms s e"
@@ -5752,10 +5762,6 @@ qed
 sublocale Morello_Axiom_Automaton
   where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled
   ..
-
-lemma translate_address_ISA[simp]:
-  "isa.translate_address ISA addr acctype t = translate_address addr"
-  by (auto simp: ISA_def)
 
 declare translation_assms_traceI[intro, simp]
 declare inv_trace_assms_trace_assms[THEN translation_assms_traceI, simp]
