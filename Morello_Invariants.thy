@@ -354,10 +354,16 @@ end
 
 abbreviation "runs_preserve_invariant m P \<equiv> \<lbrace>P\<rbrace> m \<lbrace>\<lambda>_ s. P s \<bar> \<lambda>_ _. True\<rbrace>"
 
-lemma runs_preserve_invariant_conjI:
+lemma runs_preserve_invariant_conjI_imp:
   assumes "runs_preserve_invariant m P" and "runs_preserve_invariant m (\<lambda>s. P s \<longrightarrow> Q s)"
   shows "runs_preserve_invariant m (\<lambda>s. P s \<and> Q s)"
   by (rule PrePostE_conj_conds_consequence[OF assms]) auto
+
+lemma runs_preserve_invariant_conjI:
+  assumes "runs_preserve_invariant m P" and "runs_preserve_invariant m Q"
+  shows "runs_preserve_invariant m (\<lambda>s. P s \<and> Q s)"
+  using PrePostE_conj_conds[OF assms]
+  by auto
 
 lemma runs_preserve_invariant_imp_conjI:
   assumes "runs_preserve_invariant m (\<lambda>s. P s \<longrightarrow> Q s)"
@@ -398,9 +404,17 @@ lemma runs_preserve_invariant_bindS:
     done
   done
 
-lemmas runs_preserve_invariant_returnS = PrePostE_returnS[where P = "\<lambda>_. P" and Q = "\<lambda>_ _. True" for P]
+lemma runs_preserve_invariant_bindS_no_asm:
+  assumes "runs_preserve_invariant m P" and "\<And>a. runs_preserve_invariant (f a) P"
+  shows "runs_preserve_invariant (bindS m f) P"
+  using assms
+  by (intro runs_preserve_invariant_bindS)
 
-lemmas runs_preserve_invariant_read_regS = PrePostE_read_regS[where Q = "\<lambda>_. P" and E = "\<lambda>_ _. True" for P]
+lemmas runs_preserve_invariant_returnS[intro, simp] =
+  PrePostE_returnS[where P = "\<lambda>_. P" and Q = "\<lambda>_ _. True" for P]
+
+lemmas runs_preserve_invariant_read_regS[intro, simp] =
+  PrePostE_read_regS[where Q = "\<lambda>_. P" and E = "\<lambda>_ _. True" for P]
 
 lemma runs_preserve_invariant_throwS[simp]:
   "runs_preserve_invariant (throwS ex) P"
@@ -413,6 +427,9 @@ lemma runs_preserve_invariant_assert_expS[simp]:
 lemma runs_preserve_invariant_exitS[simp]:
   "runs_preserve_invariant (exitS u) P"
   by (rule PrePostE_exitS[THEN PrePostE_strengthen_pre]; auto)
+
+lemmas runs_preserve_invariant_if_split =
+  if_split[where P = "\<lambda>m. runs_preserve_invariant m inv" for inv, THEN iffD2]
 
 lemmas runs_preserve_invariant_if_split_no_asm =
   if_split_no_asm[where P = "\<lambda>m. runs_preserve_invariant m inv" for inv]
@@ -430,6 +447,9 @@ lemma runs_establish_reg_inv_write_reg:
   using assms
   by (intro PrePostE_I)
      (auto simp: write_reg_def Value_bindS_iff reg_inv_def read_absorb_write split: option.splits)
+
+lemmas runs_preserve_reg_inv_write_reg =
+  runs_establish_reg_inv_write_reg[THEN runs_establish_invariant_runs_preserve_invariant]
 
 lemma runs_preserve_reg_inv_write_reg_other:
   assumes "name r \<noteq> n"
@@ -458,6 +478,17 @@ proof (intro PrePostE_I)
     by (auto simp: reg_inv_def)
 qed auto
 
+lemmas runs_preserve_reg_inv_read_reg =
+  no_reg_writes_to_read_reg[THEN no_reg_writes_runs_no_reg_writes, THEN runs_preserve_reg_inv_no_reg_writes]
+
+lemma read_modify_write_reg_preserves_reg_inv:
+  assumes "\<forall>rv v. of_regval r rv = Some v \<and> P rv \<longrightarrow> P (regval_of r (f v))" and "name r = n"
+    and "runs_preserve_invariant (m ()) (reg_inv n P)"
+  shows "runs_preserve_invariant (liftS (read_reg r) \<bind>\<^sub>S (\<lambda>v. liftS (write_reg r (f v)) \<bind>\<^sub>S m)) (reg_inv n P)"
+  using assms
+  by (intro runs_preserve_invariant_bindS runs_preserve_reg_inv_write_reg runs_preserve_reg_inv_read_reg)
+     (auto simp: read_reg_def Value_bindS_iff reg_inv_def split: option.splits)
+
 end
 
 locale Morello_Register_Accessors = Register_State
@@ -470,6 +501,10 @@ fun PCC_regval_inv where
 
 abbreviation "PCC_inv \<equiv> reg_inv ''PCC'' PCC_regval_inv"
 
+definition "EDSCR_inv \<equiv> reg_inv ''EDSCR'' (\<lambda>rv. \<forall>v. rv = Regval_bitvector_32_dec v \<longrightarrow> (ucast v :: 6 word) = 2)"
+
+definition "DCZID_inv \<equiv> reg_inv ''DCZID_EL0'' (\<lambda>rv. \<forall>v. rv = Regval_bitvector_32_dec v \<longrightarrow> (ucast v :: 4 word) = 4)"
+
 lemma runs_establish_PCC_inv_write_PCC:
   assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
   shows "runs_establish_invariant (write_regS PCC_ref c) PCC_inv"
@@ -481,12 +516,33 @@ lemma runs_establish_PCC_inv_write_PCC:
 lemmas runs_preserve_PCC_inv_write_PCC_inv =
   runs_establish_PCC_inv_write_PCC[THEN runs_establish_invariant_runs_preserve_invariant]
 
-lemma runs_preserve_PCC_inv_write_others[simp]:
+lemma runs_preserve_sysreg_invs_write_others[simp]:
   "\<And>v. runs_preserve_invariant (write_regS ThisInstrAbstract_ref v) PCC_inv"
   "\<And>v. runs_preserve_invariant (write_regS PC_ref v) PCC_inv"
   "\<And>v. runs_preserve_invariant (write_regS BranchTaken_ref v) PCC_inv"
+  "\<And>v. runs_preserve_invariant (write_regS ThisInstrAbstract_ref v) EDSCR_inv"
+  "\<And>v. runs_preserve_invariant (write_regS PC_ref v) EDSCR_inv"
+  "\<And>v. runs_preserve_invariant (write_regS BranchTaken_ref v) EDSCR_inv"
+  "\<And>v. runs_preserve_invariant (write_regS PCC_ref v) EDSCR_inv"
+  "\<And>v. runs_preserve_invariant (write_regS ThisInstrAbstract_ref v) DCZID_inv"
+  "\<And>v. runs_preserve_invariant (write_regS PC_ref v) DCZID_inv"
+  "\<And>v. runs_preserve_invariant (write_regS BranchTaken_ref v) DCZID_inv"
+  "\<And>v. runs_preserve_invariant (write_regS PCC_ref v) DCZID_inv"
   unfolding liftState_simp[symmetric]
-  by (auto simp: ThisInstrAbstract_ref_def PC_ref_def BranchTaken_ref_def no_reg_writes_runs_no_reg_writes)
+  by (auto simp: ThisInstrAbstract_ref_def PC_ref_def PCC_ref_def BranchTaken_ref_def no_reg_writes_runs_no_reg_writes EDSCR_inv_def DCZID_inv_def)
+
+lemma inv_reg_simps[simp]:
+  "name EDSCR_ref = ''EDSCR''"
+  "\<And>v. regval_of EDSCR_ref v = Regval_bitvector_32_dec v"
+  "\<And>rv v. of_regval EDSCR_ref rv = Some v \<longleftrightarrow> rv = Regval_bitvector_32_dec v"
+  "name DCZID_EL0_ref = ''DCZID_EL0''"
+  "\<And>v. regval_of DCZID_EL0_ref v = Regval_bitvector_32_dec v"
+  "\<And>rv v. of_regval DCZID_EL0_ref rv = Some v \<longleftrightarrow> rv = Regval_bitvector_32_dec v"
+  by (auto simp: register_defs regval_of_bitvector_32_dec_def elim: bitvector_32_dec_of_regval.elims)
+
+lemmas read_modify_write_regs_preserve_reg_invs =
+  read_modify_write_reg_preserves_reg_inv[where r = EDSCR_ref and n = "''EDSCR''", simplified]
+  read_modify_write_reg_preserves_reg_inv[where r = DCZID_EL0_ref and n = "''DCZID_EL0''", simplified]
 
 lemma runs_establish_PCC_inv_BranchToCapability:
   "runs_establish_invariant (liftS (BranchToCapability c branch_type)) PCC_inv"
@@ -687,7 +743,7 @@ lemma sys_reg_instrs_preserve_PCC_inv:
 
 lemma DecodeA64_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (DecodeA64 pc opcode)) PCC_inv"
-  by (unfold DecodeA64_def bind_assoc Let_def liftState_simp comp_def; intro runs_preserve_invariant_if_split_no_asm branch_cap_instructions_preserve_PCC_inv branch_int_instructions_preserve_PCC_inv eret_preserves_PCC_inv sys_reg_instrs_preserve_PCC_inv runs_preserve_PCC_inv_write_others runs_preserve_invariant_bindS runs_preserve_invariant_returnS runs_preserve_invariant_throwS; (simp add: no_reg_writes_runs_no_reg_writes)?)
+  by (unfold DecodeA64_def bind_assoc Let_def liftState_simp comp_def; intro runs_preserve_invariant_if_split_no_asm branch_cap_instructions_preserve_PCC_inv branch_int_instructions_preserve_PCC_inv eret_preserves_PCC_inv sys_reg_instrs_preserve_PCC_inv runs_preserve_sysreg_invs_write_others runs_preserve_invariant_bindS runs_preserve_invariant_returnS runs_preserve_invariant_throwS; (simp add: no_reg_writes_runs_no_reg_writes)?)
 
 lemma DecodeExecute_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (DecodeExecute enc opcode)) PCC_inv"
@@ -696,12 +752,139 @@ lemma DecodeExecute_preserves_PCC_inv:
 lemma instr_sem_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (instr_sem instr)) PCC_inv"
   unfolding instr_sem_def TryInstructionExecute_def Let_def liftState_simp prod.case_distrib comp_def
-  by (auto intro!: runs_preserve_invariant_bindS DecodeExecute_preserves_PCC_inv runs_preserve_PCC_inv_write_PCC_inv runs_preserve_invariant_read_regS runs_preserve_invariant_returnS elim!: CapAdd_seal_tag simp: no_reg_writes_runs_no_reg_writes CapAdd__1_def)
+  by (auto intro!: runs_preserve_invariant_bindS DecodeExecute_preserves_PCC_inv runs_preserve_PCC_inv_write_PCC_inv
+           elim!: CapAdd_seal_tag simp: no_reg_writes_runs_no_reg_writes CapAdd__1_def)
 
 lemma instr_fetch_preserves_PCC_inv:
   "runs_preserve_invariant (liftS instr_fetch) PCC_inv"
   unfolding instr_fetch_def liftState_simp comp_def
   by (auto intro!: runs_preserve_invariant_bindS)
+
+lemma TakeReset_preserves_EDSCR_inv:
+  "runs_preserve_invariant (liftS (TakeReset cold)) EDSCR_inv"
+  unfolding TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def
+  unfolding bind_assoc liftState_bind liftState_if_distrib comp_def EDSCR_inv_def
+  by (intro read_modify_write_regs_preserve_reg_invs runs_preserve_invariant_bindS runs_preserve_invariant_if_split allI impI conjI)
+     (auto simp: no_reg_writes_runs_no_reg_writes register_defs set_slice_def nth_ucast update_subrange_vec_dec_test_bit HighestELUsingAArch32_def intro!: word_eqI)
+
+lemma AArch64_SysRegWrite_preserves_EDSCR_inv:
+  "runs_preserve_invariant (liftS (AArch64_SysRegWrite op0 op1 crn cr op2 v)) EDSCR_inv"
+  unfolding AArch64_SysRegWrite_def bind_assoc liftState_bind liftState_if_distrib comp_def
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm TakeReset_preserves_EDSCR_inv)
+     (auto simp: no_reg_writes_runs_no_reg_writes EDSCR_inv_def)
+
+lemma sys_reg_instrs_preserve_EDSCR_inv:
+  "runs_preserve_invariant (liftS (decode_mrs_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L)) EDSCR_inv"
+  "runs_preserve_invariant (liftS (decode_msr_reg_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L)) EDSCR_inv"
+  unfolding decode_msr_reg_aarch64_instrs_system_register_system_def
+  unfolding decode_mrs_aarch64_instrs_system_register_system_def
+  unfolding execute_aarch64_instrs_system_register_system_def liftState_simp comp_def Let_def
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm AArch64_SysRegWrite_preserves_EDSCR_inv;
+      auto simp: no_reg_writes_runs_no_reg_writes EDSCR_inv_def)+
+
+lemma Halted_EDSCR_invE:
+  assumes "(Value a, s') \<in> liftS (Halted u) s" and "EDSCR_inv s"
+  obtains "\<not>a"
+  using assms
+  unfolding Halted_def bind_assoc liftState_bind liftState_or_boolM comp_def liftState_return or_boolS_def
+  by (auto simp: Value_bindS_iff EDSCR_inv_def reg_inv_def EDSCR_ref_def read_reg_def
+           split: if_splits option.splits elim!: bitvector_32_dec_of_regval.elims)
+
+lemma debug_instrs_preserve_EDSCR_inv:
+  "runs_preserve_invariant (liftS (decode_dcps1_aarch64_instrs_system_exceptions_debug_exception LL imm16)) EDSCR_inv"
+  "runs_preserve_invariant (liftS (decode_dcps2_aarch64_instrs_system_exceptions_debug_exception LL imm16)) EDSCR_inv"
+  "runs_preserve_invariant (liftS (decode_dcps3_aarch64_instrs_system_exceptions_debug_exception LL imm16)) EDSCR_inv"
+  "runs_preserve_invariant (liftS (decode_drps_aarch64_instrs_branch_unconditional_dret u)) EDSCR_inv"
+  unfolding decode_dcps1_aarch64_instrs_system_exceptions_debug_exception_def
+  unfolding decode_dcps2_aarch64_instrs_system_exceptions_debug_exception_def
+  unfolding decode_dcps3_aarch64_instrs_system_exceptions_debug_exception_def
+  unfolding decode_drps_aarch64_instrs_branch_unconditional_dret_def
+  unfolding liftState_simp comp_def Let_def or_boolS_def
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split allI impI conjI;
+      auto simp: no_reg_writes_runs_no_reg_writes EDSCR_inv_def Value_bindS_iff split: if_splits elim!: Halted_EDSCR_invE)+
+
+lemma DecodeA64_preserves_EDSCR_inv:
+  "runs_preserve_invariant (liftS (DecodeA64 pc opcode)) EDSCR_inv"
+  by (unfold DecodeA64_def bind_assoc Let_def liftState_simp comp_def; intro runs_preserve_invariant_if_split_no_asm sys_reg_instrs_preserve_EDSCR_inv debug_instrs_preserve_EDSCR_inv runs_preserve_sysreg_invs_write_others runs_preserve_invariant_bindS runs_preserve_invariant_returnS runs_preserve_invariant_throwS; (simp add: no_reg_writes_runs_no_reg_writes EDSCR_inv_def)?)
+
+lemma DecodeExecute_preserves_EDSCR_inv:
+  "runs_preserve_invariant (liftS (DecodeExecute enc opcode)) EDSCR_inv"
+  by (cases enc; auto intro: DecodeA64_preserves_EDSCR_inv simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32__1_def no_reg_writes_runs_no_reg_writes liftState_simp comp_def)
+
+lemma instr_sem_preserves_EDSCR_inv:
+  "runs_preserve_invariant (liftS (instr_sem instr)) EDSCR_inv"
+  unfolding instr_sem_def TryInstructionExecute_def Let_def liftState_simp prod.case_distrib comp_def
+  by (auto intro!: runs_preserve_invariant_bindS DecodeExecute_preserves_EDSCR_inv;
+      simp add: no_reg_writes_runs_no_reg_writes EDSCR_inv_def)
+
+lemma instr_fetch_preserves_EDSCR_inv:
+  "runs_preserve_invariant (liftS instr_fetch) EDSCR_inv"
+  unfolding instr_fetch_def liftState_simp comp_def
+  by (auto intro!: runs_preserve_invariant_bindS simp: no_reg_writes_runs_no_reg_writes EDSCR_inv_def)
+
+thm update_subrange_vec_dec_test_bit
+
+lemma ucast_update_subrange_vec_dec_above:
+  fixes w :: "'a::len word" and w' :: "'b::len word" and i j :: "int"
+  defines "w'' \<equiv> ucast (update_subrange_vec_dec w i j w') :: 'c::len word"
+  assumes "0 \<le> j" and "j \<le> i" and "nat i < LENGTH('a)" and "LENGTH('b) = nat (i - j + 1)"
+    and "nat j \<ge> LENGTH('c)"
+  shows "w'' = ucast w"
+  using assms
+  by (auto simp: nth_ucast update_subrange_vec_dec_test_bit intro: word_eqI)
+
+lemma ucast_update_subrange_vec_dec_0:
+  fixes w :: "'a::len word" and w' :: "'b::len word" and i :: "int"
+  defines "w'' \<equiv> ucast (update_subrange_vec_dec w i 0 w') :: 'c::len word"
+  assumes "0 \<le> i" and "nat i < LENGTH('a)" and "LENGTH('b) = nat (i + 1)"
+    and "LENGTH('c) = nat i + 1"
+  shows "w'' = ucast w'"
+  using assms
+  by (auto simp: nth_ucast update_subrange_vec_dec_test_bit intro: word_eqI)
+
+lemmas ucast_update_subrange_vec_dec_simps = ucast_update_subrange_vec_dec_above ucast_update_subrange_vec_dec_0
+
+lemma AArch64_IMPDEFResets_preserves_DCZID_inv:
+  "runs_preserve_invariant (liftS (AArch64_IMPDEFResets u)) DCZID_inv"
+  unfolding AArch64_IMPDEFResets_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def DCZID_inv_def
+  by (intro read_modify_write_regs_preserve_reg_invs runs_preserve_invariant_bindS_no_asm runs_preserve_invariant_if_split_no_asm runs_preserve_reg_inv_read_reg runs_preserve_reg_inv_write_reg_other)
+     (auto simp: set_slice_def ucast_update_subrange_vec_dec_simps register_defs no_reg_writes_runs_no_reg_writes)
+
+lemma TakeReset_preserves_DCZID_inv:
+  "runs_preserve_invariant (liftS (TakeReset cold)) DCZID_inv"
+  unfolding TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def
+  unfolding bind_assoc liftState_bind liftState_if_distrib comp_def
+  by (intro AArch64_IMPDEFResets_preserves_DCZID_inv runs_preserve_invariant_bindS_no_asm runs_preserve_invariant_if_split_no_asm)
+     (auto simp: DCZID_inv_def no_reg_writes_runs_no_reg_writes register_defs)
+
+lemma sys_reg_instrs_preserve_DCZID_inv:
+  "runs_preserve_invariant (liftS (decode_mrs_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L)) DCZID_inv"
+  "runs_preserve_invariant (liftS (decode_msr_reg_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L)) DCZID_inv"
+  unfolding decode_msr_reg_aarch64_instrs_system_register_system_def
+  unfolding decode_mrs_aarch64_instrs_system_register_system_def
+  unfolding execute_aarch64_instrs_system_register_system_def
+  unfolding AArch64_SysRegWrite_def bind_assoc liftState_simp comp_def Let_def
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm TakeReset_preserves_DCZID_inv;
+      auto simp: no_reg_writes_runs_no_reg_writes DCZID_inv_def)+
+
+lemma DecodeA64_preserves_DCZID_inv:
+  "runs_preserve_invariant (liftS (DecodeA64 pc opcode)) DCZID_inv"
+  by (unfold DecodeA64_def bind_assoc Let_def liftState_simp comp_def; intro runs_preserve_invariant_if_split_no_asm sys_reg_instrs_preserve_DCZID_inv runs_preserve_sysreg_invs_write_others runs_preserve_invariant_bindS runs_preserve_invariant_returnS runs_preserve_invariant_throwS; (simp add: no_reg_writes_runs_no_reg_writes DCZID_inv_def)?)
+
+lemma DecodeExecute_preserves_DCZID_inv:
+  "runs_preserve_invariant (liftS (DecodeExecute enc opcode)) DCZID_inv"
+  by (cases enc; auto intro: DecodeA64_preserves_DCZID_inv simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32__1_def no_reg_writes_runs_no_reg_writes liftState_simp comp_def)
+
+lemma instr_sem_preserves_DCZID_inv:
+  "runs_preserve_invariant (liftS (instr_sem instr)) DCZID_inv"
+  unfolding instr_sem_def TryInstructionExecute_def Let_def liftState_simp prod.case_distrib comp_def
+  by (auto intro!: runs_preserve_invariant_bindS DecodeExecute_preserves_DCZID_inv runs_preserve_sysreg_invs_write_others;
+      simp add: no_reg_writes_runs_no_reg_writes DCZID_inv_def)
+
+lemma instr_fetch_preserves_DCZID_inv:
+  "runs_preserve_invariant (liftS instr_fetch) DCZID_inv"
+  unfolding instr_fetch_def liftState_simp comp_def
+  by (auto intro!: runs_preserve_invariant_bindS simp: no_reg_writes_runs_no_reg_writes DCZID_inv_def)
 
 end
 
