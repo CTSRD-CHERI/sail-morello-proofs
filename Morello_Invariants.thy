@@ -138,6 +138,18 @@ next
   then show ?case by (force elim!: Value_bindS_elim intro: Traces_ConsI)
 qed
 
+lemma Run_runTraceS_Value_liftState:
+  fixes m :: "('regval, 'ex, 'a) monad"
+  assumes "Run m t a" and "runTraceS ra t s = Some s'"
+  shows "(Value a, s') \<in> liftState ra m s"
+  using assms
+  by (induction m t "Done a :: ('regval, 'ex, 'a) monad" arbitrary: s rule: Traces.induct;
+      fastforce elim!: T.cases split: bind_splits if_splits simp: Value_bindS_iff)+
+
+lemma Value_liftState_iff:
+  "(Value a, s') \<in> liftState ra m s \<longleftrightarrow> (\<exists>t. Run m t a \<and> runTraceS ra t s = Some s')"
+  by (auto intro: Run_runTraceS_Value_liftState elim: Value_liftState_Run_runTraceS)
+
 lemma PrePostE_exp_fails:
   assumes "exp_fails m"
   shows "\<lbrace>P\<rbrace> \<lbrakk>m\<rbrakk>\<^sub>S \<lbrace>Q \<bar> \<lambda>_ _. True\<rbrace>"
@@ -310,7 +322,7 @@ lemma runs_no_mem_writes_AArch64_MemSingle_read:
             non_mem_exp_runs_no_mem_writes conjI impI;
       non_mem_expI)
 
-lemma
+lemma PrePostE_FetchInstr_pcc_tagged_unsealed:
   shows "\<lbrace>\<lambda>_. True\<rbrace> \<lbrakk>FetchInstr pc\<rbrakk>\<^sub>S \<lbrace>\<lambda>_ s. CapIsTagSet (getPCC s) \<and> \<not>CapIsSealed (getPCC s) \<bar> \<lambda>_ _. True\<rbrace>"
   unfolding FetchInstr_def CheckPCCCapability_def bind_assoc
   unfolding liftState_simp comp_def Let_def
@@ -846,7 +858,7 @@ lemmas ucast_update_subrange_vec_dec_simps = ucast_update_subrange_vec_dec_above
 
 lemma AArch64_IMPDEFResets_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS (AArch64_IMPDEFResets u)) DCZID_inv"
-  unfolding AArch64_IMPDEFResets_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def DCZID_inv_def
+  unfolding AArch64_IMPDEFResets_def HasArchVersion_def HaveVirtHostExt_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def DCZID_inv_def
   by (intro read_modify_write_regs_preserve_reg_invs runs_preserve_invariant_bindS_no_asm runs_preserve_invariant_if_split_no_asm runs_preserve_reg_inv_read_reg runs_preserve_reg_inv_write_reg_other)
      (auto simp: set_slice_def ucast_update_subrange_vec_dec_simps register_defs no_reg_writes_runs_no_reg_writes)
 
