@@ -4748,7 +4748,7 @@ fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> r
   "sysreg_ev_assms s (E_read_reg r (Regval_bitvector_129_dec c)) =
      (r = ''PCC'' \<and> ''PCC'' \<notin> written_regs s \<longrightarrow>
         (\<not>is_fetch \<longrightarrow> CapIsTagSet c) \<and>
-        (\<not>CapIsSealed c) \<and>
+        (CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c) \<and>
         (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))"
 | "sysreg_ev_assms s (E_read_reg r (Regval_bitvector_32_dec v)) =
      ((r = ''CSCR_EL3'' \<longrightarrow> no_system_reg_access \<or> v !! 0) \<and>
@@ -4756,7 +4756,7 @@ fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> r
 | "sysreg_ev_assms s (E_read_reg r (Regval_ProcState v)) =
      (r = ''PSTATE'' \<longrightarrow> no_system_reg_access \<or> ProcState_EL v \<noteq> EL3)"
 | "sysreg_ev_assms s (E_read_reg r (Regval_bool v)) =
-     (r = ''__BranchTaken'' \<longrightarrow> v \<or> ''PCC'' \<notin> written_regs s)"
+     (r = ''__BranchTaken'' \<and> \<not>is_fetch \<longrightarrow> v \<or> ''PCC'' \<notin> written_regs s)"
 | "sysreg_ev_assms _ _ = True"
 
 abbreviation "sysreg_trace_assms \<equiv> holds_along_trace sysreg_ev_assms"
@@ -4800,9 +4800,10 @@ lemma PCC_tagged:
 lemma PCC_unsealed:
   assumes "Run (read_reg PCC_ref) t c"
     and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
+    and "is_fetch \<longrightarrow> CapIsTagSet c"
   shows "\<not>CapIsSealed c"
-  using assms
-  by (auto elim!: Run_read_regE simp: PCC_ref_def accessible_regs_def)
+  using assms(1,2)
+  by (auto elim!: Run_read_regE simp: PCC_ref_def accessible_regs_def dest!: assms(3)[rule_format])
 
 lemma CapIsSystemAccessEnabled_trace_allows_system_reg_access:
   assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms s t" and "a"
@@ -5005,9 +5006,10 @@ lemma and_exp_SystemAccessEnabled_TagSettingEnabledE:
 lemma BranchTaken_or_PCC_accessible:
   assumes "Run (read_reg BranchTaken_ref) t b"
     and "(\<forall>s'. sysreg_trace_assms s' t \<longrightarrow> b \<or> {''PCC''} \<subseteq> accessible_regs s') \<longrightarrow> {''PCC''} \<subseteq> accessible_regs s"
+    and "\<not>is_fetch"
   shows "{''PCC''} \<subseteq> accessible_regs s"
-  using assms
-  by (auto elim!: Run_read_regE simp: BranchTaken_ref_def accessible_regs_def split: register_value.splits)
+  using assms(1,2)
+  by (auto elim!: Run_read_regE simp: BranchTaken_ref_def accessible_regs_def split: register_value.splits; simp add: assms(3))
 
 end
 

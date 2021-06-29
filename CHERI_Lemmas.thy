@@ -1117,6 +1117,7 @@ declare PCC_unsealed[intro, simp, derivable_capsE]
 lemma PCC_read_unsealed[intro, simp, derivable_capsE]:
   assumes "Run (PCC_read u) t c"
     and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
+    and "is_fetch \<longrightarrow> CapIsTagSet c"
   shows "\<not>CapIsSealed c"
   using assms
   unfolding PCC_read_def
