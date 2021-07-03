@@ -79,6 +79,12 @@ lemma Run_bind_assert_exp_iff[simp]:
   "Run (assert_exp c msg \<bind> f) t a \<longleftrightarrow> c \<and> Run (f ()) t a"
   by (auto elim: Run_bindE)
 
+lemma Run_write_regE:
+  assumes "Run (write_reg r v) t a"
+  obtains "t = [E_write_reg (name r) (regval_of r v)]"
+  using assms
+  by (auto simp: write_reg_def elim: Traces_cases)
+
 lemma concat_take_chunks_eq:
   "n > 0 \<Longrightarrow> List.concat (take_chunks n xs) = xs"
   by (induction n xs rule: take_chunks.induct) auto
@@ -335,7 +341,7 @@ lemma return_prod_fst_derivable_caps[derivable_capsE]:
 text \<open>For the proofs of some of the decode clauses, some fairly simple side conditions need to be
   proved, but the auto proof method struggles in some cases due to the nesting of blocks and use
   of mutable variables, so we declare some custom proof rules so that these conditions can be
-  handled efficiently by the derivable_capsI proof method.\<close>
+  handled efficiently by the @{method derivable_capsI} proof method.\<close>
 
 lemma member_fst_snd_prod_elims[derivable_capsE]:
   "\<And>a x y xs. a = (x, y) \<Longrightarrow> fst a \<in> xs \<Longrightarrow> x \<in> xs"
@@ -372,7 +378,7 @@ lemmas Run_int_set_member_combinators[derivable_caps_combinators] =
 
 lemma Run_return_resultE:
   assumes "Run (return x) t a"
-    and "P x"
+    and "a = x \<Longrightarrow> P x"
   shows "P a"
   using assms
   by auto
@@ -583,6 +589,47 @@ lemma Run_CapAdd_tag_imp:
   unfolding CapAdd_def CAP_VALUE_HI_BIT_def CAP_VALUE_LO_BIT_def
   by (auto simp: test_bit_set update_subrange_vec_dec_test_bit
            elim!: Run_bindE Run_letE split: if_splits)
+
+lemma CapGetPermissions_CapWithTagSet_eq[simp]:
+  "CapGetPermissions (CapWithTagSet c) = CapGetPermissions c"
+  unfolding CapGetPermissions_def CapWithTagSet_def
+  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
+
+lemma CapGetObjectType_CapWithTagSet_eq[simp]:
+  "CapGetObjectType (CapWithTagSet c) = CapGetObjectType c"
+  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def
+  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapIsSealed_CapWithTagSet_iff[simp]:
+  "CapIsSealed (CapWithTagSet c) \<longleftrightarrow> CapIsSealed c"
+  unfolding CapIsSealed_def
+  by auto
+
+lemma CapGetObjectType_CapSetFlags_eq[simp]:
+  "CapGetObjectType (CapSetFlags c flags) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def CapSetFlags_def word_ao_nth slice_update_subrange_vec_dec_below)
+
+lemma CapIsSealed_CapSetFlags_iff[simp]:
+  "CapIsSealed (CapSetFlags c flags) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
+lemma Run_BranchAddr_not_CapIsSealed_if:
+  assumes "Run (BranchAddr c el) t c'"
+    and "CapIsTagSet c'"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE split: if_splits)
+
+lemma CapGetObjectType_set_bit_0_eq[simp]:
+  "CapGetObjectType (set_bit c 0 b) = CapGetObjectType c"
+  by (intro word_eqI)
+     (auto simp: CapGetObjectType_def word_ao_nth nth_slice test_bit_set_gen)
+
+lemma CapIsSealed_set_bit_0_iff[simp]:
+  "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
 
 (*lemma no_Run_EndOfInstruction[simp]:
   "Run (EndOfInstruction u) t a \<longleftrightarrow> False"
@@ -1156,7 +1203,7 @@ lemma CapGetBounds_CapWithTagSet_eq:
   unfolding CapGetBounds_def CapIsExponentOutOfRange_def CapWithTagSet_get_bounds_helpers_eq
   ..
 
-lemma get_bounds_CapWithTagSet_eq:
+lemma get_bounds_CapWithTagSet_eq[simp]:
   "get_base (CapWithTagSet c) = get_base c"
   "get_limit (CapWithTagSet c) = get_limit c"
   unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapWithTagSet_eq
@@ -1204,6 +1251,11 @@ lemma get_bounds_CapSetObjectType_eq:
   unfolding get_base_def CapGetBase_def get_limit_def CapGetBounds_CapSetObjectType_eq
   by auto
 
+lemma cap_permits_CapWithTagSet_iff[simp]:
+  "cap_permits perms (CapWithTagSet c) \<longleftrightarrow> cap_permits perms c"
+  by (auto simp: CapCheckPermissions_def)
+
+(* TODO: Move to Morello_Compartment locale and add system register access invariant? *)
 definition cap_invariant :: "Capability \<Rightarrow> bool" where
   "cap_invariant c \<equiv> get_base c \<le> get_limit c \<and> get_limit c \<le> 2^64"
 
@@ -1218,12 +1270,15 @@ type_synonym instr = "(InstrEnc * 32 word)"
 text \<open>TODO: Split up toplevel fetch-decode-execute function and use here.\<close>
 
 definition instr_sem :: "instr \<Rightarrow> unit M" where
-  "instr_sem instr = (case instr of (enc, opcode) \<Rightarrow> DecodeExecute enc opcode)"
+  "instr_sem instr = do {
+     let (enc, opcode) = instr;
+     TryInstructionExecute enc opcode
+   }"
 
 definition instr_fetch :: "instr M" where
   "instr_fetch \<equiv> do {
-     (pc :: 64 word) \<leftarrow> ThisInstrAddr 64;
-     FetchInstr pc
+     CheckPendingInterrupts ();
+     FetchNextInstr ()
    }"
 
 fun caps_of_regval :: "register_value \<Rightarrow> Capability set" where
@@ -1233,17 +1288,291 @@ fun caps_of_regval :: "register_value \<Rightarrow> Capability set" where
 text \<open>Over-approximation of invoked caps: all capabilities written to PCC.
 TODO: Restrict to branching instructions and caps that result from unsealing caps in source registers.\<close>
 
-definition invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
-  "invokes_caps instr t = {c. E_write_reg ''PCC'' (Regval_bitvector_129_dec c) \<in> set t}"
+fun instr_invokes_regs :: "instr_ast \<Rightarrow> int set" where
+  "instr_invokes_regs (Instr_BRS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
+| "instr_invokes_regs (Instr_BRS_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_BLRR_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_BLRS_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_BLRS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
+| "instr_invokes_regs (Instr_BLR_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_BRR_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_BR_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_RETR_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_RETS_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs (Instr_RETS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
+| "instr_invokes_regs (Instr_RET_C_C (opc, Cn)) = {uint Cn}"
+| "instr_invokes_regs _ = {}"
 
-definition invokes_indirect_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
-  "invokes_indirect_caps instr t = {c. \<exists>r. E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}}" \<comment> \<open>TODO\<close>
+fun instr_invokes_indirect_regs :: "instr_ast \<Rightarrow> int set" where
+  "instr_invokes_indirect_regs (Instr_BLR_CI_C (imm7, Cn)) = (if uint Cn = 29 then {29} else {})"
+| "instr_invokes_indirect_regs (Instr_BR_CI_C (imm7, Cn)) = (if uint Cn = 29 then {29} else {})"
+| "instr_invokes_indirect_regs (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = (if uint Ct = 29 then {uint Cn} else {})"
+| "instr_invokes_indirect_regs (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = (if uint Ct = 29 then {uint Cn} else {})"
+| "instr_invokes_indirect_regs _ = {}"
+
+fun instr_is_indirect_branch :: "instr_ast \<Rightarrow> bool" where
+  "instr_is_indirect_branch (Instr_BLR_CI_C (imm7, Cn)) = True"
+| "instr_is_indirect_branch (Instr_BR_CI_C (imm7, Cn)) = True"
+| "instr_is_indirect_branch (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = True"
+| "instr_is_indirect_branch (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = True"
+| "instr_is_indirect_branch _ = False"
+
+datatype load_auth =
+  RegAuth int
+  | BaseRegAuth int
+  | AltBaseRegAuth int
+  | PCCAuth
+
+fun instr_load_auths :: "instr_ast \<Rightarrow> load_auth set" where
+  "instr_load_auths (Instr_BLR_CI_C (imm7, Cn)) = {RegAuth (uint Cn)}"
+| "instr_load_auths (Instr_BR_CI_C (imm7, Cn)) = {RegAuth (uint Cn)}"
+| "instr_load_auths (Instr_ALDAR_C_R_C (L, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_ALDUR_C_RI_C (op1, V, imm9, op2, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_ALDR_C_RUI_C (L, imm9, op, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_ALDR_C_RRB_C (Rm, sign, sz, S, L, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_CASAL_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_CASA_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_CASL_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_CAS_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDAPR_C_R_C (Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDAR_C_R_C (L, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDAXP_C_R_C (L, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDAXR_C_R_C (L, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDNP_C_RIB_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = {RegAuth (uint Cn)}"
+| "instr_load_auths (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = {RegAuth (uint Cn)}"
+| "instr_load_auths (Instr_LDP_CC_RIAW_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDP_C_RIB_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDP_C_RIBW_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDR_C_I_C (imm17, Ct)) = {PCCAuth}"
+| "instr_load_auths (Instr_LDR_C_RIAW_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDR_C_RIBW_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDR_C_RUIB_C (L, imm12, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDR_C_RRB_C (opc, Rm, sign, sz, S, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDTR_C_RIB_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDUR_C_RI_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDXP_C_R_C (L, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDXR_C_R_C (L, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_SWPAL_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_SWPA_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_SWPL_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_SWP_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths (Instr_LDCT_R_R (opc, Rn, Rt)) = {BaseRegAuth (uint Rn)}"
+| "instr_load_auths _ = {}"
+
+definition cap_reg_in_load_auths :: "bool \<Rightarrow> int \<Rightarrow> load_auth set \<Rightarrow> bool" where
+  "cap_reg_in_load_auths c64 n auths \<equiv> (RegAuth n \<in> auths \<or> (if c64 then BaseRegAuth n \<in> auths else AltBaseRegAuth n \<in> auths))"
+
+definition ddc_in_load_auths :: "bool \<Rightarrow> load_auth set \<Rightarrow> bool" where
+  "ddc_in_load_auths c64 auths \<equiv> (\<exists>n. if c64 then AltBaseRegAuth n \<in> auths else BaseRegAuth n \<in> auths)"
+
+definition pcc_in_load_auths :: "load_auth set \<Rightarrow> bool" where
+  "pcc_in_load_auths auths \<equiv> PCCAuth \<in> auths"
+
+definition R_name :: "int \<Rightarrow> string set" where
+  "R_name n \<equiv>
+     (if n =  0 then {''_R00''} else
+      if n =  1 then {''_R01''} else
+      if n =  2 then {''_R02''} else
+      if n =  3 then {''_R03''} else
+      if n =  4 then {''_R04''} else
+      if n =  5 then {''_R05''} else
+      if n =  6 then {''_R06''} else
+      if n =  7 then {''_R07''} else
+      if n =  8 then {''_R08''} else
+      if n =  9 then {''_R09''} else
+      if n = 10 then {''_R10''} else
+      if n = 11 then {''_R11''} else
+      if n = 12 then {''_R12''} else
+      if n = 13 then {''_R13''} else
+      if n = 14 then {''_R14''} else
+      if n = 15 then {''_R15''} else
+      if n = 16 then {''_R16''} else
+      if n = 17 then {''_R17''} else
+      if n = 18 then {''_R18''} else
+      if n = 19 then {''_R19''} else
+      if n = 20 then {''_R20''} else
+      if n = 21 then {''_R21''} else
+      if n = 22 then {''_R22''} else
+      if n = 23 then {''_R23''} else
+      if n = 24 then {''_R24''} else
+      if n = 25 then {''_R25''} else
+      if n = 26 then {''_R26''} else
+      if n = 27 then {''_R27''} else
+      if n = 28 then {''_R28''} else
+      if n = 29 then {''_R29''} else
+      if n = 30 then {''_R30''} else
+      if n = 31 then {''RSP_EL0'', ''SP_EL0'', ''SP_EL1'', ''SP_EL2'', ''SP_EL3''} else
+      {})"
+
+definition DDC_names :: "string set" where
+  "DDC_names \<equiv> {''DDC_EL0'', ''RDDC_EL0'', ''DDC_EL1'', ''DDC_EL2'', ''DDC_EL3''}"
+
+fun load_auth_reg_names :: "bool \<Rightarrow> load_auth \<Rightarrow> string set" where
+  "load_auth_reg_names c64 (RegAuth n) = R_name n"
+| "load_auth_reg_names c64 (BaseRegAuth n) = (if c64 then R_name n else DDC_names)"
+| "load_auth_reg_names c64 (AltBaseRegAuth n) = (if c64 then DDC_names else R_name n)"
+| "load_auth_reg_names c64 (PCCAuth) = {''PCC''}"
+
+abbreviation mutable_perms where
+  "mutable_perms \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
+
+definition normalise_cursor_flags :: "Capability \<Rightarrow> bool \<Rightarrow> Capability" where
+  "normalise_cursor_flags c top_bit \<equiv> CapSetFlags c (if top_bit then max_word else 0)"
+
+definition branch_caps :: "Capability \<Rightarrow> Capability set" where
+  "branch_caps c \<equiv>
+     (if CapIsSealed c then
+        {c}
+      else
+        {c, normalise_cursor_flags c (CapGetValue c !! 55), normalise_cursor_flags c False,
+         set_bit c 0 False, normalise_cursor_flags (set_bit c 0 False) (CapGetValue c !! 55),
+         normalise_cursor_flags (set_bit c 0 False) False})"
+
+definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
+  "mem_branch_caps c \<equiv>
+     (if CapGetObjectType c = CAP_SEAL_TYPE_RB then {c} \<union> branch_caps (CapUnseal c)
+      else branch_caps c \<union> branch_caps (clear_perm mutable_perms c))"
+
+fun instr_of_trace :: "register_value trace \<Rightarrow> instr_ast option" where
+  "instr_of_trace (E_write_reg r (Regval_instr_ast instr) # _) =
+     (if r = ''__ThisInstrAbstract'' then Some instr else None)"
+| "instr_of_trace _ = None"
+
+lemma instr_of_trace_Some_iff:
+  "instr_of_trace t = Some instr \<longleftrightarrow> (\<exists>t'. t = E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr) # t')"
+  by (cases t rule: instr_of_trace.cases) auto
+
+definition trace_invokes_indirect_regs :: "register_value trace \<Rightarrow> int set" where
+  "trace_invokes_indirect_regs t \<equiv>
+    (case instr_of_trace t of Some instr \<Rightarrow> instr_invokes_indirect_regs instr | None \<Rightarrow> {})"
+
+definition trace_invokes_indirect_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_indirect_caps t =
+     {CapUnseal c' | c'.
+        \<exists>n r.
+         n \<in> trace_invokes_indirect_regs t \<and> r \<in> R_name n \<and>
+         E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
+         CapIsTagSet c' \<and> CapIsSealed c' \<and> is_indirect_sentry c'}"
+
+abbreviation invokes_indirect_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "invokes_indirect_caps instr t \<equiv> trace_invokes_indirect_caps t"
+
+definition trace_is_indirect_branch :: "register_value trace \<Rightarrow> bool" where
+  "trace_is_indirect_branch t \<equiv> (\<exists>instr. instr_of_trace t = Some instr \<and> instr_is_indirect_branch instr)"
+
+definition trace_invokes_regs :: "register_value trace \<Rightarrow> int set" where
+  "trace_invokes_regs t \<equiv>
+    (case instr_of_trace t of Some instr \<Rightarrow> instr_invokes_regs instr | None \<Rightarrow> {})"
+
+definition trace_invokes_mem_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_mem_caps t \<equiv>
+     (if trace_is_indirect_branch t
+      then {c. \<exists>rk addr sz bytes tag c'.
+                 E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
+                 cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
+                 c \<in> mem_branch_caps c'}
+      else {})"
+
+abbreviation invokes_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "invokes_mem_caps instr t \<equiv> trace_invokes_mem_caps t"
+
+definition trace_invokes_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_caps t =
+     {c. \<exists>n r c'.
+          n \<in> trace_invokes_regs t \<and> r \<in> R_name n \<and>
+          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
+          CapIsTagSet c' \<and> CapIsSealed c' \<and>
+          c \<in> branch_caps (CapUnseal c')}
+     \<union> invokes_mem_caps instr t"
+
+abbreviation invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "invokes_caps instr t \<equiv> trace_invokes_caps t"
+
+definition trace_is_in_c64 :: "register_value trace \<Rightarrow> bool" where
+  "trace_is_in_c64 t \<equiv> (\<exists>pstate. E_read_reg ''PSTATE'' (Regval_ProcState pstate) \<in> set t \<and> ProcState_C64 pstate = 1)"
+
+definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth set" where
+  "trace_load_auths t \<equiv>
+     (case instr_of_trace t of Some instr \<Rightarrow> instr_load_auths instr | None \<Rightarrow> {})"
+
+definition trace_uses_mem_caps :: "register_value trace \<Rightarrow> bool" where
+  "trace_uses_mem_caps t \<equiv>
+     (trace_invokes_indirect_caps t = {}) \<and>
+     (\<exists>auth r c.
+        auth \<in> trace_load_auths t \<and>
+        r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
+        E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
+        cap_permits CAP_PERM_LOAD_CAP c)"
+
+abbreviation uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
+  "uses_mem_caps instr t \<equiv> trace_uses_mem_caps t"
+
+definition trace_has_system_reg_access :: "register_value trace \<Rightarrow> bool" where
+  "trace_has_system_reg_access t \<equiv>
+     (\<exists>c. E_read_reg ''PCC'' (Regval_bitvector_129_dec c) \<in> set t \<and>
+          cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c)"
+
+definition instrs_of_exp :: "(register_value, 'a, 'e) monad \<Rightarrow> instr_ast set" where
+  "instrs_of_exp m \<equiv> {instr. \<exists>t m'. (m, t, m') \<in> Traces \<and> instr_of_trace t = Some instr}"
+
+definition exp_invokes_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
+  "exp_invokes_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. instr_invokes_regs i"
+
+definition exp_invokes_indirect_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
+  "exp_invokes_indirect_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. instr_invokes_indirect_regs i"
+
+definition exp_invokes_indirect_caps :: "(register_value, 'a, 'e) monad \<Rightarrow> Capability set" where
+  "exp_invokes_indirect_caps m \<equiv> {c. \<exists>t m'. (m, t, m') \<in> Traces \<and> c \<in> trace_invokes_indirect_caps t}"
+
+definition exp_load_auths :: "(register_value, 'a, 'e) monad \<Rightarrow> load_auth set" where
+  "exp_load_auths m \<equiv> \<Union>i \<in> instrs_of_exp m. instr_load_auths i"
+
+abbreviation "exp_is_indirect_branch m \<equiv> (\<exists>instr \<in> instrs_of_exp m. instr_is_indirect_branch instr)"
+
+lemma exp_invokes_indirect_caps_empty_if_regs_empty[simp]:
+  assumes "instr_invokes_indirect_regs instr = {}"
+  shows "exp_invokes_indirect_caps (write_reg ThisInstrAbstract_ref instr \<bind> f) = {}"
+  using assms
+  unfolding exp_invokes_indirect_caps_def trace_invokes_indirect_caps_def trace_invokes_indirect_regs_def write_reg_def hasTrace_iff_Traces_final
+  by (auto simp: instr_of_trace_Some_iff register_defs regval_of_instr_ast_def elim!: Write_reg_TracesE)
+
+lemma instr_of_trace_bind_write_reg_ThisInstrAbstract:
+  assumes "hasTrace t (write_reg ThisInstrAbstract_ref instr \<bind> f)"
+  shows "instr_of_trace t = Some instr"
+  using assms
+  unfolding write_reg_def ThisInstrAbstract_ref_def regval_of_instr_ast_def
+  by (elim hasTrace_bind_cases)
+     (auto simp: hasFailure_iff_Traces_Fail hasException_iff_Traces_Exception elim!: Write_reg_TracesE)
+
+lemma no_reg_writes_to_instr_of_trace:
+  assumes "(m, t, m') \<in> Traces" and "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "instr_of_trace t = None"
+  using assms
+  by (cases "instr_of_trace t";
+      fastforce simp: instr_of_trace_Some_iff no_reg_writes_to_def hasTrace_iff_Traces_final)
+
+lemma no_reg_writes_to_instrs_of_exp:
+  assumes "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "instrs_of_exp m = {}"
+  using assms
+  by (auto simp: instrs_of_exp_def no_reg_writes_to_instr_of_trace)
+
+lemma instrs_of_exp_write_reg_ThisInstrAbstract[simp]:
+  "instrs_of_exp (write_reg ThisInstrAbstract_ref instr \<bind> f) = {instr}"
+  by (auto simp: instrs_of_exp_def  write_reg_def register_defs regval_of_instr_ast_def
+           elim!: Write_reg_TracesE
+           intro!: exI[where x = "[E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr)]"])
+
+fun is_isa_exception :: "exception \<Rightarrow> bool" where
+  "is_isa_exception (Error_ExceptionTaken u) = True"
+| "is_isa_exception _ = False"
 
 definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
-  "instr_raises_ex instr t \<equiv> hasException t (instr_sem instr)"
+  "instr_raises_ex instr t \<equiv> runTrace t (instr_sem instr) = Some (Exception (Error_ExceptionTaken ()))"
 
 definition fetch_raises_ex :: "register_value trace \<Rightarrow> bool" where
-  "fetch_raises_ex t \<equiv> hasException t instr_fetch"
+  "fetch_raises_ex t \<equiv> runTrace t instr_fetch = Some (Exception (Error_ExceptionTaken ()))"
 
 text \<open>Over-approximation of allowed exception targets
 TODO: Restrict to valid branch targets of KCC caps with (small) offset?\<close>
@@ -1272,11 +1601,17 @@ fun is_mem_event :: "'regval event \<Rightarrow> bool" where
 | "is_mem_event _ = False"
 
 locale Morello_ISA =
+  Wellformed_Traces wellformed_ev is_isa_exception
+  for wellformed_ev :: "register_value event \<Rightarrow> bool" +
   fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
-    and uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" \<comment> \<open>TODO\<close>
     and UNKNOWN_caps :: "Capability set"
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
+    \<comment> \<open>TODO: Spell out assumption that register reads are well-typed, at least the ones read by
+        @{term AArch64_TakeException}, guaranteeing that the latter will raise an exception rather
+        than failing with a type error.\<close>
+    and AArch64_TakeException_raises_isa_ex:
+      "exp_raises_isa_ex (AArch64_TakeException target_el exception preferred_exception_return vect_offset)"
 begin
 
 abbreviation "translation_control_regs \<equiv>
@@ -1317,6 +1652,7 @@ lemma ISA_simps[simp]:
   "PCC ISA = {''PCC''}"
   "KCC ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "IDC ISA = {''_R29''}"
+  "tag_granule ISA = 16"
   "read_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
   "write_privileged_regs ISA = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs"
   "read_exception_regs ISA = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}"
@@ -1326,6 +1662,12 @@ lemma ISA_simps[simp]:
   "isa.caps_of_regval ISA = caps_of_regval"
   "isa.is_translation_event ISA = is_translation_event"
   "isa.exception_targets ISA = exception_targets"
+  "isa.instr_raises_ex ISA instr t = instr_raises_ex instr t"
+  "isa.uses_mem_caps ISA instr t = trace_uses_mem_caps t"
+  "isa.invokes_caps ISA instr t = trace_invokes_caps t"
+  "isa.invokes_indirect_caps ISA instr t = trace_invokes_indirect_caps t"
+  "isa.fetch_raises_ex ISA t = fetch_raises_ex t"
+  "isa.translate_address ISA vaddr load t = translate_address vaddr load t"
   by (auto simp: ISA_def)
 
 lemma no_cap_regvals[simp]:
@@ -1345,6 +1687,7 @@ lemma no_cap_regvals[simp]:
   "\<And>v. bitvector_48_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. bitvector_63_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. bitvector_64_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. instr_ast_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. bool_of_regval_method RV_class rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. int_of_regval_method RV_class rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
   "\<And>v. signal_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
@@ -1365,6 +1708,10 @@ lemma member_caps_of_regval_iff[simp]:
 lemma bitvector_129_Some_iff[simp]:
   "bitvector_129_dec_of_regval rv = Some c \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
   by (cases rv) auto
+
+lemma address_tag_aligned_iff_aligned_16[simp]:
+  "address_tag_aligned ISA addr \<longleftrightarrow> aligned addr 16"
+  by (auto simp: address_tag_aligned_def aligned_def)
 
 end
 
@@ -1490,14 +1837,14 @@ qed
 end
 
 locale Morello_Fixed_Address_Translation =
-  Morello_Bounds_Address_Calculation +
+  Morello_Bounds_Address_Calculation + Wellformed_Traces wellformed_ev is_isa_exception
+  for wellformed_ev :: "register_value event \<Rightarrow> bool" +
   fixes translate_address :: "nat \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     (* TODO: Let assumptions refer to a trace (and possibly a state) instead of just events,
        allowing us to make assumptions about register values/fields that might change over time,
        e.g. PSTATE.EL *)
     and translation_assms :: "register_value event \<Rightarrow> bool"
-    and uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" \<comment> \<open>TODO\<close>
     and UNKNOWN_caps :: "Capability set"
   assumes translate_correct[simp]:
       "\<And>vaddress acctype iswrite wasaligned size iswritevalidcap addrdesc.
@@ -1522,6 +1869,8 @@ locale Morello_Fixed_Address_Translation =
     and translate_address_paged: "\<And>vaddr vaddr' paddr. translate_address vaddr = Some paddr \<Longrightarrow> vaddr' div 2^12 = vaddr div 2^12 \<Longrightarrow> translate_address vaddr' = Some (2^12 * (paddr div 2^12) + vaddr' mod 2^12)"
     (*and translate_address_paged: "\<And>vaddr vaddr' acctype paddr paddr'. translate_address vaddr acctype = Some paddr \<Longrightarrow> translate_address vaddr' acctype = Some paddr' \<Longrightarrow> vaddr div 2^12 = vaddr' div 2^12 \<Longrightarrow> paddr div 2^12 = paddr' div 2^12"
     and translate_address_page_offset: "\<And>vaddr acctype paddr. translate_address vaddr acctype = Some paddr \<Longrightarrow> paddr mod 2^12 = vaddr mod 2^12"*)
+    and AArch64_TakeException_raises_isa_ex:
+      "exp_raises_isa_ex (AArch64_TakeException target_el exception preferred_exception_return vect_offset)"
 begin
 
 lemma translate_address_page_offset:
@@ -1535,6 +1884,21 @@ proof -
     by simp
   then show ?thesis
     unfolding *
+    .
+qed
+
+lemma translate_address_aligned_iff[simp]:
+  assumes "translate_address vaddr = Some paddr"
+    and "sz dvd 2^12"
+  shows "aligned paddr sz \<longleftrightarrow> aligned vaddr sz"
+proof -
+  have "aligned paddr sz \<longleftrightarrow> aligned (2^12 * (paddr div 2^12) + vaddr mod 2^12) sz"
+    using assms translate_address_paged[OF assms(1), where vaddr' = vaddr]
+    by auto
+  also have "\<dots> \<longleftrightarrow> aligned vaddr sz"
+    using assms(2)
+    by (auto simp: aligned_def dvd_add_right_iff dvd_mod_iff)
+  finally show ?thesis
     .
 qed
 
@@ -1567,7 +1931,7 @@ lemma AArch64_TranslateAddressForAtomicAccess_translate_address[simp]:
   by (auto simp: AArch64_TranslateAddressForAtomicAccess_def IsFault_def elim!: Run_bindE Run_ifE Run_letE)
 
 sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
-  using no_cap_load_translation_events
+  using no_cap_load_translation_events AArch64_TakeException_raises_isa_ex
   by unfold_locales auto
 
 sublocale Capability_ISA_Fixed_Translation CC ISA UNKNOWN_caps translation_assms
@@ -1575,7 +1939,7 @@ sublocale Capability_ISA_Fixed_Translation CC ISA UNKNOWN_caps translation_assms
 
 end
 
-text \<open>Instantiation of translate_address for version of spec with translation stubs\<close>
+text \<open>Instantiation of @{term translate_address} for version of spec with translation stubs\<close>
 
 definition translate_address :: "nat \<Rightarrow> nat option" where
   "translate_address addr \<equiv> Some (addr mod 2^48)"
@@ -1585,26 +1949,135 @@ lemmas TranslateAddress_defs =
   AArch64_FirstStageTranslateWithTag_def AArch64_SecondStageTranslate_def
   translate_address_def
 
-(*lemma unat64_and_mask52_mod: "unat ((w :: 64 word) AND mask 52) = unat w mod 2^52"
-  by (auto simp: and_mask_bintr unat_def uint_word_of_int bintrunc_mod2p nat_mod_distrib)
+section \<open>Register footprint lemmas\<close>
 
-lemma unat32_and_mask52_eq: "unat (w :: 32 word) mod 4503599627370496 = unat w"
-  using unat_lt2p[of w]
-  by auto*)
+text \<open>The bulk of these lemmas are auto-generated in @{path CHERI_Gen_Lemmas.thy}, but we manually prove them
+  for built-ins and for helper functions we prove further lemmas about below.\<close>
 
-text \<open>
-TODO for now
+lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bitvector RV n)"
+  by (unfold undefined_bitvector_def, no_reg_writes_toI)
 
-interpretation Morello_Fixed_Address_Translation
-  where translate_address = translate_address
-    and is_translation_event = "\<lambda>_. False"
-    and translation_assms = "\<lambda>_. True"
-  apply unfold_locales
-     (* apply (auto simp: TranslateAddress_defs return_def unat64_and_mask52_mod elim!: Run_bindE Run_ifE)[] *)
-  (* apply (auto simp: TranslateAddress_defs return_def unat32_and_mask52_eq elim!: Run_bindE Run_ifE)[] *)
-  (* TODO: Show that translation stubs are non_mem_exp's *)
-  oops
-\<close>
+lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bits RV n)"
+  by (unfold undefined_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_mword_nondet[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (mword_nondet RV n)"
+  by (unfold mword_nondet_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bit u)"
+  by (unfold undefined_bit_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_bool[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_bool RV u)"
+  by (unfold undefined_bool_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_string RV u)"
+  by (unfold undefined_string_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_unit u)"
+  by (unfold undefined_unit_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_vector len v)"
+  by (unfold undefined_vector_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_int RV u)"
+  by (unfold undefined_int_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_nat RV u)"
+  by (unfold undefined_nat_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_real RV u)"
+  by (unfold undefined_real_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_range RV i j)"
+  by (unfold undefined_range_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (undefined_atom n)"
+  by (unfold undefined_atom_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_internal_pick[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (internal_pick RV xs)"
+  by (unfold internal_pick_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_Capability[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (UNKNOWN_Capability n)"
+  by (unfold UNKNOWN_Capability_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_bits[no_reg_writes_toI, simp]:
+  "no_reg_writes_to Rs (UNKNOWN_bits n)"
+  by (unfold UNKNOWN_bits_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_UNKNOWN_VirtualAddress[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (UNKNOWN_VirtualAddress u)"
+  unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
+  by no_reg_writes_toI
+
+(* The following register write is used inside loops with capability effects in some instructions,
+   so we need a footprint lemma for the loop tactic to work automatically. *)
+lemma no_reg_writes_to_write_reg_FPSR[no_reg_writes_toI]:
+  "''FPSR'' \<notin> Rs \<Longrightarrow> no_reg_writes_to Rs (write_reg FPSR_ref v)"
+  by (intro no_reg_writes_to_write_reg) (auto simp: register_defs)
+
+declare datatype_splits[split]
+declare datatype_splits[where P = "no_reg_writes_to Rs" for Rs, THEN iffD2, no_reg_writes_toI]
+declare datatype_splits[where P = "runs_no_reg_writes_to Rs" for Rs, THEN iffD2, runs_no_reg_writes_toI]
+
+lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
+  by (unfold Mem_read_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_Mem_set[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Mem_set x0 x1 x2 x3)"
+  by (unfold Mem_set_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadMem x0 x1 x2)"
+  by (unfold ReadMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadTaggedMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadTaggedMem x0 x1 x2)"
+  by (unfold ReadTaggedMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_ReadTags[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (ReadTags x0 x1 x2)"
+  by (unfold ReadTags_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteMem x0 x1 x2 x3)"
+  by (unfold WriteMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
+  by (unfold WriteTaggedMem_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_write_tag_bool[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (write_tag_bool wk addr sz tag)"
+  by (unfold write_tag_bool_def mword_nondet_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
+  "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
+  by (unfold WriteTags_def, no_reg_writes_toI)
+
+lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (Halted u)"
+  unfolding Halted_def
+  by (no_reg_writes_toI)
+
+lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
+  "no_reg_writes_to Rs (CapIsSystemAccessEnabled u)"
+  unfolding CapIsSystemAccessEnabled_def Halted_def PCC_read_def bind_assoc
+  by (no_reg_writes_toI)
 
 section \<open>Verification framework\<close>
 
@@ -1612,6 +2085,7 @@ locale Morello_Cap_Axiom_Automaton = Morello_ISA + Cap_Axiom_Automaton CC ISA UN
   for enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
     and use_mem_caps :: bool +
   fixes no_system_reg_access :: bool
+    and is_fetch :: bool
 begin
 
 lemmas privilegeds_accessible_system_reg_access[intro] =
@@ -1690,86 +2164,20 @@ lemma non_cap_exp_UNKNOWN_VirtualAddress[non_cap_expI]:
   unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
   by non_cap_expI
 
-lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bitvector RV n)"
-  by (unfold undefined_bitvector_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bits RV n)"
-  by (unfold undefined_bits_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_mword_nondet[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (mword_nondet RV n)"
-  by (unfold mword_nondet_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bit u)"
-  by (unfold undefined_bit_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bool[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bool RV u)"
-  by (unfold undefined_bool_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_string RV u)"
-  by (unfold undefined_string_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_unit u)"
-  by (unfold undefined_unit_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_vector len v)"
-  by (unfold undefined_vector_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_int RV u)"
-  by (unfold undefined_int_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_nat RV u)"
-  by (unfold undefined_nat_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_real RV u)"
-  by (unfold undefined_real_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_range RV i j)"
-  by (unfold undefined_range_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_atom n)"
-  by (unfold undefined_atom_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_internal_pick[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (internal_pick RV xs)"
-  by (unfold internal_pick_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_UNKNOWN_Capability[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (UNKNOWN_Capability n)"
-  by (unfold UNKNOWN_Capability_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_UNKNOWN_bits[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (UNKNOWN_bits n)"
-  by (unfold UNKNOWN_bits_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_UNKNOWN_VirtualAddress[no_reg_writes_toI]:
-  "no_reg_writes_to Rs (UNKNOWN_VirtualAddress u)"
-  unfolding UNKNOWN_VirtualAddress_def UNKNOWN_VirtualAddressType_def undefined_VirtualAddressType_def
-  by no_reg_writes_toI
-
-(* The following register write is used inside loops with capability effects in some instructions,
-   so we need a footprint lemma for the loop tactic to work automatically. *)
-lemma no_reg_writes_to_write_reg_FPSR[no_reg_writes_toI]:
-  "''FPSR'' \<notin> Rs \<Longrightarrow> no_reg_writes_to Rs (write_reg FPSR_ref v)"
-  by (intro no_reg_writes_to_write_reg) (auto simp: register_defs)
-
-declare datatype_splits[split]
 declare datatype_splits[where P = "non_cap_exp", non_cap_exp_split]
 declare datatype_splits[where P = "non_mem_exp", non_mem_exp_split]
-declare datatype_splits[where P = "no_reg_writes_to Rs" for Rs, THEN iffD2, no_reg_writes_toI]
-declare datatype_splits[where P = "runs_no_reg_writes_to Rs" for Rs, THEN iffD2, runs_no_reg_writes_toI]
+
+lemma DDC_read_derivable[derivable_capsE]:
+  "Run (DDC_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
+  unfolding DDC_read_def
+  by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE)
+     (auto elim!: read_reg_derivable simp: register_defs accessible_regs_def)
+
+lemma CSP_read_derivable[derivable_capsE]:
+  "Run (CSP_read u) t c \<Longrightarrow> c \<in> derivable_caps (run s t)"
+  unfolding CSP_read_def
+  by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE)
+     (auto elim!: read_reg_derivable simp: register_defs accessible_regs_def)
 
 lemma CapNull_derivable[simp, intro, derivable_capsI]:
   "CapNull u \<in> derivable_caps s"
@@ -1778,57 +2186,6 @@ lemma CapNull_derivable[simp, intro, derivable_capsI]:
 lemma CapWithTagClear_derivable[intro, simp, derivable_capsI]:
   "CapWithTagClear c \<in> derivable_caps s"
   by (auto simp: derivable_caps_def)
-
-lemma CapWithTagSet_bounds_eq[simp]:
-  "get_base (CapWithTagSet c) = get_base c"
-  "get_limit (CapWithTagSet c) = get_limit c"
-  unfolding get_base_def get_limit_def CapGetBase_def CapGetBounds_CapWithTagSet_eq
-  by auto
-
-lemma CapGetPermissions_CapWithTagSet_eq[simp]:
-  "CapGetPermissions (CapWithTagSet c) = CapGetPermissions c"
-  unfolding CapGetPermissions_def CapWithTagSet_def
-  by (intro word_eqI) (auto simp: nth_slice test_bit_set_gen)
-
-lemma cap_permits_CapWithTagSet_iff[simp]:
-  "cap_permits perms (CapWithTagSet c) \<longleftrightarrow> cap_permits perms c"
-  by (auto simp: CapCheckPermissions_def)
-
-lemma CapGetObjectType_CapWithTagSet_eq[simp]:
-  "CapGetObjectType (CapWithTagSet c) = CapGetObjectType c"
-  unfolding CapGetObjectType_def CapWithTagSet_def CapGetObjectType_def
-  by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
-
-lemma CapIsSealed_CapWithTagSet_iff[simp]:
-  "CapIsSealed (CapWithTagSet c) \<longleftrightarrow> CapIsSealed c"
-  unfolding CapIsSealed_def
-  by auto
-
-lemma CapGetObjectType_CapSetFlags_eq[simp]:
-  "CapGetObjectType (CapSetFlags c flags) = CapGetObjectType c"
-  by (intro word_eqI)
-     (auto simp: CapGetObjectType_def CapSetFlags_def word_ao_nth slice_update_subrange_vec_dec_below)
-
-lemma CapIsSealed_CapSetFlags_iff[simp]:
-  "CapIsSealed (CapSetFlags c flags) = CapIsSealed c"
-  by (auto simp: CapIsSealed_def)
-
-lemma Run_BranchAddr_not_CapIsSealed_if:
-  assumes "Run (BranchAddr c el) t c'"
-    and "CapIsTagSet c'" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "\<not>CapIsSealed c'"
-  using assms
-  unfolding BranchAddr_def
-  by (auto elim!: Run_bindE Run_letE Run_ifE split: if_splits)
-
-lemma CapGetObjectType_set_bit_0_eq[simp]:
-  "CapGetObjectType (set_bit c 0 b) = CapGetObjectType c"
-  by (intro word_eqI)
-     (auto simp: CapGetObjectType_def word_ao_nth nth_slice test_bit_set_gen)
-
-lemma CapIsSealed_set_bit_0_iff[simp]:
-  "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
-  by (auto simp: CapIsSealed_def)
 
 lemma leq_bools_cap_permits_imp:
   assumes "leq_bools (to_bl (CapGetPermissions c)) (to_bl (CapGetPermissions c'))"
@@ -4647,6 +5004,23 @@ next
     done
 qed
 
+lemma zero_extend_65_le_2p64:
+  fixes w :: "'a::len word"
+  assumes "LENGTH('a) \<le> 64"
+  shows "zero_extend w 65 \<le> (2 ^ 64 :: 65 word)"
+  using assms power_increasing[OF assms, where a = 2]
+  by (auto simp add: word_le_def intro!: uint_less[of w, THEN order_trans])
+
+lemmas [derivable_capsI] =
+  zero_extend_65_le_2p64[of w for w :: "64 word"]
+  zero_extend_65_le_2p64[of w for w :: "6 word"]
+
+lemma place_slice_6_65_le_2p64[derivable_capsI]:
+  "place_slice 65 (imm6 :: 6 word) 0 6 4 \<le> (2 ^ 64 :: 65 word)"
+  by (simp add: place_slice_def slice_mask_def sail_ones_def zeros_def word_le_def uint_shiftl bintrunc_shiftl bintr_uint, auto simp: shiftl_int_def)
+
+declare if_split[where P = "\<lambda>w. w \<le> (2 ^ 64 :: 65 word)", THEN iffD2, derivable_capsI]
+
 lemma update_tag_bit_zero_derivable[derivable_capsI]:
   "update_vec_dec c CAP_TAG_BIT (Morello.Bit 0) \<in> derivable_caps s"
   by (auto simp: derivable_caps_def test_bit_set)
@@ -4830,42 +5204,6 @@ lemma size_64_word_eq_64[derivable_capsI]:
   "int (size (w :: 64 word)) = 64"
   by auto
 
-lemma no_reg_writes_to_Mem_read[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (Mem_read x0 x1 x2)"
-  by (unfold Mem_read_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_Mem_set[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (Mem_set x0 x1 x2 x3)"
-  by (unfold Mem_set_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_ReadMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (ReadMem x0 x1 x2)"
-  by (unfold ReadMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_ReadTaggedMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (ReadTaggedMem x0 x1 x2)"
-  by (unfold ReadTaggedMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_ReadTags[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (ReadTags x0 x1 x2)"
-  by (unfold ReadTags_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (WriteMem x0 x1 x2 x3)"
-  by (unfold WriteMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
-  by (unfold WriteTaggedMem_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_write_tag_bool[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (write_tag_bool wk addr sz tag)"
-  by (unfold write_tag_bool_def mword_nondet_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_WriteTags[simp, no_reg_writes_toI]:
-  "no_reg_writes_to Rs (WriteTags x0 x1 x2 x3)"
-  by (unfold WriteTags_def, no_reg_writes_toI)
-
 definition VA_derivable :: "VirtualAddress \<Rightarrow> (129 word, register_value) axiom_state \<Rightarrow> bool" where
   "VA_derivable va s \<equiv>
      (case VirtualAddress_vatype va of
@@ -4919,10 +5257,6 @@ declare Run_letE[where thesis = "VA_derivable va s" and a = va for va s, derivab
 lemmas Run_return_VA_derivable[derivable_caps_combinators] =
    Run_return_resultE[where P = "\<lambda>va. VA_derivable va s" for s]
 
-lemma VAFromPCC_derivable[derivable_capsE]:
-  "Run (VAFromPCC offset) t va \<Longrightarrow> VA_derivable va s"
-  by (auto simp: VAFromPCC_def VA_derivable_def elim: Run_bindE)
-
 text \<open>We assume that UNKNOWN capabilities are constrained to reachable capabilities, in line with
   rule TSNJF of the architecture.
 
@@ -4970,22 +5304,22 @@ lemma UNKNOWN_VirtualAddress_derivable[derivable_capsE]:
 
 (* System register access *)
 
-fun sysreg_ev_assms :: "register_value event \<Rightarrow> bool" where
-  "sysreg_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)) =
-     (r = ''PCC'' \<longrightarrow> CapIsTagSet c \<and> \<not>CapIsSealed c \<and>
-                      (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))"
-| "sysreg_ev_assms (E_read_reg r (Regval_bitvector_32_dec v)) =
+fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool" where
+  "sysreg_ev_assms s (E_read_reg r (Regval_bitvector_129_dec c)) =
+     (r = ''PCC'' \<and> ''PCC'' \<notin> written_regs s \<longrightarrow>
+        (\<not>is_fetch \<longrightarrow> CapIsTagSet c) \<and>
+        (CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c) \<and>
+        (no_system_reg_access \<longrightarrow> \<not>cap_permits (CAP_PERM_EXECUTE OR CAP_PERM_SYSTEM) c))"
+| "sysreg_ev_assms s (E_read_reg r (Regval_bitvector_32_dec v)) =
      ((r = ''CSCR_EL3'' \<longrightarrow> no_system_reg_access \<or> v !! 0) \<and>
       (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2))" (* Non-debug state *)
-| "sysreg_ev_assms (E_read_reg r (Regval_ProcState v)) =
+| "sysreg_ev_assms s (E_read_reg r (Regval_ProcState v)) =
      (r = ''PSTATE'' \<longrightarrow> no_system_reg_access \<or> ProcState_EL v \<noteq> EL3)"
-| "sysreg_ev_assms _ = True"
+| "sysreg_ev_assms s (E_read_reg r (Regval_bool v)) =
+     (r = ''__BranchTaken'' \<and> \<not>is_fetch \<longrightarrow> v \<or> ''PCC'' \<notin> written_regs s)"
+| "sysreg_ev_assms _ _ = True"
 
-definition "sysreg_trace_assms t \<equiv> (\<forall>e \<in> set t. sysreg_ev_assms e)"
-
-lemma sysreg_trace_assms_append[simp]:
-  "sysreg_trace_assms (t1 @ t2) \<longleftrightarrow> sysreg_trace_assms t1 \<and> sysreg_trace_assms t2"
-  by (auto simp: sysreg_trace_assms_def)
+abbreviation "sysreg_trace_assms \<equiv> holds_along_trace sysreg_ev_assms"
 
 lemma bitvector_32_dec_of_regva_eq_Some_iff[simp]:
   "bitvector_32_dec_of_regval rv = Some v \<longleftrightarrow> rv = Regval_bitvector_32_dec v"
@@ -4995,93 +5329,95 @@ lemma bitvector_32_dec_of_regva_eq_Some_iff[simp]:
    we are not in Debug mode; otherwise we'd have to tweak the properties to allow for ambient
    system register access permission. *)
 lemma Halted_False:
-  assumes "Run (Halted u) t a" and "sysreg_trace_assms t"
+  assumes "Run (Halted u) t a" and "sysreg_trace_assms s t"
   shows "\<not>a"
   using assms
   unfolding Halted_def
-  by (auto simp: EDSCR_ref_def sysreg_trace_assms_def elim!: Run_bindE Run_or_boolM_E Run_read_regE)
+  by (auto simp: EDSCR_ref_def elim!: Run_bindE Run_or_boolM_E Run_read_regE)
 
 lemma Run_Halted_True_False[simp]:
-  assumes "sysreg_trace_assms t"
+  assumes "sysreg_trace_assms s t"
   shows "Run (Halted ()) t True \<longleftrightarrow> False"
   using assms
   by (auto dest: Halted_False)
 
-lemma no_reg_writes_to_Halted[no_reg_writes_toI]:
-  "no_reg_writes_to Rs (Halted u)"
-  unfolding Halted_def
-  by (no_reg_writes_toI)
-
 lemma Run_Halted_accessible_regs[accessible_regsE]:
-  assumes "Run (Halted u) t h" and "sysreg_trace_assms t"
+  assumes "Run (Halted u) t h" and "sysreg_trace_assms s t"
     and "Rs - (if h then read_privileged_regs ISA else {}) \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
   using assms
   by (intro accessible_regs_no_writes_run_subset[of "Halted u" t h Rs])
      (auto intro: no_reg_writes_runs_no_reg_writes no_reg_writes_to_Halted split: if_splits)
 
-lemma PCC_sysreg_trace_assms:
-  assumes "Run (read_reg PCC_ref) t c" and "sysreg_trace_assms t"
-  shows "CapIsTagSet c" and "\<not>CapIsSealed c"
-  using assms
-  by (auto elim!: Run_read_regE simp: PCC_ref_def sysreg_trace_assms_def)
+lemma PCC_tagged:
+  assumes "Run (read_reg PCC_ref) t c"
+    and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
+    and "\<not>is_fetch"
+  shows "CapIsTagSet c"
+  using assms(1,2)
+  by (auto elim!: Run_read_regE simp: PCC_ref_def) (auto simp: assms(3) accessible_regs_def)
+
+lemma PCC_unsealed:
+  assumes "Run (read_reg PCC_ref) t c"
+    and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
+    and "is_fetch \<longrightarrow> CapIsTagSet c"
+  shows "\<not>CapIsSealed c"
+  using assms(1,2)
+  by (auto elim!: Run_read_regE simp: PCC_ref_def accessible_regs_def dest!: assms(3)[rule_format])
 
 lemma CapIsSystemAccessEnabled_trace_allows_system_reg_access:
-  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
-    and "{''PCC''} \<subseteq> accessible_regs s"
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms s t" and "a"
+    and "{''PCC''} \<subseteq> accessible_regs s" and "\<not>is_fetch"
   shows "trace_allows_system_reg_access t s"
 proof -
   obtain t1 t2 c
     where t1: "Run (Halted ()) t1 False"
-      and t2: "Run (read_reg PCC_ref :: Capability M) t2 c" "sysreg_trace_assms t2"
+      and t2: "Run (read_reg PCC_ref :: Capability M) t2 c" "sysreg_trace_assms (run s t1) t2"
       and c: "CapIsSystemAccessPermitted c"
       and t: "t = t1 @ t2"
-    using assms PCC_sysreg_trace_assms
+    using assms(1-3)
     by (auto simp: CapIsSystemAccessEnabled_def PCC_read_def
              elim!: Run_bindE dest: Halted_False)
-  moreover have "CapIsTagSet c" and "\<not>CapIsSealed c"
-    using PCC_sysreg_trace_assms[OF t2]
-    by auto
-  moreover have "{''PCC''} \<subseteq> accessible_regs (run s t1)"
+  moreover have accessible: "{''PCC''} \<subseteq> accessible_regs (run s t1)"
     using t t1 assms(2,4)
     by - accessible_regsI
+  moreover have "CapIsTagSet c \<and> \<not>CapIsSealed c"
+    using PCC_tagged[OF _ _ \<open>\<not>is_fetch\<close>] PCC_unsealed t2 accessible
+    by fastforce
   ultimately show ?thesis
     by (auto elim!: Run_read_regE simp: PCC_ref_def)
 qed
 
 lemma CapIsSystemAccessEnabled_no_system_reg_access_cases:
-  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
+  assumes "Run (CapIsSystemAccessEnabled u) t a"
+    and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
   obtains "a" and "\<not>no_system_reg_access" | "\<not>a"
-  using assms
+  using assms sysreg_ev_assms.simps(1) Run_Halted_True_False
+  using no_reg_writes_to_written_regs_run_inv[OF _ no_reg_writes_to_Halted]
   unfolding CapIsSystemAccessEnabled_def CapIsSystemAccessPermitted_def PCC_read_def
-  by (elim Run_bindE Run_ifE Run_read_regE; auto simp: PCC_ref_def sysreg_trace_assms_def)
+  by (elim Run_bindE Run_ifE Run_read_regE; auto simp: PCC_ref_def accessible_regs_def)
 
 lemma CapIsSystemAccessEnabled_system_reg_access[derivable_capsE]:
-  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t" and "a"
-    and "{''PCC''} \<subseteq> accessible_regs s"
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms s t" and "a"
+    and "{''PCC''} \<subseteq> accessible_regs s" and "\<not>is_fetch"
   shows "system_reg_access (run s t)"
   using CapIsSystemAccessEnabled_trace_allows_system_reg_access[OF assms]
   by (auto simp: system_reg_access_run_iff)
 
-lemma no_reg_writes_to_CapIsSystemAccessEnabled[no_reg_writes_toI]:
-  "no_reg_writes_to Rs (CapIsSystemAccessEnabled u)"
-  unfolding CapIsSystemAccessEnabled_def Halted_def PCC_read_def bind_assoc
-  by (no_reg_writes_toI)
-
 lemma CapIsSystemAccessEnabled_accessible_regs[accessible_regsE]:
-  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms t"
-    and "Rs - (if a then read_privileged_regs ISA else {}) \<union> {''PCC''} \<subseteq> accessible_regs s"
+  assumes "Run (CapIsSystemAccessEnabled u) t a" and "sysreg_trace_assms s t"
+    and "Rs - (if a \<and> \<not>is_fetch then read_privileged_regs ISA else {}) \<union> {''PCC''} \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
 proof -
   have PCC: "{''PCC''} \<subseteq> accessible_regs s"
     using assms
     by auto
-  moreover have "Rs - (if a then read_privileged_regs ISA else {}) \<subseteq> accessible_regs (run s t)"
+  moreover have "Rs - (if a \<and> \<not>is_fetch then read_privileged_regs ISA else {}) \<subseteq> accessible_regs (run s t)"
     using assms
     by - (accessible_regsI)
   ultimately show ?thesis
-    using CapIsSystemAccessEnabled_system_reg_access[OF assms(1,2), THEN system_reg_access_accessible_regs, of s Rs]
-    by (cases a) auto
+    using CapIsSystemAccessEnabled_system_reg_access[OF assms(1,2) _ PCC, THEN system_reg_access_accessible_regs, of Rs]
+    by (cases "a \<and> \<not>is_fetch") auto
 qed
 
 lemmas CapIsSystemAccessEnabled_system_reg_access_or_ex[derivable_capsE] =
@@ -5099,10 +5435,10 @@ abbreviation
        (Halted () \<bind> (\<lambda>y. return (\<not>y)))"
 
 lemma system_access_disabled_accessible_regs[accessible_regsE]:
-  assumes "Run system_access_disabled t a" and "sysreg_trace_assms t"
-    and "Rs - (if a then {} else read_privileged_regs ISA) \<union> {''PCC''} \<subseteq> accessible_regs s"
+  assumes "Run system_access_disabled t a" and "sysreg_trace_assms s t"
+    and "Rs - (if a \<or> is_fetch then {} else read_privileged_regs ISA) \<union> {''PCC''} \<subseteq> accessible_regs s"
   shows "Rs \<subseteq> accessible_regs (run s t)"
-proof (cases a)
+proof (cases "a \<or> is_fetch")
   case True
   then show ?thesis
     using assms
@@ -5113,7 +5449,7 @@ next
     using assms
     by (auto elim!: Run_bindE Run_and_boolM_E dest: Halted_False)
   then show ?thesis
-    using assms(2,3) False
+    using assms False
     by - accessible_regsI
 qed
 
@@ -5121,11 +5457,12 @@ lemmas system_access_disabled_accessible_regs_or_ex[accessible_regsE] =
   system_access_disabled_accessible_regs[THEN disjI1]
 
 lemma system_access_disabled_system_reg_access[derivable_capsE]:
-  assumes "Run system_access_disabled t a" and "sysreg_trace_assms t" and "\<not>a"
-    and "{''PCC''} \<subseteq> accessible_regs s"
+  assumes "Run system_access_disabled t a" and "sysreg_trace_assms s t" and "\<not>a"
+    and "{''PCC''} \<subseteq> accessible_regs s" and "\<not>is_fetch"
   shows "system_reg_access (run s t)"
-  using assms
-  by (auto elim!: Run_bindE Run_and_boolM_E CapIsSystemAccessEnabled_system_reg_access dest: Halted_False)
+  using assms(1-4)
+  by (auto elim!: Run_bindE Run_and_boolM_E CapIsSystemAccessEnabled_system_reg_access[OF _ _ _ _ assms(5)]
+           dest: Halted_False)
 
 lemmas system_access_disabled_system_reg_access_or_ex[derivable_capsE] =
   system_access_disabled_system_reg_access[THEN disjI1]
@@ -5160,38 +5497,38 @@ lemma ELUsingAArch32_False[simp]:
   by (elim Run_read_regE, simp add: sysreg_trace_assms_def CHCR_EL2_ref_def) (auto simp: no_asr)*)
 
 lemma CSCR_EL3_SETTAG:
-  assumes t: "Run (read_reg CSCR_EL3_ref) t a" "sysreg_trace_assms t"
+  assumes t: "Run (read_reg CSCR_EL3_ref) t a" "sysreg_trace_assms s t"
     and no_asr: "\<not>no_system_reg_access"
   shows "a !! 0"
   using t
-  by (elim Run_read_regE, simp add: sysreg_trace_assms_def CSCR_EL3_ref_def) (auto simp: no_asr)
+  by (elim Run_read_regE, simp add: CSCR_EL3_ref_def) (auto simp: no_asr)
 
 lemma ProcState_of_regval_eq_Some_iff[simp]:
   "ProcState_of_regval rv = Some ps \<longleftrightarrow> rv = Regval_ProcState ps"
   by (cases rv) auto
 
 lemma not_EL3_if_system_reg_access:
-  assumes t: "Run (read_reg PSTATE_ref) t ps" "sysreg_trace_assms t"
+  assumes t: "Run (read_reg PSTATE_ref) t ps" "sysreg_trace_assms s t"
     and no_asr: "\<not>no_system_reg_access"
   shows "ProcState_EL ps \<in> {EL0, EL1, EL2}"
   using t EL_exhaust_disj[of "ProcState_EL ps"]
-  by (elim Run_read_regE, simp add: sysreg_trace_assms_def PSTATE_ref_def) (auto simp: no_asr)
+  by (elim Run_read_regE, simp add: PSTATE_ref_def) (auto simp: no_asr)
 
 lemma word1_eq_1_iff[simp]: "(w = (1 :: 1 word)) \<longleftrightarrow> w !! 0"
   by (cases w rule: exhaustive_1_word) auto
 
 lemma IsTagSettingDisabled_not_False:
-  assumes t: "sysreg_trace_assms t" and no_asr: "\<not>no_system_reg_access"
+  assumes t: "sysreg_trace_assms s t" and no_asr: "\<not>no_system_reg_access"
   shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
   using t
   unfolding IsTagSettingDisabled_def Let_def
-  \<comment> \<open>Requires IsTagSettingDisabled_EL.patch\<close>
+  \<comment> \<open>Requires @{path IsTagSettingDisabled_EL.patch}\<close>
   by (auto elim!: Run_bindE Run_and_boolM_E split: if_splits simp: nth_ucast
            dest!: CSCR_EL3_SETTAG[OF _ _ no_asr] not_EL3_if_system_reg_access[OF _ _ no_asr])
 
 text \<open>Tag setting instructions check whether tag setting is disabled, but also whether system access
-  is enabled; provide elimination rules for the and_boolM combinations of those checks that appear
-  in the instructions, reflecting our assumption that either system access or tag setting is
+  is enabled; provide elimination rules for the @{term and_boolM} combinations of those checks that
+  appear in the instructions, reflecting our assumption that either system access or tag setting is
   disabled.\<close>
 
 abbreviation
@@ -5200,7 +5537,8 @@ abbreviation
                (IsTagSettingDisabled () \<bind> (\<lambda>w__2. return (\<not> w__2)))"
 
 lemma and_SystemAccessEnabled_TagSettingEnabledE:
-  assumes "Run and_SystemAccessEnabled_TagSettingEnabled t a" and "sysreg_trace_assms t"
+  assumes "Run and_SystemAccessEnabled_TagSettingEnabled t a"
+    and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
   obtains "\<not>a"
 proof -
   from assms have "\<not>no_system_reg_access" if "a"
@@ -5217,67 +5555,25 @@ abbreviation
                (IsTagSettingDisabled () \<bind> (\<lambda>w__2. return (\<not> w__2)))"
 
 lemma and_exp_SystemAccessEnabled_TagSettingEnabledE:
-  assumes "Run (and_exp_SystemAccessEnabled_TagSettingEnabled m) t a" and "sysreg_trace_assms t"
+  assumes "Run (and_exp_SystemAccessEnabled_TagSettingEnabled m) t a"
+    and "\<exists>s. sysreg_trace_assms s t \<and> {''PCC''} \<subseteq> accessible_regs s"
+    and "runs_no_reg_writes_to {''PCC''} m"
   obtains "\<not>a"
-  using assms
+  using assms accessible_regs_no_writes_run_subset[where m = m and Rs = "{''PCC''}"]
   unfolding and_boolM_assoc
-  by (elim and_SystemAccessEnabled_TagSettingEnabledE Run_and_boolM_E; auto)
+  by (elim and_SystemAccessEnabled_TagSettingEnabledE Run_and_boolM_E) auto
+
+lemma BranchTaken_or_PCC_accessible:
+  assumes "Run (read_reg BranchTaken_ref) t b"
+    and "(\<forall>s'. sysreg_trace_assms s' t \<longrightarrow> b \<or> {''PCC''} \<subseteq> accessible_regs s') \<longrightarrow> {''PCC''} \<subseteq> accessible_regs s"
+    and "\<not>is_fetch"
+  shows "{''PCC''} \<subseteq> accessible_regs s"
+  using assms(1,2)
+  by (auto elim!: Run_read_regE simp: BranchTaken_ref_def accessible_regs_def split: register_value.splits; simp add: assms(3))
 
 end
 
-locale Morello_Axiom_Automaton =
-  Morello_Cap_Axiom_Automaton +
-  Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and cap_invariant = cap_invariant
-
-definition R_name :: "int \<Rightarrow> string set" where
-  "R_name n \<equiv>
-     (if n =  0 then {''_R00''} else
-      if n =  1 then {''_R01''} else
-      if n =  2 then {''_R02''} else
-      if n =  3 then {''_R03''} else
-      if n =  4 then {''_R04''} else
-      if n =  5 then {''_R05''} else
-      if n =  6 then {''_R06''} else
-      if n =  7 then {''_R07''} else
-      if n =  8 then {''_R08''} else
-      if n =  9 then {''_R09''} else
-      if n = 10 then {''_R10''} else
-      if n = 11 then {''_R11''} else
-      if n = 12 then {''_R12''} else
-      if n = 13 then {''_R13''} else
-      if n = 14 then {''_R14''} else
-      if n = 15 then {''_R15''} else
-      if n = 16 then {''_R16''} else
-      if n = 17 then {''_R17''} else
-      if n = 18 then {''_R18''} else
-      if n = 19 then {''_R19''} else
-      if n = 20 then {''_R20''} else
-      if n = 21 then {''_R21''} else
-      if n = 22 then {''_R22''} else
-      if n = 23 then {''_R23''} else
-      if n = 24 then {''_R24''} else
-      if n = 25 then {''_R25''} else
-      if n = 26 then {''_R26''} else
-      if n = 27 then {''_R27''} else
-      if n = 28 then {''_R28''} else
-      if n = 29 then {''_R29''} else
-      if n = 30 then {''_R30''} else
-      if n = 31 then {''RSP_EL0'', ''SP_EL0'', ''SP_EL1'', ''SP_EL2'', ''SP_EL3''} else
-      {})"
-
-definition DDC_names :: "string set" where
-  "DDC_names \<equiv> {''DDC_EL0'', ''RDDC_EL0'', ''DDC_EL1'', ''DDC_EL2'', ''DDC_EL3''}"
-
-abbreviation mutable_perms where
-  "mutable_perms \<equiv> ((CAP_PERM_STORE OR CAP_PERM_STORE_CAP) OR CAP_PERM_STORE_LOCAL) OR CAP_PERM_MUTABLE_LOAD"
-
-datatype load_auth =
-  RegAuth int
-  | BaseRegAuth int
-  | AltBaseRegAuth int
-  | PCCAuth
-
-locale Morello_Load_Cap_Assm_Automaton = Morello_ISA +
+locale Morello_Load_Cap_Assms = Morello_ISA +
   fixes enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
     and load_auths :: "load_auth set" and use_mem_caps :: "bool"
     and no_system_reg_access :: bool
@@ -5285,22 +5581,24 @@ locale Morello_Load_Cap_Assm_Automaton = Morello_ISA +
     and invoked_indirect_caps :: "Capability set"
 begin
 
-definition loads_via_cap_reg :: "int \<Rightarrow> bool" where
-  "loads_via_cap_reg n \<equiv> (RegAuth n \<in> load_auths \<or> (if is_in_c64 then BaseRegAuth n \<in> load_auths else AltBaseRegAuth n \<in> load_auths))"
+abbreviation loads_via_cap_reg :: "int \<Rightarrow> bool" where
+  "loads_via_cap_reg n \<equiv> cap_reg_in_load_auths is_in_c64 n load_auths"
 
-definition loads_via_ddc :: "bool" where
-  "loads_via_ddc \<equiv> (\<exists>n. if is_in_c64 then AltBaseRegAuth n \<in> load_auths else BaseRegAuth n \<in> load_auths)"
+abbreviation loads_via_ddc :: "bool" where
+  "loads_via_ddc \<equiv> ddc_in_load_auths is_in_c64 load_auths"
 
-definition loads_via_pcc :: "bool" where
-  "loads_via_pcc \<equiv> PCCAuth \<in> load_auths"
+abbreviation loads_via_pcc :: "bool" where
+  "loads_via_pcc \<equiv> pcc_in_load_auths load_auths"
 
 fun load_cap_ev_assms :: "register_value event \<Rightarrow> bool" where
   "load_cap_ev_assms (E_read_reg r v) =
-     ((r = ''PCC'' \<and> loads_via_pcc \<longrightarrow> (\<forall>c \<in> caps_of_regval v. use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
-      (\<forall>n c. r \<in> R_name n \<and> loads_via_cap_reg n \<and> c \<in> caps_of_regval v \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
-      (\<forall>c. r \<in> DDC_names \<and> loads_via_ddc \<and> c \<in> caps_of_regval v \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
+     ((r = ''PCC'' \<and> loads_via_pcc \<and> invoked_indirect_caps = {} \<longrightarrow> (\<forall>c \<in> caps_of_regval v. use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
+      (\<forall>n c. r \<in> R_name n \<and> loads_via_cap_reg n \<and> c \<in> caps_of_regval v \<and> invoked_indirect_caps = {} \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
+      (\<forall>c. r \<in> DDC_names \<and> loads_via_ddc \<and> c \<in> caps_of_regval v \<and> invoked_indirect_caps = {} \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
       (\<forall>ps. r = ''PSTATE'' \<and> v = Regval_ProcState ps \<longrightarrow> (is_in_c64 \<longleftrightarrow> (ProcState_C64 ps = 1))) \<and>
       (\<forall>w. r = ''DCZID_EL0'' \<and> v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 4 word) = 4) \<comment> \<open>Morello cache line size\<close>)"
+(*| "load_cap_ev_assms (E_write_reg r v) =
+      (\<forall>i. r = ''__ThisInstrAbstract'' \<and> v = Regval_instr_ast i \<longrightarrow> instr_load_auths i \<subseteq> load_auths)"*)
 | "load_cap_ev_assms _ = True"
 
 definition load_cap_trace_assms :: "register_value trace \<Rightarrow> bool" where
@@ -5310,7 +5608,7 @@ lemma load_cap_trace_assms_append[simp]:
   "load_cap_trace_assms (t1 @ t2) \<longleftrightarrow> load_cap_trace_assms t1 \<and> load_cap_trace_assms t2"
   by (auto simp: load_cap_trace_assms_def)
 
-sublocale Morello_Cap_Axiom_Automaton where use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps" ..
+sublocale Morello_Cap_Axiom_Automaton ..
 
 (* Assume fixed cache line size for Morello *)
 lemma DCZID_EL0_assm:
@@ -5327,9 +5625,9 @@ qed
 
 definition VA_from_load_auth :: "VirtualAddress \<Rightarrow> bool" where
   "VA_from_load_auth va \<equiv>
-     (if VirtualAddress_isPCC va = 1 then loads_via_pcc
-      else if VirtualAddress_vatype va = VA_Bits64 then loads_via_ddc
-      else (\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec (VirtualAddress_base va)))))"
+     (if VirtualAddress_vatype va = VA_Bits64 then loads_via_ddc
+      else ((\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec (VirtualAddress_base va))))
+            \<or> (loads_via_pcc \<and> load_cap_ev_assms (E_read_reg ''PCC'' (Regval_bitvector_129_dec (VirtualAddress_base va))))))"
 
 lemma CapSquashPostLoadCap_cases:
   assumes "Run (CapSquashPostLoadCap c base) t c'"
@@ -5343,35 +5641,24 @@ lemma Run_CapSquashPostLoadCap_use_mem_caps:
   assumes t: "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and base: "VA_from_load_auth base"
     and c': "CapIsTagSet c'"
+    and no_indirect: "invoked_indirect_caps = {}"
   shows "use_mem_caps"
-proof cases
-  assume PCC: "VirtualAddress_isPCC base = 1"
-  then have *: "loads_via_pcc"
-    using base
-    by (auto simp: VA_from_load_auth_def)
-  show "use_mem_caps"
-    using t c' PCC
-    unfolding CapSquashPostLoadCap_def Let_def
-    by (auto simp: PCC_read_def register_defs VAIsPCCRelative_def load_cap_trace_assms_def intro: *
-             elim!: Run_bindE Run_read_regE split: if_splits)
+proof (cases "VirtualAddress_vatype base")
+  case VA_Bits64
+  then show ?thesis
+    using t c' base
+    unfolding CapSquashPostLoadCap_def DDC_read_def Let_def bind_assoc
+    by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE;
+        simp add: DDC_names_def VA_from_load_auth_def register_defs load_cap_trace_assms_def;
+        use no_indirect in auto)
 next
-  assume not_PCC: "\<not>VirtualAddress_isPCC base = 1"
-  then show "use_mem_caps"
-  proof (cases "VirtualAddress_vatype base")
-    case VA_Bits64
-    then show ?thesis
-      using t c' not_PCC base
-      unfolding CapSquashPostLoadCap_def DDC_read_def Let_def bind_assoc
-      by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE)
-         (auto simp: VAIsPCCRelative_def DDC_names_def VA_from_load_auth_def register_defs load_cap_trace_assms_def)
-  next
-    case VA_Capability
-    then show ?thesis
-      using t c' not_PCC base
-      unfolding CapSquashPostLoadCap_def VAToCapability_def Let_def
-      by (auto simp: VAIsPCCRelative_def VA_from_load_auth_def VAIsBits64_def
-               elim!: Run_bindE split: if_splits)
-  qed
+  case VA_Capability
+  then show ?thesis
+    using t c' base
+    unfolding CapSquashPostLoadCap_def VAToCapability_def Let_def
+    by (elim Run_bindE Run_ifE;
+        simp add: VA_from_load_auth_def VAIsBits64_def;
+        use no_indirect in auto)
 qed
 
 lemma (in Cap_Axiom_Automaton) not_tagged_derivable:
@@ -5404,20 +5691,6 @@ lemma Run_IsInC64_E:
   by (auto simp: IsInC64_def load_cap_trace_assms_def PSTATE_ref_def
            elim!: Run_read_regE ProcState_of_regval.elims)
 
-lemma VAFromCapability_not_isPCC[simp]:
-  assumes "Run (VAFromCapability c) t va"
-  shows "VirtualAddress_isPCC va = 0"
-  using assms
-  unfolding VAFromCapability_def
-  by auto
-
-lemma VAFromBits64_not_isPCC[simp]:
-  assumes "Run (VAFromBits64 addr) t va"
-  shows "VirtualAddress_isPCC va = 0"
-  using assms
-  unfolding VAFromBits64_def
-  by auto
-
 lemma CSP_read_load_cap_ev_assms:
   assumes "Run (CSP_read u) t c" and "load_cap_trace_assms t"
   obtains r where "r \<in> R_name 31" and "load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec c))"
@@ -5445,7 +5718,7 @@ proof (cases is_in_c64)
     by (auto elim: Run_IsInC64_E)
   have "loads_via_cap_reg n"
     using True n
-    unfolding loads_via_cap_reg_def
+    unfolding cap_reg_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5459,7 +5732,7 @@ next
     by (auto elim: Run_IsInC64_E)
   have "loads_via_ddc"
     using False n
-    unfolding loads_via_ddc_def
+    unfolding ddc_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5486,7 +5759,7 @@ proof (cases is_in_c64)
     by (auto elim: Run_IsInC64_E)
   have "loads_via_ddc"
     using True n
-    unfolding loads_via_ddc_def
+    unfolding ddc_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5499,7 +5772,7 @@ next
     by (auto elim: Run_IsInC64_E)
   have "loads_via_cap_reg n"
     using False n
-    unfolding loads_via_cap_reg_def
+    unfolding cap_reg_in_load_auths_def
     by auto
   then show ?thesis
     using t
@@ -5516,14 +5789,6 @@ lemma AltBaseReg_read__1_VA_from_load_auth[derivable_capsE]:
   unfolding AltBaseReg_read__1_def
   by (elim AltBaseReg_read_VA_from_load_auth)
 
-lemma VAFromPCC_VA_from_load_auth[derivable_capsE]:
-  assumes "Run (VAFromPCC addr) t va"
-    and "loads_via_pcc"
-  shows "VA_from_load_auth va"
-  using assms
-  unfolding VAFromPCC_def VA_from_load_auth_def
-  by auto
-
 lemma VAFromBits64_VA_from_load_auth[derivable_capsE]:
   assumes "Run (VAFromBits64 addr) t va"
     and "loads_via_ddc"
@@ -5533,7 +5798,12 @@ lemma VAFromBits64_VA_from_load_auth[derivable_capsE]:
   by auto
 
 definition
-  "load_auth_reg_cap c \<equiv> (\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)))"
+  "load_auth_reg_cap c \<equiv>
+     ((\<exists>r n. r \<in> R_name n \<and> loads_via_cap_reg n \<and> load_cap_ev_assms (E_read_reg r (Regval_bitvector_129_dec c)))
+      \<or> (loads_via_pcc \<and> load_cap_ev_assms (E_read_reg ''PCC'' (Regval_bitvector_129_dec c))))"
+
+declare Run_ifE[where thesis = "load_auth_reg_cap c" and a = c for c, derivable_caps_combinators]
+declare Run_bindE[where thesis = "load_auth_reg_cap c" and a = c for c, derivable_caps_combinators]
 
 lemma VAFromCapability_VA_from_load_auth[derivable_capsE]:
   assumes "Run (VAFromCapability c) t va"
@@ -5564,9 +5834,16 @@ lemma CSP_or_C_read_load_auth_reg_cap[derivable_capsE]:
   using assms
   by (auto split: if_splits elim: derivable_capsE)
 
-lemma RegAuth_loads_via_cap_regI[intro, simp]:
+lemma aligned_CSP_or_C_read_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (if n = 31 then CheckSPAlignment u \<then> CSP_read u' else C_read n) t c" and "load_cap_trace_assms t"
+    and "loads_via_cap_reg n"
+  shows "load_auth_reg_cap c"
+  using assms
+  by (auto split: if_splits elim: derivable_capsE elim!: Run_bindE)
+
+lemma RegAuth_loads_via_cap_regI[derivable_capsI, intro, simp]:
   "RegAuth n \<in> load_auths \<Longrightarrow> loads_via_cap_reg n"
-  by (auto simp: loads_via_cap_reg_def)
+  by (auto simp: cap_reg_in_load_auths_def)
 
 lemma load_auth_reg_cap_CapUnseal_iff[simp]:
   "load_auth_reg_cap (CapUnseal c) \<longleftrightarrow> load_auth_reg_cap c"
@@ -5579,94 +5856,313 @@ lemma load_auth_reg_cap_if_CapUnsealI[intro, derivable_capsI]:
   using assms
   by auto
 
-lemma loads_via_pccI[intro, simp]:
+lemma PCC_load_auth_reg_cap[derivable_capsE]:
+  assumes "Run (read_reg PCC_ref) t c" and "load_cap_trace_assms t"
+    and "loads_via_pcc"
+  shows "load_auth_reg_cap c"
+  using assms
+  unfolding load_cap_trace_assms_def load_auth_reg_cap_def
+  by (elim Run_read_regE) (auto simp: PCC_ref_def)
+
+lemma loads_via_pccI[derivable_capsI, intro, simp]:
   assumes "PCCAuth \<in> load_auths"
   shows "loads_via_pcc"
   using assms
-  by (auto simp: loads_via_pcc_def)
+  by (auto simp: pcc_in_load_auths_def)
+
+definition load_instr_exp_assms :: "(register_value, 'a, 'e) monad \<Rightarrow> bool" where
+  "load_instr_exp_assms m \<equiv> load_auths = exp_load_auths m"
+
+lemma load_instr_exp_assms_write_ThisInstrAbstract_iff:
+  "load_instr_exp_assms (write_reg ThisInstrAbstract_ref instr \<bind> f)
+   \<longleftrightarrow> load_auths = instr_load_auths instr"
+  by (auto simp: load_instr_exp_assms_def exp_load_auths_def)
 
 end
+
+locale Morello_Cap_Invocation_Assms = Morello_ISA +
+  fixes enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
+    and use_mem_caps :: "bool"
+    and invoked_caps :: "Capability set" and invoked_regs :: "int set"
+    and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
+    and is_indirect_branch :: bool
+begin
+
+fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
+  "invocation_ev_assms (E_read_reg r v) =
+    ((\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps) \<and>
+     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps))"
+| "invocation_ev_assms (E_read_memt rk addr sz (bytes, tag)) =
+    (is_indirect_branch \<longrightarrow> (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps))"
+| "invocation_ev_assms _ = True"
+
+definition invocation_trace_assms :: "register_value trace \<Rightarrow> bool" where
+  "invocation_trace_assms t \<equiv> (\<forall>e \<in> set t. invocation_ev_assms e)"
+
+lemma invocation_trace_assms_append[simp]:
+  "invocation_trace_assms (t1 @ t2) \<longleftrightarrow> invocation_trace_assms t1 \<and> invocation_trace_assms t2"
+  by (auto simp: invocation_trace_assms_def)
+
+sublocale Morello_Cap_Axiom_Automaton ..
+
+definition invocation_instr_exp_assms :: "(register_value, 'a, 'e) monad \<Rightarrow> bool" where
+  "invocation_instr_exp_assms m \<equiv>
+     invoked_regs = exp_invokes_regs m \<and>
+     invoked_indirect_regs = exp_invokes_indirect_regs m \<and>
+     (exp_invokes_indirect_regs m = {} \<longrightarrow> invoked_indirect_caps = {}) \<and>
+     is_indirect_branch = exp_is_indirect_branch m"
+
+lemma invocation_instr_exp_assms_write_ThisInstrAbstract_iff:
+  "invocation_instr_exp_assms (write_reg ThisInstrAbstract_ref instr \<bind> f)
+   \<longleftrightarrow> (invoked_regs = instr_invokes_regs instr
+     \<and> invoked_indirect_regs = instr_invokes_indirect_regs instr
+     \<and> (instr_invokes_indirect_regs instr = {} \<longrightarrow> invoked_indirect_caps = {})
+     \<and> is_indirect_branch = instr_is_indirect_branch instr)"
+  by (auto simp: invocation_instr_exp_assms_def exp_invokes_regs_def exp_invokes_indirect_regs_def)
+
+lemma C_read_branch_caps_invoked_caps[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "invocation_trace_assms t"
+    and "n \<in> invoked_regs"
+    and "CapIsTagSet c" and "CapIsSealed c"
+  shows "branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+proof -
+  obtain r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
+    using assms(1,4)
+    unfolding C_read_def R_read_def
+    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
+  with assms(2-)
+  show ?thesis
+    by (auto simp: invocation_trace_assms_def)
+qed
+
+lemma C_read_invoked_caps[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "invocation_trace_assms t"
+    and "n \<in> invoked_regs"
+    and "CapIsTagSet c" and "CapIsSealed c"
+  shows "CapUnseal c \<in> invoked_caps"
+  using C_read_branch_caps_invoked_caps[OF assms]
+  by (auto simp: branch_caps_def)
+
+lemma C_read_unseal_invoked_indirect_caps[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "invocation_trace_assms t"
+    and "n \<in> invoked_indirect_regs"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  shows "CapUnseal c \<in> invoked_indirect_caps"
+proof -
+  obtain r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
+    using assms(1,4)
+    unfolding C_read_def R_read_def
+    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
+  with assms(2-)
+  show ?thesis
+    by (auto simp: is_indirect_sentry_def invocation_trace_assms_def)
+qed
+
+lemma CSP_read_invoked_indirect_caps[derivable_capsE]:
+  assumes "Run (CSP_read u) t c" and "invocation_trace_assms t"
+    and "31 \<in> invoked_indirect_regs"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  shows "CapUnseal c \<in> invoked_indirect_caps"
+proof -
+  obtain r where "E_read_reg r (Regval_bitvector_129_dec c) \<in> set t" and "r \<in> R_name 31"
+    using assms(1,4)
+    unfolding CSP_read_def
+    by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE Run_read_regE;
+        fastforce simp: R_name_def register_defs)
+  then show ?thesis
+    using assms(2-)
+    by (induction t)
+       (auto split: if_splits simp: is_indirect_sentry_def CapIsSealed_def invocation_trace_assms_def)
+qed
+
+lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
+  assumes "Run (if n = 31 then CSP_read () else C_read n) t c" and "invocation_trace_assms t"
+    and "n \<in> invoked_indirect_regs"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  shows "CapUnseal c \<in> invoked_indirect_caps"
+  using assms
+  by (auto elim!: derivable_capsE split: if_splits)
+
+declare Run_ifE[where thesis = "CapUnseal c \<in> invoked_indirect_caps" and a = c for c, derivable_caps_combinators]
+declare Run_bindE[where thesis = "CapUnseal c \<in> invoked_indirect_caps" and a = c for c, derivable_caps_combinators]
+
+lemma accessed_mem_cap_of_trace_sealed_invoked_caps:
+  assumes "accessed_mem_cap_of_trace_if_tagged c t"
+    and "invocation_trace_assms t"
+    and "CapIsTagSet c" and "CapGetObjectType c = CAP_SEAL_TYPE_RB"
+    and "is_indirect_branch"
+  shows "branch_caps (CapUnseal c) \<subseteq> invoked_caps"
+  using assms(1-4)
+  by (induction t)
+     (auto simp: accessed_mem_cap_of_trace_if_tagged_def mem_branch_caps_def invocation_trace_assms_def
+           intro: assms(5))
+
+lemmas tagged_mem_primitives_sealed_invoked_caps[derivable_capsE] =
+  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_sealed_invoked_caps]
+
+lemma accessed_mem_cap_of_trace_invoked_caps:
+  assumes "accessed_mem_cap_of_trace_if_tagged c t"
+    and "invocation_trace_assms t"
+    and "CapIsTagSet c"
+    and "is_indirect_branch"
+  shows "mem_branch_caps c \<subseteq> invoked_caps"
+  using assms(1-3)
+  by (induction t)
+     (auto simp: accessed_mem_cap_of_trace_if_tagged_def invocation_trace_assms_def intro: assms(4))
+
+lemmas tagged_mem_primitives_invoked_caps[derivable_capsE] =
+  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_invoked_caps]
+
+end
+
+locale Morello_Axiom_Assms = Morello_ISA +
+  fixes enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
+    and ex_traces :: bool
+    and invoked_caps :: "Capability set" and invoked_regs :: "int set"
+    and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
+    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
+    and is_indirect_branch :: bool
+    and no_system_reg_access :: bool
+    and is_in_c64 :: bool
+    and translation_assms :: "register_value event \<Rightarrow> bool"
+begin
+
+sublocale Morello_Load_Cap_Assms ..
+sublocale Morello_Cap_Invocation_Assms ..
+
+fun ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool" where
+  "ev_assms s (E_read_reg r v) =
+    (invocation_ev_assms (E_read_reg r v) \<and>
+     load_cap_ev_assms (E_read_reg r v) \<and>
+     sysreg_ev_assms s (E_read_reg r v) \<and>
+     translation_assms (E_read_reg r v))"
+| "ev_assms s (E_read_memt rk addr sz data) =
+    (invocation_ev_assms (E_read_memt rk addr sz data) \<and> translation_assms (E_read_memt rk addr sz data))"
+| "ev_assms s (E_choose descr rv) =
+    (unknown_ev_assms (E_choose descr rv) \<and> translation_assms (E_choose descr rv))"
+| "ev_assms s e = translation_assms e"
+
+end
+
+locale Morello_Axiom_Automaton =
+  Morello_Axiom_Assms +
+  Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
+    and cap_invariant = cap_invariant and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception
+begin
+
+(* sublocale Morello_Cap_Axiom_Automaton .. *)
+
+lemma load_cap_ev_assmsI[intro, simp]:
+  "ev_assms s e \<Longrightarrow> load_cap_ev_assms e"
+  by (cases e; simp; blast)
+
+lemma load_cap_trace_assmsI[intro, simp]:
+  "trace_assms s t \<Longrightarrow> load_cap_trace_assms t"
+  by (induction t arbitrary: s) (auto simp: load_cap_trace_assms_def)
+
+lemmas inv_load_cap_trace_assms[simp, derivable_capsE, accessible_regsE] =
+  inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI]
+
+lemma invocation_ev_assmsI[intro, simp]:
+  "ev_assms s e \<Longrightarrow> invocation_ev_assms e"
+  by (cases e; simp; blast)
+
+lemma trace_assms_invocation_trace_assms[intro, simp]:
+  "trace_assms s t \<Longrightarrow> invocation_trace_assms t"
+  by (induction t arbitrary: s) (auto simp: invocation_trace_assms_def)
+
+lemmas inv_invocation_trace_assms[simp, derivable_capsE, accessible_regsE] =
+  inv_trace_assms_trace_assms[THEN trace_assms_invocation_trace_assms]
+
+lemma sysreg_ev_assmsI[intro, simp, derivable_capsI]:
+  "ev_assms s e \<Longrightarrow> sysreg_ev_assms s e"
+  by (cases "(s, e)" rule: sysreg_ev_assms.cases) auto
+
+lemma trace_assms_sysreg_trace_assms[simp, intro]:
+  "trace_assms s t \<Longrightarrow> sysreg_trace_assms s t"
+  by (elim holds_along_trace_imp) auto
+
+lemmas inv_sysreg_trace_assms[simp, derivable_capsE, accessible_regsE] =
+  inv_trace_assms_trace_assms[THEN trace_assms_sysreg_trace_assms]
+
+lemmas ex_conjI = exI[where P = "\<lambda>x. P x \<and> Q x" for P Q, OF conjI]
+
+lemmas inv_ex_sysreg_trace_assms[accessible_regsE, derivable_capsE] =
+  inv_sysreg_trace_assms[THEN exI[where P = "\<lambda>s. sysreg_trace_assms s t" for t]]
+  inv_sysreg_trace_assms[THEN ex_conjI[where P = "\<lambda>s. sysreg_trace_assms s t" for t]]
+
+declare inv_sysreg_trace_assms[THEN Run_Halted_True_False, simp]
+
+lemma unknown_ev_assmsI[intro, simp]:
+  "ev_assms s e \<Longrightarrow> unknown_ev_assms e"
+  by (cases e rule: unknown_ev_assms.cases; auto)
+
+lemma trace_assms_unknown_trace_assms[intro, simp]:
+  "trace_assms s t \<Longrightarrow> unknown_trace_assms t"
+  by (induction t arbitrary: s) (auto simp: unknown_trace_assms_def)
+
+lemmas inv_unknown_trace_assms[simp, derivable_capsE, accessible_regsE] =
+  inv_trace_assms_trace_assms[THEN trace_assms_unknown_trace_assms]
+
+declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
+
+definition "instr_exp_assms m \<equiv> invocation_instr_exp_assms m \<and> load_instr_exp_assms m"
+
+lemma instr_exp_assms_traces_enabled_ifE:
+  assumes "instr_exp_assms (if c then m1 else m2)"
+    and "instr_exp_assms m1 \<Longrightarrow> traces_enabled m1 s"
+    and "instr_exp_assms m2 \<Longrightarrow> traces_enabled m2 s"
+  shows "traces_enabled (if c then m1 else m2) s"
+  using assms
+  by auto
+
+lemma instr_exp_assms_traces_enabled_letE:
+  assumes "instr_exp_assms (let x = y in f x)"
+    and "instr_exp_assms (f y) \<Longrightarrow> traces_enabled (f y) s"
+  shows "traces_enabled (let x = y in f x) s"
+  using assms
+  by auto
+
+(* For some (probably ArchEx-related) reason, __ExecuteA64 reads the PC and passes it to
+   __DecodeA64 as its first argument.  However, the __DecodeA64 function we generate doesn't
+   actually use the pc argument. *)
+lemma DecodeA64_ignore_pc: "DecodeA64 pc opcode = DecodeA64 0 opcode"
+  by (unfold DecodeA64_def, rule refl)
+
+end
+
+locale Morello_Instr_Axiom_Automaton = Morello_Axiom_Automaton where is_fetch = False
+locale Morello_Fetch_Axiom_Automaton = Morello_Axiom_Automaton where is_fetch = True
 
 locale Morello_Write_Cap_Automaton = Morello_ISA +
   fixes ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
-  assumes indirect_regs_indirect_branch: "invoked_indirect_regs \<noteq> {} \<longrightarrow> is_indirect_branch"
+    and translation_assms :: "register_value event \<Rightarrow> bool"
+  assumes no_invoked_indirect_caps_if_use_mem_caps: "use_mem_caps \<longrightarrow> invoked_indirect_caps = {}"
 begin
 
-lemma is_indirect_branchI[intro]:
-  assumes "n \<in> invoked_indirect_regs"
-  shows "is_indirect_branch"
-  using assms indirect_regs_indirect_branch
-  by auto
+sublocale Write_Cap_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
+  using no_invoked_indirect_caps_if_use_mem_caps
+  by unfold_locales
 
-definition normalise_cursor_flags :: "Capability \<Rightarrow> bool \<Rightarrow> Capability" where
-  "normalise_cursor_flags c top_bit \<equiv> CapSetFlags c (if top_bit then max_word else 0)"
-
-definition branch_caps :: "Capability \<Rightarrow> Capability set" where
-  "branch_caps c \<equiv>
-     (if CapIsSealed c then
-        {c}
-      else
-        {c, normalise_cursor_flags c (CapGetValue c !! 55), normalise_cursor_flags c False,
-         set_bit c 0 False, normalise_cursor_flags (set_bit c 0 False) (CapGetValue c !! 55),
-         normalise_cursor_flags (set_bit c 0 False) False})"
-
-definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
-  "mem_branch_caps c \<equiv>
-     (if CapGetObjectType c = CAP_SEAL_TYPE_RB then {c} \<union> branch_caps (CapUnseal c)
-      else branch_caps c \<union> branch_caps (clear_perm mutable_perms c))"
-
-sublocale Write_Cap_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps ..
-
-sublocale Morello_Load_Cap_Assm_Automaton where enabled = enabled ..
+sublocale Morello_Axiom_Assms where enabled = enabled ..
 
 (* TODO *)
-fun ev_assms :: "register_value event \<Rightarrow> bool" where
-  "ev_assms (E_read_reg r v) =
-    ((\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_caps) \<and>
-     (\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
-     load_cap_ev_assms (E_read_reg r v) \<and>
-     sysreg_ev_assms (E_read_reg r v))"
-| "ev_assms (E_read_memt rk addr sz (bytes, tag)) =
-    (is_indirect_branch \<longrightarrow> (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps))"
-| "ev_assms (E_choose descr rv) = unknown_ev_assms (E_choose descr rv)"
-| "ev_assms _ = True"
-
 sublocale Write_Cap_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
     and cap_invariant = cap_invariant ..
 
-sublocale Morello_Axiom_Automaton
-  where enabled = enabled and use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps"
-    and ev_assms = ev_assms
-  ..
-
-lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]:
-  "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
-  by (cases e; simp; blast)
-
-lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
-  "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
-  by (auto simp: trace_assms_def load_cap_trace_assms_def)
-
-declare inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI, simp]
-
-lemma unknown_ev_assmsI[intro, simp, derivable_capsI]:
-  "ev_assms e \<Longrightarrow> unknown_ev_assms e"
-  by (cases e rule: unknown_ev_assms.cases; auto)
-
-lemma unknown_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
-  "trace_assms t \<Longrightarrow> unknown_trace_assms t"
-  by (auto simp: trace_assms_def unknown_trace_assms_def)
-
-declare inv_trace_assms_trace_assms[THEN unknown_trace_assmsI, simp]
-
-declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
+sublocale Morello_Axiom_Automaton where enabled = enabled ..
 
 lemma branch_caps_leq:
   assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
@@ -5768,214 +6264,74 @@ lemma BranchAddr_not_sealed:
   unfolding BranchAddr_def
   by (auto elim!: Run_bindE Run_letE split: if_splits)
 
-lemma C_read_branch_caps_invoked_caps[derivable_capsE]:
-  assumes "Run (C_read n) t c" and "trace_assms t"
-    and "n \<in> invoked_regs"
-    and "CapIsTagSet c" and "CapIsSealed c"
-  shows "branch_caps (CapUnseal c) \<subseteq> invoked_caps"
-proof -
-  obtain r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
-    using assms(1,4)
-    unfolding C_read_def R_read_def
-    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
-  with assms(2-)
-  show ?thesis
-    by auto
-qed
-
-lemma C_read_invoked_caps[derivable_capsE]:
-  assumes "Run (C_read n) t c" and "trace_assms t"
-    and "n \<in> invoked_regs"
-    and "CapIsTagSet c" and "CapIsSealed c"
-  shows "CapUnseal c \<in> invoked_caps"
-  using C_read_branch_caps_invoked_caps[OF assms]
-  by (auto simp: branch_caps_def)
-
-lemma C_read_unseal_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (C_read n) t c" and "trace_assms t"
-    and "n \<in> invoked_indirect_regs"
-    and "CapIsTagSet c"
-    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
-  shows "CapUnseal c \<in> invoked_indirect_caps"
-proof -
-  obtain r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
-    using assms(1,4)
-    unfolding C_read_def R_read_def
-    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
-  with assms(2-)
-  show ?thesis
-    by (auto simp: is_indirect_sentry_def)
-qed
-
-(*lemma CSP_read_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (CSP_read u) t c" and "trace_assms t"
-    and "31 \<in> invoked_indirect_regs"
-    and "CapIsTagSet c"
-    and "\<not>CapIsSealed c"
-  shows "c \<in> invoked_indirect_caps"
-proof -
-  obtain r where "E_read_reg r (Regval_bitvector_129_dec c) \<in> set t" and "r \<in> R_name 31"
-    using assms(1,4)
-    unfolding CSP_read_def
-    by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE Run_read_regE;
-        fastforce simp: R_name_def register_defs)
-  then show ?thesis
-    using assms(2-)
-    by (induction t) (auto split: if_splits simp: is_indirect_sentry_def CapIsSealed_def)
-qed*)
-
-lemma accessed_mem_cap_of_trace_sealed_invoked_caps:
-  assumes "accessed_mem_cap_of_trace_if_tagged c t"
-    and "trace_assms t"
-    and "CapIsTagSet c" and "CapGetObjectType c = CAP_SEAL_TYPE_RB"
-    and "is_indirect_branch"
-  shows "branch_caps (CapUnseal c) \<subseteq> invoked_caps"
-  using assms(1-4)
-  by (induction t)
-     (auto simp: accessed_mem_cap_of_trace_if_tagged_def mem_branch_caps_def intro: assms(5))
-
-lemmas tagged_mem_primitives_sealed_invoked_caps[derivable_capsE] =
-  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_sealed_invoked_caps]
-
-lemma accessed_mem_cap_of_trace_invoked_caps:
-  assumes "accessed_mem_cap_of_trace_if_tagged c t"
-    and "trace_assms t"
-    and "CapIsTagSet c"
-    and "is_indirect_branch"
-  shows "mem_branch_caps c \<subseteq> invoked_caps"
-  using assms(1-3)
-  by (induction t) (auto simp: accessed_mem_cap_of_trace_if_tagged_def intro: assms(4))
-
-lemmas tagged_mem_primitives_invoked_caps[derivable_capsE] =
-  tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_invoked_caps]
-
-lemma sysreg_ev_assmsI[intro]:
-  "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
-  by (cases e rule: sysreg_ev_assms.cases) auto
-
-lemma sysreg_trace_assmsI[simp, intro, accessible_regsI, derivable_capsI]:
-  "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
-  by (auto simp: sysreg_trace_assms_def trace_assms_def)
-
 end
 
+locale Morello_Instr_Write_Cap_Automaton = Morello_Write_Cap_Automaton where is_fetch = False
+locale Morello_Fetch_Write_Cap_Automaton = Morello_Write_Cap_Automaton where is_fetch = True
+sublocale Morello_Instr_Write_Cap_Automaton \<subseteq> Morello_Instr_Axiom_Automaton where enabled = enabled ..
+sublocale Morello_Fetch_Write_Cap_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton where enabled = enabled ..
+
 (* Assume stubbed out address translation for now *)
-locale Morello_Mem_Automaton =
+locale Morello_Mem_Axiom_Automaton =
   Morello_Fixed_Address_Translation
   (*where translate_address = translate_address
     and is_translation_event = "\<lambda>_. False"
     and translation_assms = "\<lambda>_. True"*) +
   fixes ex_traces :: bool
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and invoked_caps :: "Capability set" and invoked_regs :: "int set"
+    and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
+    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
-    and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
+    and is_indirect_branch :: bool
+  assumes no_invoked_indirect_caps_if_use_mem_caps: "use_mem_caps \<longrightarrow> invoked_indirect_caps = {}"
 begin
 
-sublocale Mem_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and is_fetch = False ..
+sublocale Mem_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
+  using no_invoked_indirect_caps_if_use_mem_caps
+  by unfold_locales
 
-sublocale Morello_Load_Cap_Assm_Automaton
+sublocale Morello_Axiom_Assms
   where translate_address = "\<lambda>addr _ _. translate_address addr"
     and enabled = enabled
   ..
 
-fun extra_assms :: "register_value event \<Rightarrow> bool" where
+(*fun extra_assms :: "register_value event \<Rightarrow> bool" where
   "extra_assms (E_read_reg r v) =
     ((\<forall>n c. r \<in> R_name n \<and> n \<in> invoked_indirect_regs \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> is_indirect_sentry c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps) \<and>
+     (\<forall>instr. r = ''__ThisInstrAbstract'' \<and> v = Regval_instr_ast instr \<longrightarrow> instr_invokes_indirect_regs instr \<subseteq> invoked_indirect_regs) \<and>
      load_cap_ev_assms (E_read_reg r v) \<and>
      sysreg_ev_assms (E_read_reg r v))"
+| "extra_assms (E_write_reg r v) = load_cap_ev_assms (E_write_reg r v)"
 | "extra_assms (E_choose descr rv) = unknown_ev_assms (E_choose descr rv)"
-| "extra_assms _ = True"
+| "extra_assms _ = True"*)
 
 sublocale Mem_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and cap_invariant = cap_invariant
     (* and translation_assms = "\<lambda>_. True" *)
-    and is_fetch = "False"
-    and use_mem_caps = use_mem_caps
-    and extra_assms = extra_assms
-    and invoked_indirect_caps = invoked_indirect_caps
-  ..
+    and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+proof
+  fix s e
+  assume "ev_assms s e"
+  then show "translation_assms e"
+    by (cases e) auto
+qed
 
 sublocale Morello_Axiom_Automaton
   where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled
-    and use_mem_caps = "invoked_indirect_caps = {} \<and> use_mem_caps" and ev_assms = ev_assms
   ..
 
-lemma load_cap_ev_assmsI[intro, simp, derivable_capsI]: "ev_assms e \<Longrightarrow> load_cap_ev_assms e"
-  by (cases e; simp add: ev_assms_def; blast)
-
-lemma load_cap_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
-  "trace_assms t \<Longrightarrow> load_cap_trace_assms t"
-  by (auto simp: trace_assms_def load_cap_trace_assms_def)
-
-declare inv_trace_assms_trace_assms[THEN load_cap_trace_assmsI, simp]
-
-lemma unknown_ev_assmsI[intro, simp, derivable_capsI]:
-  "ev_assms e \<Longrightarrow> unknown_ev_assms e"
-  by (cases e rule: unknown_ev_assms.cases; auto simp: ev_assms_def)
-
-lemma unknown_trace_assmsI[intro, simp, accessible_regsI, derivable_capsI]:
-  "trace_assms t \<Longrightarrow> unknown_trace_assms t"
-  by (auto simp: trace_assms_def unknown_trace_assms_def)
-
-declare inv_trace_assms_trace_assms[THEN unknown_trace_assmsI, simp]
-
-lemma translate_address_ISA[simp]:
-  "isa.translate_address ISA addr acctype t = translate_address addr"
-  by (auto simp: ISA_def)
-
-declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
-
-lemma C_read_unseal_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (C_read n) t c" and "trace_assms t"
-    and "n \<in> invoked_indirect_regs"
-    and "CapIsTagSet c"
-    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
-  shows "CapUnseal c \<in> invoked_indirect_caps"
-proof -
-  obtain r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
-    using assms(1,4)
-    unfolding C_read_def R_read_def
-    by (auto simp: R_name_def CapNull_def register_defs elim!: Run_read_regE Run_ifE)
-  with assms(2-)
-  show ?thesis
-    by (auto simp: is_indirect_sentry_def ev_assms_def)
-qed
-
-lemma CSP_read_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (CSP_read u) t c" and "trace_assms t"
-    and "31 \<in> invoked_indirect_regs"
-    and "CapIsTagSet c"
-    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
-  shows "CapUnseal c \<in> invoked_indirect_caps"
-proof -
-  obtain r where "E_read_reg r (Regval_bitvector_129_dec c) \<in> set t" and "r \<in> R_name 31"
-    using assms(1,4)
-    unfolding CSP_read_def
-    by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE Run_read_regE;
-        fastforce simp: R_name_def register_defs)
-  then show ?thesis
-    using assms(2-)
-    by (induction t) (auto split: if_splits simp: is_indirect_sentry_def CapIsSealed_def ev_assms_def)
-qed
-
-lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (if n = 31 then CSP_read () else C_read n) t c" and "trace_assms t"
-    and "n \<in> invoked_indirect_regs"
-    and "CapIsTagSet c"
-    and "CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
-  shows "CapUnseal c \<in> invoked_indirect_caps"
-  using assms
-  by (auto elim!: derivable_capsE split: if_splits)
-
-lemma sysreg_ev_assmsI[intro]:
-  "ev_assms e \<Longrightarrow> sysreg_ev_assms e"
-  by (cases e rule: sysreg_ev_assms.cases) (auto simp: ev_assms_def)
-
-lemma sysreg_trace_assmsI[simp, intro, accessible_regsI, derivable_capsI]:
-  "trace_assms t \<Longrightarrow> sysreg_trace_assms t"
-  by (auto simp: sysreg_trace_assms_def trace_assms_def)
+declare translation_assms_traceI[intro, simp]
+declare inv_trace_assms_trace_assms[THEN translation_assms_traceI, simp]
 
 end
+
+locale Morello_Instr_Mem_Automaton = Morello_Mem_Axiom_Automaton where is_fetch = False
+locale Morello_Fetch_Mem_Automaton = Morello_Mem_Axiom_Automaton where is_fetch = True
+sublocale Morello_Instr_Mem_Automaton \<subseteq> Morello_Instr_Axiom_Automaton
+  where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled ..
+sublocale Morello_Fetch_Mem_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton
+  where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled ..
 
 end
