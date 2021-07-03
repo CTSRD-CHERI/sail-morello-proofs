@@ -1,3 +1,5 @@
+section \<open>Monotonicity theorem\<close>
+
 theory CHERI_Monotonicity
   imports
     "Sail-Morello.Morello_lemmas"
@@ -9,6 +11,8 @@ theory CHERI_Monotonicity
     "Sail-T-CHERI.Trace_Assumptions"
     "Sail-T-CHERI.Properties"
 begin
+
+locale Morello_Monotonicity = Morello_Fixed_Address_Translation + Morello_Register_Accessors
 
 locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: "register_value trace"
 
@@ -86,7 +90,7 @@ locale Morello_Fetch_Trace_Mem_Automaton =
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
 
-context Morello_Fixed_Address_Translation
+context Morello_Monotonicity
 begin
 
 abbreviation "s_read_from reg s \<equiv> read_from reg (regstate s)"
@@ -105,12 +109,6 @@ abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_A
 abbreviation "fetch_trace_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms translate_address is_translation_event translation_assms UNKNOWN_caps t"
 
 abbreviation "s_translate_address addr acctype s \<equiv> translate_address addr"
-
-interpretation Register_State get_regval set_regval
-  apply standard
-  sorry
-
-interpretation Morello_Register_Accessors ..
 
 sublocale CHERI_ISA_State CC ISA cap_invariant UNKNOWN_caps fetch_trace_assms fetch_state_assms instr_trace_assms instr_state_assms get_regval set_regval s_translate_address
 proof
@@ -176,7 +174,7 @@ lemma fetch_state_assms_iff_invs:
   unfolding fetch_state_assms_def EDSCR_inv_def DCZID_inv_def reg_inv_def Let_def
   by (auto simp: register_defs regval_of_bitvector_129_dec_def regval_of_bitvector_32_dec_def)
 
-lemma
+theorem morello_monotonicity:
   assumes "hasTrace t (fetch_execute_loop ISA n)"
     and "s_run_trace t s = Some s'"
     and "\<forall>c\<in>reachable_caps s. is_tagged_method CC c \<longrightarrow> cap_invariant c"
@@ -233,7 +231,7 @@ proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])
       by (auto simp: instr_state_assms_def elim: PrePostE_elim)
   qed
   show "s_invariant_holds (addr_trans_invariant False s) t s"
-    \<comment> \<open>Holds trivially because of the Morello_Fixed_Address_Translation setup;  the real proof
+    \<comment> \<open>Holds trivially because of the @{locale Morello_Fixed_Address_Translation} setup;  the real proof
         obligations about the actual address translation will show up when instantiating that locale.\<close>
     by (rule take_s_invariant_holdsI[OF \<open>s_run_trace t s = Some s'\<close>])
        (auto simp: addr_trans_invariant_plus_def)

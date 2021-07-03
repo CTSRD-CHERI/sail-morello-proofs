@@ -1,3 +1,5 @@
+section \<open>System invariants\<close>
+
 theory Morello_Invariants
   imports CHERI_Mem_Properties "Sail.Hoare"
 begin
@@ -70,31 +72,13 @@ declare excl_resultS_def[simp]
 lemma Value_liftState_Run_runTraceS:
   assumes "(Value a, s') \<in> liftState r m s"
   obtains t where "Run m t a" and "runTraceS r t s = Some s'"
-(*proof -
-  from assms obtain t where "Run m t a"
-    by (elim Value_liftState_Run)
-  with assms that show thesis
-    apply (induction r t s rule: runTraceS.induct)
-    apply auto*)
 proof (use assms in \<open>induction r m arbitrary: s s' rule: liftState.induct\<close>)
   case (1 ra a)
   then show ?case by (simp)
 next
   case (2 ra rk a sz k)
-  (*then show ?case
-    apply (auto elim!: Value_bindS_elim simp add: returnS_def maybe_failS_def failS_def readS_def read_mem_bytesS_def read_memt_bytesS_def bind_eq_Some_conv split: option.splits)
-    apply (auto elim!: Value_bindS_elim intro: Traces_ConsI) *)
   then show ?case
     by (force elim!: Value_bindS_elim intro: Traces_ConsI)
-    (*thm "2.IH"[rotated -1]
-    apply (erule "2.IH"[rotated -1])
-     apply blast
-    apply (rule "2.prems")
-     apply (rule Traces_ConsI)
-     apply assumption
-    apply (auto elim!: Value_bindS_elim)
-    thm runTraceS.induct emitEventS.elims
-    sorry*)
 next
   case (3 ra rk a sz k)
   then show ?case

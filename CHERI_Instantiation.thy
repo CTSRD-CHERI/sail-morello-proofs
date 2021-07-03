@@ -359,7 +359,7 @@ lemma return_prod_fst_derivable_caps[derivable_capsE]:
 text \<open>For the proofs of some of the decode clauses, some fairly simple side conditions need to be
   proved, but the auto proof method struggles in some cases due to the nesting of blocks and use
   of mutable variables, so we declare some custom proof rules so that these conditions can be
-  handled efficiently by the derivable_capsI proof method.\<close>
+  handled efficiently by the @{method derivable_capsI} proof method.\<close>
 
 lemma member_fst_snd_prod_elims[derivable_capsE]:
   "\<And>a x y xs. a = (x, y) \<Longrightarrow> fst a \<in> xs \<Longrightarrow> x \<in> xs"
@@ -1942,7 +1942,7 @@ sublocale Capability_ISA_Fixed_Translation CC ISA UNKNOWN_caps translation_assms
 
 end
 
-text \<open>Instantiation of translate_address for version of spec with translation stubs\<close>
+text \<open>Instantiation of @{term translate_address} for version of spec with translation stubs\<close>
 
 definition translate_address :: "nat \<Rightarrow> nat option" where
   "translate_address addr \<equiv> Some (addr mod 2^48)"
@@ -1952,30 +1952,9 @@ lemmas TranslateAddress_defs =
   AArch64_FirstStageTranslateWithTag_def AArch64_SecondStageTranslate_def
   translate_address_def
 
-(*lemma unat64_and_mask52_mod: "unat ((w :: 64 word) AND mask 52) = unat w mod 2^52"
-  by (auto simp: and_mask_bintr unat_def uint_word_of_int bintrunc_mod2p nat_mod_distrib)
-
-lemma unat32_and_mask52_eq: "unat (w :: 32 word) mod 4503599627370496 = unat w"
-  using unat_lt2p[of w]
-  by auto*)
-
-text \<open>
-TODO for now
-
-interpretation Morello_Fixed_Address_Translation
-  where translate_address = translate_address
-    and is_translation_event = "\<lambda>_. False"
-    and translation_assms = "\<lambda>_. True"
-  apply unfold_locales
-     (* apply (auto simp: TranslateAddress_defs return_def unat64_and_mask52_mod elim!: Run_bindE Run_ifE)[] *)
-  (* apply (auto simp: TranslateAddress_defs return_def unat32_and_mask52_eq elim!: Run_bindE Run_ifE)[] *)
-  (* TODO: Show that translation stubs are non_mem_exp's *)
-  oops
-\<close>
-
 section \<open>Register footprint lemmas\<close>
 
-text \<open>The bulk of these lemmas are auto-generated in CHERI_Gen_Lemmas, but we manually prove them
+text \<open>The bulk of these lemmas are auto-generated in @{path CHERI_Gen_Lemmas.thy}, but we manually prove them
   for built-ins and for helper functions we prove further lemmas about below.\<close>
 
 lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
@@ -4962,13 +4941,13 @@ lemma IsTagSettingDisabled_not_False:
   shows "Run (IsTagSettingDisabled ()) t False \<longleftrightarrow> False"
   using t
   unfolding IsTagSettingDisabled_def Let_def
-  \<comment> \<open>Requires IsTagSettingDisabled_EL.patch\<close>
+  \<comment> \<open>Requires @{path IsTagSettingDisabled_EL.patch}\<close>
   by (auto elim!: Run_bindE Run_and_boolM_E split: if_splits simp: nth_ucast
            dest!: CSCR_EL3_SETTAG[OF _ _ no_asr] not_EL3_if_system_reg_access[OF _ _ no_asr])
 
 text \<open>Tag setting instructions check whether tag setting is disabled, but also whether system access
-  is enabled; provide elimination rules for the and_boolM combinations of those checks that appear
-  in the instructions, reflecting our assumption that either system access or tag setting is
+  is enabled; provide elimination rules for the @{term and_boolM} combinations of those checks that
+  appear in the instructions, reflecting our assumption that either system access or tag setting is
   disabled.\<close>
 
 abbreviation
