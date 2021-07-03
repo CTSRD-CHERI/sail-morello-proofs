@@ -7,11 +7,6 @@ begin
 context Morello_Axiom_Automaton
 begin
 
-(* TODO: Formulate wellformedness assumptions and generate lemmas for this function and its dependencies. *)
-lemma AArch64_TakeException_raises_isa_ex:
-  "exp_raises_isa_ex (AArch64_TakeException target_el exception preferred_exception_return vect_offset)"
-  sorry
-
 definition VAIsTaggedCap :: "VirtualAddress \<Rightarrow> bool" where
   "VAIsTaggedCap va \<longleftrightarrow> (VAIsCapability va \<and> CapIsTagSet (VirtualAddress_base va))"
 

@@ -1614,10 +1614,17 @@ fun is_mem_event :: "'regval event \<Rightarrow> bool" where
 | "is_mem_event _ = False"
 
 locale Morello_ISA =
+  Wellformed_Traces wellformed_ev is_isa_exception
+  for wellformed_ev :: "register_value event \<Rightarrow> bool" +
   fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     and UNKNOWN_caps :: "Capability set"
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
+    \<comment> \<open>TODO: Spell out assumption that register reads are well-typed, at least the ones read by
+        @{term AArch64_TakeException}, guaranteeing that the latter will raise an exception rather
+        than failing with a type error.\<close>
+    and AArch64_TakeException_raises_isa_ex:
+      "exp_raises_isa_ex (AArch64_TakeException target_el exception preferred_exception_return vect_offset)"
 begin
 
 abbreviation "translation_control_regs \<equiv>
@@ -1843,7 +1850,8 @@ qed
 end
 
 locale Morello_Fixed_Address_Translation =
-  Morello_Bounds_Address_Calculation +
+  Morello_Bounds_Address_Calculation + Wellformed_Traces wellformed_ev is_isa_exception
+  for wellformed_ev :: "register_value event \<Rightarrow> bool" +
   fixes translate_address :: "nat \<Rightarrow> nat option"
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     (* TODO: Let assumptions refer to a trace (and possibly a state) instead of just events,
@@ -1874,6 +1882,8 @@ locale Morello_Fixed_Address_Translation =
     and translate_address_paged: "\<And>vaddr vaddr' paddr. translate_address vaddr = Some paddr \<Longrightarrow> vaddr' div 2^12 = vaddr div 2^12 \<Longrightarrow> translate_address vaddr' = Some (2^12 * (paddr div 2^12) + vaddr' mod 2^12)"
     (*and translate_address_paged: "\<And>vaddr vaddr' acctype paddr paddr'. translate_address vaddr acctype = Some paddr \<Longrightarrow> translate_address vaddr' acctype = Some paddr' \<Longrightarrow> vaddr div 2^12 = vaddr' div 2^12 \<Longrightarrow> paddr div 2^12 = paddr' div 2^12"
     and translate_address_page_offset: "\<And>vaddr acctype paddr. translate_address vaddr acctype = Some paddr \<Longrightarrow> paddr mod 2^12 = vaddr mod 2^12"*)
+    and AArch64_TakeException_raises_isa_ex:
+      "exp_raises_isa_ex (AArch64_TakeException target_el exception preferred_exception_return vect_offset)"
 begin
 
 lemma translate_address_page_offset:
@@ -1934,7 +1944,7 @@ lemma AArch64_TranslateAddressForAtomicAccess_translate_address[simp]:
   by (auto simp: AArch64_TranslateAddressForAtomicAccess_def IsFault_def elim!: Run_bindE Run_ifE Run_letE)
 
 sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
-  using no_cap_load_translation_events
+  using no_cap_load_translation_events AArch64_TakeException_raises_isa_ex
   by unfold_locales auto
 
 sublocale Capability_ISA_Fixed_Translation CC ISA UNKNOWN_caps translation_assms
@@ -5464,16 +5474,13 @@ fun ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> register
     (unknown_ev_assms (E_choose descr rv) \<and> translation_assms (E_choose descr rv))"
 | "ev_assms s e = translation_assms e"
 
-fun wellformed_ev :: "register_value event \<Rightarrow> bool" where
-  "wellformed_ev e = True" \<comment> \<open>TODO\<close>
-
 end
 
 locale Morello_Axiom_Automaton =
   Morello_Axiom_Assms +
   Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
     and cap_invariant = cap_invariant and ev_assms = ev_assms
-    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+    and is_isa_exception = is_isa_exception
 begin
 
 (* sublocale Morello_Cap_Axiom_Automaton .. *)
