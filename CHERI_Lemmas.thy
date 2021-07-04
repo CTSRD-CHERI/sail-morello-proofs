@@ -365,7 +365,7 @@ definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value)
           invokable CC cc cd \<and>
           leq_cap CC c (CapUnseal cc)) \<or>
        (\<exists>c' \<in> derivable_mem_caps s.
-          invokes_indirect_caps \<and>
+          invokes_indirect_caps \<and> load_caps_permitted \<and>
           (leq_cap CC c c' \<or> leq_cap CC c (CapUnseal c') \<and> CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB))))"
 
 lemma derivable_mem_caps_run_imp:
@@ -687,7 +687,10 @@ lemma traces_enabled_C_set_mem_cap:
   shows "traces_enabled (C_set n c') s"
 proof cases
   assume indirect: "invokes_indirect_caps \<and> CapIsTagSet c'"
-  then have c: "CapIsTagSet c" and c': "c' \<in> derivable_mem_caps s"
+  then have "load_caps_permitted"
+    using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
+    by blast
+  from indirect have c: "CapIsTagSet c" and c': "c' \<in> derivable_mem_caps s"
     using assms(1,4)
     by (auto elim!: CapSquashPostLoadCap_cases leq_cap_derivable_mem_caps[of c s c'] intro: clear_perm_leq_cap)
   then have "c' \<in> invoked_caps"
@@ -695,7 +698,8 @@ proof cases
     by (elim CapSquashPostLoadCap_invoked_cap) auto
   then have "traces_enabled (write_reg R29_ref c') s"
     using c c' assms indirect
-    by (intro traces_enabled_write_reg) (auto simp: register_defs derivable_mem_caps_def)
+    by (intro traces_enabled_write_reg)
+       (auto simp: register_defs derivable_mem_caps_def intro: \<open>load_caps_permitted\<close>)
   moreover have "n = 29"
     using assms indirect c
     by auto
@@ -722,9 +726,9 @@ proof cases
   moreover have "c' \<in> derivable_mem_caps s"
     using assms(1,4)
     by (elim CapSquashPostLoadCap_cases leq_cap_derivable_mem_caps[of c s c']) (auto intro: clear_perm_leq_cap)
-  moreover have *: use_mem_caps if "invoked_indirect_caps = {}"
+  moreover have load_caps_permitted
     using tagged assms(1-3)
-    by (elim Run_CapSquashPostLoadCap_use_mem_caps[OF _ _ _ _ that]) auto
+    by (elim Run_CapSquashPostLoadCap_use_mem_caps[OF _ _ _ _]) auto
   ultimately have "c' \<in> derivable_mem_caps s \<and> invokes_indirect_caps \<or> c' \<in> derivable_caps s"
     using assms(5) derivable_mem_caps_derivable_caps[of c' s]
     unfolding derivable_caps_def
@@ -736,7 +740,7 @@ proof cases
   ultimately show ?thesis
     using branch_caps_leq
     unfolding enabled_branch_target_def enabled_pcc_def mem_branch_caps_def
-    by auto
+    by (auto intro: \<open>load_caps_permitted\<close>)
 qed (auto intro: derivable_enabled_branch_target)
 
 lemma CapSquashPostLoadCap_sealed_branch_caps_invoked_caps[derivable_capsE]:
@@ -751,6 +755,7 @@ lemma invokes_mem_cap_leq_enabled_pccI:
   assumes "c' \<in> derivable_mem_caps s" and "leq_cap CC c c'"
     and "c \<in> invoked_caps"
     and "invokes_indirect_caps"
+    and "load_caps_permitted"
   shows "enabled_pcc c s"
   using assms
   unfolding enabled_pcc_def
@@ -762,23 +767,28 @@ lemma VAIsBits64_iff_not_VAIsCapability:
 
 lemma enabled_branch_target_CapSquashPostLoadCap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
+    and "VA_from_load_auth base"
     and "c \<in> derivable_mem_caps s"
-    and "\<not>invokes_indirect_caps \<longrightarrow> VA_from_load_auth base"
     and "(CapIsTagSet c \<and> \<not>CapIsSealed c \<and> invokes_indirect_caps) \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps"
   shows "enabled_branch_target c' s"
-proof (cases "invokes_indirect_caps")
+proof (cases "invokes_indirect_caps \<and> CapIsTagSet c'")
   case True
+  then have *: "invokes_indirect_caps" "load_caps_permitted"
+    using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
+    by auto
   note leqI = branch_caps_leq leq_cap_trans[OF branch_caps_leq clear_perm_leq_cap]
+  thm Run_CapSquashPostLoadCap_use_mem_caps
   show ?thesis
     using assms True
     by (cases rule: CapSquashPostLoadCap_cases)
        (auto simp: enabled_branch_target_def mem_branch_caps_def CapIsSealed_def
-             elim!: invokes_mem_cap_leq_enabled_pccI[OF _ _ _ True] leqI)
+             elim!: invokes_mem_cap_leq_enabled_pccI[OF _ _ _ *] leqI)
 next
   case False
   then have "c' \<in> derivable_caps s"
     using assms
-    by (elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps) auto
+    by (cases "CapIsTagSet c'", elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps)
+       (auto simp: derivable_caps_def)
   then show ?thesis
     by (auto intro: derivable_enabled_branch_target)
 qed
@@ -879,9 +889,9 @@ lemma traces_enabled_C_set_if_sentry:
 proof cases
   assume *: "indirect_sentry \<and> CapIsTagSet c"
   then have "c \<in> derivable (UNKNOWN_caps \<union> accessed_reg_caps s)"
-    using no_invoked_indirect_caps_if_use_mem_caps assms
+    using assms
     unfolding derivable_caps_def accessed_caps_def
-    by auto
+    by (auto split: if_splits)
   then show ?thesis
     using assms *
     unfolding C_set_def R_set_def
@@ -934,7 +944,7 @@ lemma CapSetObjectType_derivable[derivable_capsI]:
 proof -
   from assms have "permits_seal_method CC c'"
     by (auto simp: CC_def)
-  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
+  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> load_caps_permitted) s)"
     using assms
     by (intro derivable.Seal) (auto simp: derivable_caps_def)
   then show ?thesis
@@ -948,7 +958,7 @@ lemma CapSetObjectType_sentry_derivable:
   shows "CapSetObjectType c otype \<in> derivable_caps s"
 proof -
   note simps = CapGetObjectType_CapSetObjectType_and_mask
-  have "seal_method CC c (unat otype) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
+  have "seal_method CC c (unat otype) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> load_caps_permitted) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.SealEntry)
@@ -989,7 +999,7 @@ proof -
   have "unat (CapGetValue auth) \<in> get_mem_region CC auth"
     using in_bounds
     by (auto simp: elim!: Run_bindE CapIsInBounds_cursor_in_mem_region)
-  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> use_mem_caps) s)"
+  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> load_caps_permitted) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.Unseal) (auto simp: derivable_caps_def)
@@ -1865,7 +1875,7 @@ lemma CheckCapability_load_enabled:
     and sz: "sz > 0" "sz < 2^52" (*"unat vaddr + nat sz \<le> 2^64"*)
     and sz': "sz' > 0" "unat vaddr + nat sz \<le> 2^64 \<and> addr = vaddr \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included (if is_fetch then CAP_PERM_EXECUTE else CAP_PERM_LOAD) req_perms"
-    and "tagged \<and> use_mem_caps \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
+    and "tagged \<and> load_caps_permitted \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> \<not>is_fetch"
     and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
     and "valid_address acctype vaddr' \<and> addr = vaddr \<longrightarrow> valid_address acctype (unat vaddr)"
@@ -2203,7 +2213,7 @@ lemma VADeref_load_enabled:
     and "sz > 0 \<and> sz < 2^52 \<and> sz' > 0"
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "perm_bits_included (if is_fetch then CAP_PERM_EXECUTE else CAP_PERM_LOAD) perms"
-    and "tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va"
+    and "tagged \<and> load_caps_permitted \<longrightarrow> VA_from_load_auth va"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> \<not>is_fetch"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable_or_invoked va s"
     and "{''PCC''} \<subseteq> accessible_regs s"
@@ -2213,12 +2223,12 @@ lemma VADeref_load_enabled:
 proof (cases "VirtualAddress_vatype va")
   case VA_Bits64
   then have *: "cap_permits CAP_PERM_LOAD_CAP c"
-    if t: "Run (DDC_read ()) t c" "load_cap_trace_assms t" and tag: "tagged \<and> use_mem_caps" for t c
-    using t \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
+    if t: "Run (DDC_read ()) t c" "load_cap_trace_assms t" and tag: "tagged \<and> load_caps_permitted" for t c
+    using t \<open>tagged \<and> load_caps_permitted \<longrightarrow> VA_from_load_auth va\<close>
     unfolding DDC_read_def Let_def VA_from_load_auth_def
     by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE)
        (simp add: register_defs DDC_names_def load_cap_trace_assms_def;
-        use tag no_invoked_indirect_caps_if_use_mem_caps in blast)+
+        use tag in blast)+
   show ?thesis
     using assms
     unfolding VACheckAddress_def VAIsBits64_def Let_def
@@ -2226,9 +2236,8 @@ proof (cases "VirtualAddress_vatype va")
        (simp add: VA_Bits64, derivable_capsI elim: CheckCapability_load_enabled * intro: derivable_or_invokedI1)
 next
   case VA_Capability
-  then have "cap_permits CAP_PERM_LOAD_CAP (VirtualAddress_base va)" if "tagged \<and> use_mem_caps"
-    using that \<open>tagged \<and> use_mem_caps \<longrightarrow> VA_from_load_auth va\<close>
-    using no_invoked_indirect_caps_if_use_mem_caps
+  then have "cap_permits CAP_PERM_LOAD_CAP (VirtualAddress_base va)" if "tagged \<and> load_caps_permitted"
+    using that \<open>tagged \<and> load_caps_permitted \<longrightarrow> VA_from_load_auth va\<close>
     unfolding VA_from_load_auth_def load_cap_ev_assms.simps
     by auto
   then show ?thesis
@@ -2259,7 +2268,7 @@ lemma VADeref_cap_load_enabled[derivable_capsE]:
     and "unat vaddr + nat sz \<le> 2^64 \<longrightarrow> unat vaddr \<le> vaddr' \<and> vaddr' + nat sz' \<le> unat vaddr + nat sz"
     and "nat sz' = 16 \<and> aligned vaddr' 16"
     and "\<not>VAIsSealedCap va \<longrightarrow> VA_derivable va s"
-    and "use_mem_caps \<longrightarrow> VA_from_load_auth va"
+    and "load_caps_permitted \<longrightarrow> VA_from_load_auth va"
     and "{''PCC''} \<subseteq> accessible_regs s"
     and "valid_address acctype vaddr' \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"

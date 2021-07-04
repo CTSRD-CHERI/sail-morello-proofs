@@ -26,7 +26,7 @@ locale Morello_Instr_Trace_Write_Cap_Automaton =
     and invoked_indirect_caps = "invokes_indirect_caps instr t"
     and invoked_indirect_regs = "trace_invokes_indirect_regs t"
     and load_auths = "trace_load_auths t"
-    and use_mem_caps = "uses_mem_caps instr t"
+    and load_caps_permitted = "uses_mem_caps instr t"
     and is_indirect_branch = "trace_is_indirect_branch t"
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
@@ -52,7 +52,7 @@ locale Morello_Instr_Trace_Mem_Automaton =
     and invoked_indirect_caps = "invokes_indirect_caps instr t"
     and invoked_indirect_regs = "trace_invokes_indirect_regs t"
     and load_auths = "trace_load_auths t"
-    and use_mem_caps = "uses_mem_caps instr t"
+    and load_caps_permitted = "uses_mem_caps instr t"
     and is_indirect_branch = "trace_is_indirect_branch t"
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
@@ -66,7 +66,7 @@ locale Morello_Fetch_Trace_Write_Cap_Automaton =
     and invoked_indirect_caps = "{}"
     and invoked_indirect_regs = "{}"
     and load_auths = "{}"
-    and use_mem_caps = "True"
+    and load_caps_permitted = "True"
     and is_indirect_branch = "False"
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
@@ -85,7 +85,7 @@ locale Morello_Fetch_Trace_Mem_Automaton =
     and invoked_indirect_caps = "{}"
     and invoked_indirect_regs = "{}"
     and load_auths = "{}"
-    and use_mem_caps = "True"
+    and load_caps_permitted = "True"
     and is_indirect_branch = "False"
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
@@ -114,7 +114,7 @@ sublocale CHERI_ISA_State CC ISA cap_invariant UNKNOWN_caps fetch_trace_assms fe
 proof
   fix t :: "register_value trace" and instr :: instr and n :: nat
   interpret Write_Cap: Morello_Instr_Trace_Write_Cap_Automaton where instr = instr and t = t
-    by standard (auto simp: trace_uses_mem_caps_def)
+    ..
   assume t: "hasTrace t (instr_sem_ISA instr)"
     and inv: "instr_available_caps_invariant instr t n"
     and ia: "instr_trace_assms instr t"
@@ -128,7 +128,7 @@ proof
     unfolding instr_sem_def
     by (intro Write_Cap.traces_enabledI) auto
   interpret Mem: Morello_Instr_Trace_Mem_Automaton where instr = instr and t = t
-    by standard (auto simp: trace_uses_mem_caps_def)
+    ..
   have **: "Mem.traces_enabled (instr_sem instr) Mem.initial"
     using iea no_asr
     unfolding instr_sem_def
@@ -142,7 +142,7 @@ proof
 next
   fix t :: "register_value trace" and n :: nat
   interpret Write_Cap: Morello_Fetch_Trace_Write_Cap_Automaton where t = t
-    by standard auto
+    ..
   assume t: "hasTrace t (isa.instr_fetch ISA)"
     and inv: "fetch_available_caps_invariant t n"
     and ia: "fetch_trace_assms t"
@@ -154,7 +154,7 @@ next
     unfolding instr_fetch_def bind_assoc
     by (intro Write_Cap.traces_enabledI Write_Cap.accessible_regs_no_writes_run_subset) auto
   interpret Mem: Morello_Fetch_Trace_Mem_Automaton where t = t
-    by standard auto
+    ..
   have **: "Mem.traces_enabled (instr_fetch) Mem.initial"
     unfolding instr_fetch_def bind_assoc
     by (intro Mem.traces_enabledI Mem.accessible_regs_no_writes_run_subset) auto
@@ -214,7 +214,7 @@ proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])
       \<comment> \<open>TODO: Rephrase and move FetchInstr lemma out of its probably overspecific context, so that
           we don't have to instantiate this locale here and translate the invariant back and forth.\<close>
       interpret Write_Cap: Morello_Fetch_Trace_Write_Cap_Automaton where t = tf
-        by standard auto
+        ..
       let ?tagged_reg = "\<lambda>v. case v of Regval_bitvector_129_dec c \<Rightarrow> CapIsTagSet c | _ \<Rightarrow> True"
       have FetchInstr: "runs_establish_invariant (liftS (FetchInstr pc)) (reg_inv ''PCC'' ?tagged_reg)" for pc
         using Write_Cap.PrePostE_FetchInstr_pcc_tagged_unsealed[where pc = pc]

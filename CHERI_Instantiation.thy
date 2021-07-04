@@ -1498,7 +1498,6 @@ definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth set
 
 definition trace_uses_mem_caps :: "register_value trace \<Rightarrow> bool" where
   "trace_uses_mem_caps t \<equiv>
-     (trace_invokes_indirect_caps t = {}) \<and>
      (\<exists>auth r c.
         auth \<in> trace_load_auths t \<and>
         r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
@@ -5575,7 +5574,7 @@ end
 
 locale Morello_Load_Cap_Assms = Morello_ISA +
   fixes enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool"
+    and load_auths :: "load_auth set" and load_caps_permitted :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and invoked_indirect_caps :: "Capability set"
@@ -5592,9 +5591,9 @@ abbreviation loads_via_pcc :: "bool" where
 
 fun load_cap_ev_assms :: "register_value event \<Rightarrow> bool" where
   "load_cap_ev_assms (E_read_reg r v) =
-     ((r = ''PCC'' \<and> loads_via_pcc \<and> invoked_indirect_caps = {} \<longrightarrow> (\<forall>c \<in> caps_of_regval v. use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
-      (\<forall>n c. r \<in> R_name n \<and> loads_via_cap_reg n \<and> c \<in> caps_of_regval v \<and> invoked_indirect_caps = {} \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
-      (\<forall>c. r \<in> DDC_names \<and> loads_via_ddc \<and> c \<in> caps_of_regval v \<and> invoked_indirect_caps = {} \<longrightarrow> (use_mem_caps \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
+     ((r = ''PCC'' \<and> loads_via_pcc \<longrightarrow> (\<forall>c \<in> caps_of_regval v. load_caps_permitted \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
+      (\<forall>n c. r \<in> R_name n \<and> loads_via_cap_reg n \<and> c \<in> caps_of_regval v \<longrightarrow> (load_caps_permitted \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
+      (\<forall>c. r \<in> DDC_names \<and> loads_via_ddc \<and> c \<in> caps_of_regval v \<longrightarrow> (load_caps_permitted \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c)) \<and>
       (\<forall>ps. r = ''PSTATE'' \<and> v = Regval_ProcState ps \<longrightarrow> (is_in_c64 \<longleftrightarrow> (ProcState_C64 ps = 1))) \<and>
       (\<forall>w. r = ''DCZID_EL0'' \<and> v = Regval_bitvector_32_dec w \<longrightarrow> (ucast w :: 4 word) = 4) \<comment> \<open>Morello cache line size\<close>)"
 (*| "load_cap_ev_assms (E_write_reg r v) =
@@ -5608,7 +5607,8 @@ lemma load_cap_trace_assms_append[simp]:
   "load_cap_trace_assms (t1 @ t2) \<longleftrightarrow> load_cap_trace_assms t1 \<and> load_cap_trace_assms t2"
   by (auto simp: load_cap_trace_assms_def)
 
-sublocale Morello_Cap_Axiom_Automaton ..
+sublocale Morello_Cap_Axiom_Automaton
+  where use_mem_caps = "invoked_indirect_caps = {} \<and> load_caps_permitted" ..
 
 (* Assume fixed cache line size for Morello *)
 lemma DCZID_EL0_assm:
@@ -5641,8 +5641,7 @@ lemma Run_CapSquashPostLoadCap_use_mem_caps:
   assumes t: "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and base: "VA_from_load_auth base"
     and c': "CapIsTagSet c'"
-    and no_indirect: "invoked_indirect_caps = {}"
-  shows "use_mem_caps"
+  shows "load_caps_permitted"
 proof (cases "VirtualAddress_vatype base")
   case VA_Bits64
   then show ?thesis
@@ -5650,7 +5649,7 @@ proof (cases "VirtualAddress_vatype base")
     unfolding CapSquashPostLoadCap_def DDC_read_def Let_def bind_assoc
     by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_read_regE;
         simp add: DDC_names_def VA_from_load_auth_def register_defs load_cap_trace_assms_def;
-        use no_indirect in auto)
+        auto)
 next
   case VA_Capability
   then show ?thesis
@@ -5658,7 +5657,7 @@ next
     unfolding CapSquashPostLoadCap_def VAToCapability_def Let_def
     by (elim Run_bindE Run_ifE;
         simp add: VA_from_load_auth_def VAIsBits64_def;
-        use no_indirect in auto)
+        auto)
 qed
 
 lemma (in Cap_Axiom_Automaton) not_tagged_derivable:
@@ -5862,7 +5861,7 @@ lemma PCC_load_auth_reg_cap[derivable_capsE]:
   shows "load_auth_reg_cap c"
   using assms
   unfolding load_cap_trace_assms_def load_auth_reg_cap_def
-  by (elim Run_read_regE) (auto simp: PCC_ref_def)
+  by (elim Run_read_regE; simp) (auto simp: PCC_ref_def)
 
 lemma loads_via_pccI[derivable_capsI, intro, simp]:
   assumes "PCCAuth \<in> load_auths"
@@ -6023,7 +6022,7 @@ locale Morello_Axiom_Assms = Morello_ISA +
     and ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
+    and load_auths :: "load_auth set" and load_caps_permitted :: "bool" and is_fetch :: "bool"
     and is_indirect_branch :: bool
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
@@ -6031,7 +6030,8 @@ locale Morello_Axiom_Assms = Morello_ISA +
 begin
 
 sublocale Morello_Load_Cap_Assms ..
-sublocale Morello_Cap_Invocation_Assms ..
+sublocale Morello_Cap_Invocation_Assms
+ where use_mem_caps = "invoked_indirect_caps = {} \<and> load_caps_permitted" ..
 
 fun ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool" where
   "ev_assms s (E_read_reg r v) =
@@ -6052,6 +6052,7 @@ locale Morello_Axiom_Automaton =
   Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
     and cap_invariant = cap_invariant and ev_assms = ev_assms
     and is_isa_exception = is_isa_exception
+    and use_mem_caps = "invoked_indirect_caps = {} \<and> load_caps_permitted"
 begin
 
 (* sublocale Morello_Cap_Axiom_Automaton .. *)
@@ -6142,17 +6143,16 @@ locale Morello_Write_Cap_Automaton = Morello_ISA +
   fixes ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
+    and load_auths :: "load_auth set" and load_caps_permitted :: "bool" and is_fetch :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
     and translation_assms :: "register_value event \<Rightarrow> bool"
-  assumes no_invoked_indirect_caps_if_use_mem_caps: "use_mem_caps \<longrightarrow> invoked_indirect_caps = {}"
 begin
 
-sublocale Write_Cap_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
-  using no_invoked_indirect_caps_if_use_mem_caps
-  by unfold_locales
+sublocale Write_Cap_Automaton
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and use_mem_caps = load_caps_permitted
+  ..
 
 sublocale Morello_Axiom_Assms where enabled = enabled ..
 
@@ -6160,7 +6160,7 @@ sublocale Morello_Axiom_Assms where enabled = enabled ..
 sublocale Write_Cap_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
     and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
-    and cap_invariant = cap_invariant ..
+    and cap_invariant = cap_invariant and use_mem_caps = load_caps_permitted ..
 
 sublocale Morello_Axiom_Automaton where enabled = enabled ..
 
@@ -6280,16 +6280,15 @@ locale Morello_Mem_Axiom_Automaton =
   fixes ex_traces :: bool
     and invoked_caps :: "Capability set" and invoked_regs :: "int set"
     and invoked_indirect_caps :: "Capability set" and invoked_indirect_regs :: "int set"
-    and load_auths :: "load_auth set" and use_mem_caps :: "bool" and is_fetch :: "bool"
+    and load_auths :: "load_auth set" and load_caps_permitted :: "bool" and is_fetch :: "bool"
     and no_system_reg_access :: bool
     and is_in_c64 :: bool
     and is_indirect_branch :: bool
-  assumes no_invoked_indirect_caps_if_use_mem_caps: "use_mem_caps \<longrightarrow> invoked_indirect_caps = {}"
 begin
 
-sublocale Mem_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
-  using no_invoked_indirect_caps_if_use_mem_caps
-  by unfold_locales
+sublocale Mem_Automaton
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and use_mem_caps = load_caps_permitted
+  ..
 
 sublocale Morello_Axiom_Assms
   where translate_address = "\<lambda>addr _ _. translate_address addr"
@@ -6311,6 +6310,7 @@ sublocale Mem_Assm_Automaton
     (* and translation_assms = "\<lambda>_. True" *)
     and ev_assms = ev_assms
     and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+    and use_mem_caps = load_caps_permitted
 proof
   fix s e
   assume "ev_assms s e"
