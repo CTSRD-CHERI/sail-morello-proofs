@@ -195,24 +195,9 @@
         "proof": "(traces_enabledI simp: HaveCapabilitiesExt_def)"
       }
     },
-    "ReduceCombine": {
-      "traces_enabled": {
-        "unfolding": [],
-        "proof": "(cases op; simp; traces_enabledI assms: assms)"
-      },
-      "non_mem_exp": {
-        "proof": "(cases op; simp; non_mem_expI)"
-      },
-      "no_reg_writes_to": {
-        "proof": "(cases op; simp; no_reg_writes_toI)"
-      },
-      "runs_no_reg_writes_to": {
-        "proof": "(cases op; simp; no_reg_writes_toI)"
-      }
-    },
     "Reduce": {
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "esize \\<in> {16, 32, 64}", "nat esize \\<le> size input", "LENGTH('esize) = nat esize"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "esize \\<in> {8, 16, 32, 64}", "nat esize \\<le> size input", "LENGTH('esize) = nat esize"],
         "stmts": ["traces_enabled (Reduce op input esize :: 'esize::len word M) s"]
       }
     },
@@ -365,11 +350,11 @@
     },
     "MemAtomicC": {
       "derivable_caps": {
-        "assms": ["Run (MemAtomicC address op value_name ldacctype stacctype) t c", "use_mem_caps"],
+        "assms": ["Run (MemAtomicC address op value_name ldacctype stacctype) t c", "invoked_indirect_caps = {}", "load_caps_permitted"],
         "stmts": ["c \\<in> derivable_caps (run s t)"],
         "using": ["assms(1)"],
         "unfolding": ["MemAtomicC_def"],
-        "proof": "- (derivable_capsI intro: assms(2))"
+        "proof": "- (derivable_capsI intro: assms)"
       },
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "value_name \\<in> derivable_caps s"],

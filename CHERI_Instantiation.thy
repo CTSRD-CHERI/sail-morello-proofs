@@ -1086,7 +1086,7 @@ lemma choose_bool_witness:
   "\<exists>t. Run (choose_bool RV_class s) t b"
 proof
   show "Run (choose_bool RV_class s) [E_choose s (Regval_bool b)] b"
-    by (auto simp: choose_bool_def choose_convert_def maybe_fail_def RV_class_def)
+    by (auto simp: choose_bool_def choose_convert_def choose_convert_default_def maybe_fail_def RV_class_def)
 qed
 
 lemma fold_append:
