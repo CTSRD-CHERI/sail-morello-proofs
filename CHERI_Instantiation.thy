@@ -9,6 +9,7 @@ theory CHERI_Instantiation
     "Sail-T-CHERI.Recognising_Automata"
     "Word_Lib.Norm_Words"
     "Sail-T-CHERI.BW2"
+    "New_CVC4"
 begin
 
 no_notation Sail2_prompt_monad.bind (infixr "\<bind>" 54)
@@ -4582,7 +4583,7 @@ proof -
     apply (simp_all only: abbrev_def)
     apply (simp_all add: to_smt_word del: to_smt_word_del cong: if_cong)
 
-    using [[smt_timeout = 10000, smt_solver=cvc4]]
+    using [[smt_timeout = 10000, smt_solver=cvc4_1_8]]
     by smt_word+
 qed
 
