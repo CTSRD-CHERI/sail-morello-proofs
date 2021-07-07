@@ -5,10 +5,19 @@ imports
 
 begin
 
+text \<open>
+There are two issues with using CVC4 in the existing Isabelle2020
+setup. The first is that CVC4-1.5 as shipped in Isabelle2020 seems
+unstable and segmentation-faults on at least one of our machines.
+The second is that the word SMT setup overrides the logic to nothing
+rather than ALL, which seems to be accepted by Z3 but causes CVC4 to
+print a warning which then confuses the result parser.
+
+The below hacks the path to pick CVC4-1.8 and hacks the output
+parser to drop warnings talking about set-logic.
+\<close>
 ML \<open>
-fun get_warning line = if String.isPrefix " " line
-  then get_warning (String.substring (line, 1, size line - 1))
-  else if String.isPrefix "/tmp/" line
+fun get_warning line = if match_string "cache-io-" line
   then SOME (space_explode ":" line |> drop 1 |> space_implode ":")
   else NONE
 
@@ -33,9 +42,9 @@ fun fetch_outcome solver_name [] =
 
 ML \<open>
 val cvc4_1_5_path = getenv "CVC4_SOLVER"
-val cvc4_1_8_path = cvc4_1_5_path |> space_explode "/"
+val cvc4_1_8_path = cvc4_1_5_path |> space_explode (Path.root |> Path.implode)
   |> map (fn s => if String.isPrefix "cvc4-1" s then "cvc4-1.8" else s)
-  |> space_implode "/"
+  |> space_implode (Path.root |> Path.implode)
 
 fun cvc4_options ctxt = [
     "--random-seed=" ^ string_of_int (Config.get ctxt SMT_Config.random_seed),
@@ -63,6 +72,7 @@ lemma
   fixes x :: "12 word"
   shows "(x XOR 12) >> 2 = (x >> 2) XOR 3"
   using [[smt_solver=cvc4_1_8]]
+  using [[smt_trace]]
   by smt_word
 
 end
