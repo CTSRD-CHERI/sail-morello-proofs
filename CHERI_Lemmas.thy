@@ -1629,18 +1629,6 @@ lemma AArch64_CapabilityTag_valid_address[derivable_capsE]:
   unfolding AArch64_CapabilityTag_def
   by (auto elim!: Run_bindE simp: exp_fails_if_then_else intro: translate_address_valid)
 
-(* TODO *)
-(*lemma
-  assumes "load_enabled s (vaddr + offset) acctype sz tagged"
-    and "translate_address vaddr (acctype_of_AccType acctype False) = Some paddr"
-    and "tagged \<or> tag = B0"
-  shows "access_enabled s Load (paddr + offset) (nat sz) data tag"
-  using assms
-  unfolding access_enabled_def
-  apply (cases tagged)
-  apply (auto simp: load_enabled_def translate_address_def dvd_def)
-  oops*)
-
 text \<open>The VirtualAddress type in the ASL\<close>
 
 definition perm_bits_included :: "64 word \<Rightarrow> 64 word \<Rightarrow> bool" where

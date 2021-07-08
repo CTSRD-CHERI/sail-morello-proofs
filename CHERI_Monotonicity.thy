@@ -185,7 +185,7 @@ theorem morello_monotonicity:
     and "unknown_caps_reachable t s"
     and "pcc_not_sealed s"
     and "non_debug_state s"
-    and "cache_line_size_64 s"
+    and "cache_line_size_64 s" \<comment> \<open>Fixed in Morello, but configurable in ASL\<close>
     and "instrs_trace_assms n t" \<comment> \<open>TODO: Show that the above assumptions imply this\<close>
   shows "reachable_caps s' \<subseteq> reachable_caps s"
 proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])

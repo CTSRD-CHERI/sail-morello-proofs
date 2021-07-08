@@ -1256,7 +1256,6 @@ lemma cap_permits_CapWithTagSet_iff[simp]:
   "cap_permits perms (CapWithTagSet c) \<longleftrightarrow> cap_permits perms c"
   by (auto simp: CapCheckPermissions_def)
 
-(* TODO: Move to Morello_Compartment locale and add system register access invariant? *)
 definition cap_invariant :: "Capability \<Rightarrow> bool" where
   "cap_invariant c \<equiv> get_base c \<le> get_limit c \<and> get_limit c \<le> 2^64"
 
@@ -1267,8 +1266,6 @@ interpretation Capabilities_Invariant CC cap_invariant
 section \<open>Architecture abstraction\<close>
 
 type_synonym instr = "(InstrEnc * 32 word)"
-
-text \<open>TODO: Split up toplevel fetch-decode-execute function and use here.\<close>
 
 definition instr_sem :: "instr \<Rightarrow> unit M" where
   "instr_sem instr = do {
@@ -1286,8 +1283,7 @@ fun caps_of_regval :: "register_value \<Rightarrow> Capability set" where
   "caps_of_regval (Regval_bitvector_129_dec c) = {c}"
 | "caps_of_regval _ = {}"
 
-text \<open>Over-approximation of invoked caps: all capabilities written to PCC.
-TODO: Restrict to branching instructions and caps that result from unsealing caps in source registers.\<close>
+text \<open>Characterisation of invoked capabilities\<close>
 
 fun instr_invokes_regs :: "instr_ast \<Rightarrow> int set" where
   "instr_invokes_regs (Instr_BRS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
@@ -1639,8 +1635,8 @@ definition "ISA \<equiv>
    isa.instr_raises_ex = instr_raises_ex,
    isa.fetch_raises_ex = fetch_raises_ex,
    isa.exception_targets = exception_targets,
-   read_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''}, \<comment> \<open>TODO\<close>
-   write_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs, \<comment> \<open>TODO\<close>
+   read_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
+   write_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs,
    read_exception_regs = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    write_exception_regs = {},
    isa.is_translation_event = is_translation_event,
@@ -6157,7 +6153,6 @@ sublocale Write_Cap_Automaton
 
 sublocale Morello_Axiom_Assms where enabled = enabled ..
 
-(* TODO *)
 sublocale Write_Cap_Assm_Automaton
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
     and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev

@@ -4,9 +4,6 @@ theory Morello_Invariants
   imports CHERI_Mem_Properties "Sail.Hoare"
 begin
 
-(* TODO: Move Register_Accessors from Sail-T-CHERI.Properties to an earlier T-CHERI theory or
-   the Sail library. *)
-
 lemma Run_Read_mem_iff:
   "Run (Read_mem rk addr sz k) t a \<longleftrightarrow> (\<exists>t' data. t = E_read_mem rk addr sz data # t' \<and> Run (k data) t' a)"
   by (auto elim: Traces_cases)

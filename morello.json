@@ -151,11 +151,6 @@
         "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_set_0th derivable_enabled_branch_target)"
       }
     },
-    "DDC_EL2_CapSysRegRead_0d45f0beb99400e0": {
-      "derivable_caps": {
-        "proof": "- (* TODO: impossible EL case *)"
-      }
-    },
     "execute_aarch64_instrs_system_register_cpsr": {
       "non_cap_exp": {
         "proof": "(cases field; simp; non_cap_expI)"
