@@ -1,8 +1,9 @@
+section \<open>CVC4 dependency\<close>
+
 theory New_CVC4
 
 imports
     "Sail-T-CHERI.BW2"
-
 begin
 
 text \<open>
@@ -15,6 +16,12 @@ print a warning which then confuses the result parser.
 
 The below hacks the path to pick CVC4-1.8 and hacks the output
 parser to drop warnings talking about set-logic.
+
+The CVC4-1.8 component for Isabelle can be obtained by unpacking
+\<^url>\<open>https://isabelle.in.tum.de/components/cvc4-1.8.tar.gz\<close>
+into Isabelle's \<^path>\<open>contrib\<close> directory (typically either
+a subdirectory of the Isabelle installation or
+\<^path>\<open>$HOME/.isabelle/contrib\<close>.)
 \<close>
 ML \<open>
 fun get_warning line = if match_string "cache-io-" line
