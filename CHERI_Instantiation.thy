@@ -2281,9 +2281,8 @@ lemma mask_range_add_shift_int_insert:
   fixes x :: "('a :: len) word"
   assumes le: "l \<le> h"
   shows
-  "mask_range l h (x + word_of_int (push_bit l i))
-    = I_helper mask_range l h (mask_range l h x + word_of_int (push_bit l i))"
-  unfolding shiftl_eq_push_bit[symmetric]
+  "mask_range l h (x + word_of_int (Bits_shiftl i l))
+    = I_helper mask_range l h (mask_range l h x + word_of_int (Bits_shiftl i l))"
   apply (simp add: mask_range_add_shiftl[OF le] word_of_int_shiftl I_helper_def)
   apply (simp add: mask_range_def)
   done
@@ -2621,7 +2620,6 @@ proof -
     apply (unfold Let_def[where s="_ :: int"] Let_def[where s="_ :: _ word"])
     apply (intro let_cong refl if_cong)
     apply (simp split del: if_split)
-    apply (simp only: shiftl_eq_push_bit[symmetric])
     apply (simp add: mask_range_add_shiftl word_of_int_shiftl
         split del: if_split)
     apply (simp only: shiftl_minus_int_distrib wi_hom_syms[symmetric]
@@ -3390,7 +3388,7 @@ lemma slice_cat3[OF refl, simplified word_size]:
 definition
   word_slice_in :: "nat \<Rightarrow> nat \<Rightarrow> ('a :: len) word \<Rightarrow> 'a word \<Rightarrow> 'a word"
   where
-  "word_slice_in i j x y = (let m = push_bit i (mask j) in
+  "word_slice_in i j x y = (let m = Bits_shiftl (mask j) i in
     (x AND m) OR (y AND NOT m))"
 
 lemma word_slice_in_bit[bit_simps]:
@@ -3660,7 +3658,7 @@ lemma word_slice_in_sum:
   apply (simp add: word_slice_in_def Let_def)
   apply (subst word_plus_is_or[symmetric])
    apply (simp add: word_eq_iff word_ops_nth_size)
-  apply (simp add: shiftl_eq_push_bit)
+  apply simp
   apply (subst word_plus_is_or)
    apply (simp add: word_eq_iff word_ops_nth_size)
   apply (simp add: word_eq_iff[unfolded test_bit_eq_bit])

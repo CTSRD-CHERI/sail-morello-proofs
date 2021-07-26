@@ -1679,7 +1679,7 @@ proof -
     by (intro mod_pos_pos_trivial) (auto simp: Align__1_leq)
   then show ?thesis
     using assms
-    unfolding word_uint_eq_iff Align_woi_Align__1 uint_word_of_int * unat_def
+    unfolding word_uint_eq_iff Align_woi_Align__1 uint_word_of_int *
     by auto
 qed
 
@@ -1693,12 +1693,13 @@ lemma aligned_Align[simp, intro]:
   assumes "sz' = nat sz" and "sz > 0" and "nat sz dvd 2^LENGTH('a)"
   shows "aligned (unat (Align addr sz :: 'a::len word)) sz'"
   using assms
-  by (auto simp: Align_woi_Align__1 Align__1_leq aligned_mod_iff nat_mod_distrib nat_power_eq)
+  by (auto simp: Align_woi_Align__1 Align__1_leq aligned_mod_iff nat_mod_distrib nat_power_eq take_bit_eq_mod)
 
 lemma Align_AND_NOT_mask:
   "Align w (2 ^ n) = (w AND NOT (mask n))"
   unfolding Align_def Align__1_def
-  by (intro word_eqI) (auto simp: bin_nth_prod bin_nth_div word_ops_nth_size simp flip: test_bit_def')
+  by (intro word_eqI) (auto simp: test_bit_eq_bit shiftl_eq_push_bit
+    bit_simps simp flip: test_bit_def' shiftl_t2n drop_bit_eq_div)
 
 lemma AArch64_CheckAlignment_ATOMICRW_aligned[simp]:
   assumes "Run (AArch64_CheckAlignment addr (int sz) AccType_ATOMICRW iswrite) t a" and "sz > 0"
@@ -1774,15 +1775,15 @@ proof -
     have "uint (2 ^ nat slice_len :: 'a word) = 2 ^ nat slice_len"
       using that \<open>len > 0\<close> slice_len
       using power_strict_increasing[of 1 "nat len" "2 :: int"]
-      by (auto simp: word_arith_power_alt uint_word_of_int bintrunc_mod2p len)
+      by (auto simp: uint_2p_alt len)
     then show ?thesis
       by (auto simp: uint_sub_if_size len uint_2p)
   qed
   then have "uint (slice_mask len lo slice_len :: 'a::len word) = bintrunc (nat len) ((2 ^ min (nat len) (nat slice_len) - 1) << nat lo)"
     using slice_len
-    by (auto simp: slice_mask_def uint_shiftl uint_max_word len min_def Let_def sail_mask_def not_le)
+    by (auto simp: slice_mask_def uint_shiftl len min_def Let_def sail_mask_def not_le uint_word_ariths zmod_minus1)
   also have "\<dots> = uint (mask (nat slice_len) << nat lo :: 'a::len word)"
-    by (auto simp: uint_shiftl len uint_mask min_def)
+    by (auto simp: uint_shiftl len uint_mask_eq mask_int_def)
   finally show ?thesis
     by auto
 qed
@@ -1814,18 +1815,17 @@ lemma unat_sext_subrange_64_55:
   shows "unat (sext_subrange 64 vaddr 55 0 :: 64 word) =
          (if vaddr !! 55 then unat vaddr mod 2 ^ 56 + (255 * 2 ^ 56) else unat vaddr mod 2 ^ 56)"
   unfolding sext_subrange_64_55_word_cat
-  by (auto simp: unat_def word_cat_def uint_word_of_int uint_and_mask bintrunc_mod2p
-                 nat_mod_distrib nat_add_distrib bin_cat_num uint_max_word)
+  by (auto simp: word_cat_eq unat_and_mask unat_word_ariths mask_eq[where n=8])
 
 lemma unat_zext_subrange_64_55:
   fixes vaddr :: "64 word"
   shows "unat (zext_subrange 64 vaddr 55 0 :: 64 word) = unat vaddr mod 2 ^ 56"
   unfolding zext_subrange_64_55_ucast_ucast
-  by (auto simp: unat_def uint_and_mask nat_mod_distrib)
+  by (auto simp: unat_and_mask)
 
 lemma bin_nth_int_unat:
   "bin_nth (int (unat w)) n = w !! n"
-  by (auto simp: unat_def word_test_bit_def)
+  by (auto simp: test_bit_eq_bit bit_simps)
 
 lemma tbi_enabled':
   assumes "Run (AddrTop addr (translation_el acctype)) t atop" and "translation_assms_trace t"
@@ -2069,7 +2069,7 @@ proof (unfold store_enabled_def, intro conjI allI impI)
   have [simp]: "(if x then Fault_CapBounds else Fault_None) = Fault_None \<longleftrightarrow> \<not>x" for x
     by (cases x) auto
   have [simp]: "tbi_enabled acctype (unat addr) = tbi_enabled acctype (unat (Align addr 64))"
-    by (rule tbi_enabled_cong) (auto simp: Align64 bin_nth_int_unat word_ops_nth_size)
+    by (rule tbi_enabled_cong) (auto simp: Align64 bit_simps)
   have [simp]: "Align (zext_subrange 64 addr 55 0 :: 64 word) 64 = zext_subrange 64 (Align addr 64) 55 0"
     by (intro word_eqI) (auto simp: Align64 zext_subrange_def zext_slice_def word_ops_nth_size)
   have [simp]: "Align (sext_subrange 64 addr 55 0 :: 64 word) 64 = sext_subrange 64 (Align addr 64) 55 0"
@@ -2412,9 +2412,10 @@ lemma VADeref_store_data_access_enabled'[derivable_capsE]:
 lemma unat_le_add_vec_int_elim:
   "unat x + z \<le> 2 ^ N \<Longrightarrow> N = size x \<Longrightarrow> 0 \<le> n \<Longrightarrow> nat n < z \<Longrightarrow>
     unat x \<le> unat (add_vec_int x n)"
-  apply (subgoal_tac "\<exists> i. n = int i")
-   apply (clarsimp)
-  apply (rule_tac x="nat n" in exI)
+  apply (clarsimp simp: unat_le_unat_add_iff nat_take_bit_eq take_bit_nat_def)
+  apply (erule order_less_le_trans[rotated])
+  apply simp
+  apply (erule order_le_less_trans[rotated])
   apply simp
   done
 
@@ -2424,7 +2425,7 @@ lemma unat_add_vec_int_plus_le:
   apply (erule order_trans[rotated])
   apply (simp add: unat_word_ariths)
   apply (rule order_trans, rule mod_less_eq_dividend)
-  apply (simp add: int_mod_le nat_mono unat_def uint_word_of_int)
+  apply (simp add: take_bit_eq_mod nat_mod_distrib)
   done
 
 (*lemma traces_enabled_bind_VADeref_Let[traces_enabled_combinatorI]:
@@ -2456,7 +2457,7 @@ proof -
     by (intro add_le_mono mult_le_mono) auto
   then show ?thesis
     using assms
-    by (auto simp: nat_add_distrib unat_0_iff)
+    by (auto simp add: nat_add_distrib unat_word_ariths take_bit_eq_mod unat_eq_0)
 qed
 
 fun Inv_vector_single_no_wb where
