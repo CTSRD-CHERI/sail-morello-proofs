@@ -1891,8 +1891,9 @@ next
       and addr: "addr = vaddr"
       and "CapIsTagSet c" and"\<not>CapIsSealed c"
       and "cap_permits req_perms c"
-    unfolding CheckCapability_def bounds_address_def has_ttbr1_def \<open>acctype' = acctype\<close>
+    unfolding CheckCapability_def bounds_address_def \<open>acctype' = acctype\<close>
     by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55
+                        has_ttbr1_def bit_uint test_bit_eq_bit[symmetric, where 'a="('b :: len) word"]
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E
              split: if_splits dest!: translation_el s1_enabled tbi_enabled' in_host)
   have aligned: "nat sz' = 16 \<and> aligned paddr' 16 \<and> \<not>is_fetch" if "tagged"
@@ -1987,8 +1988,9 @@ next
       and bvaddr: "bounds_address acctype (unat vaddr) = unat bvaddr"
       and tagged: "CapIsTagSet c" and not_sealed: "\<not>CapIsSealed c"
       and "cap_permits req_perms c"
-    unfolding CheckCapability_def bounds_address_def has_ttbr1_def \<open>acctype' = acctype\<close>
+    unfolding CheckCapability_def bounds_address_def \<open>acctype' = acctype\<close>
     by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55
+                        has_ttbr1_def bit_uint test_bit_eq_bit[symmetric, where 'a="('b :: len) word"]
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E
              split: if_splits dest!: translation_el s1_enabled tbi_enabled' in_host)
   have aligned: "nat sz' = 16 \<and> aligned paddr' 16" if "tag"
@@ -2108,11 +2110,12 @@ proof (unfold store_enabled_def, intro conjI allI impI)
       and tagged: "CapIsTagSet c'" and not_sealed: "\<not>CapIsSealed c'"
       and perms: "cap_permits CAP_PERM_STORE c'"
       and "c_or_DDC_in t c'"
-    unfolding MorelloCheckForCMO_def VAToCapability_def bounds_address_def has_ttbr1_def
+    unfolding MorelloCheckForCMO_def VAToCapability_def bounds_address_def
     (* TODO: This takes extremely long (around 20 minutes, on a somewhat slow machine).
        It also assumes that CheckCapability.patch has been applied to the ASL. *)
     by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
-       (auto simp: bin_nth_int_unat unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def has_ttbr1_def
+       (auto simp: bin_nth_int_unat unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def
+                   has_ttbr1_def bit_uint test_bit_eq_bit[symmetric, where 'a="('b :: len) word"]
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E Run_ifE[where f = "VAFromCapability c"]
              dest!: translation_el s1_enabled tbi_enabled' in_host
              simp: c_or_DDC_in_append1 c_or_DDC_in_append2)
