@@ -4391,11 +4391,16 @@ proof -
 
   note insuff2 = insuff_def[THEN meta_eq_to_obj_eq, THEN iffD2, OF disjI2]
 
+  note simp_issues[simp del] = Word_Extra.slice_beyond_length Word_Extra.word_and_mask
+    Word_Extra.word_and_not_mask Word_Extra.shiftl_zero
+
   show ?thesis
     using r r2 insuff1 insuff2
     apply (clarsimp simp: Let_def abase_def)
-    apply (clarsimp simp: CapSetBounds_def elim!: Run_elims cong: if_cong)
-
+    apply (clarsimp simp: CapSetBounds_def elim!: Run_elims cong: if_cong
+        simp del: Nat.diff_is_0_eq' Sail2_operators_mwords_lemmas.vec_of_bits_of_bl
+            Int.nat_le_0
+            Sail2_operators_mwords_lemmas.access_vec_dec_test_bit)
     apply (simp add: if_distrib[where f="\<lambda>x. test_bit x _"] test_bit_set_gen
                 lift_let[where f="\<lambda>x. test_bit x _"] Let_def[where f="\<lambda>x. test_bit x _"]
                 update_subrange_vec_dec_test_bit CAP_BASE_EXP_HI_BIT_def CAP_LIMIT_EXP_HI_BIT_def
@@ -4404,7 +4409,6 @@ proof -
                 CAP_MAX_EXPONENT_def CAP_MW_def
         cong: if_cong)
     apply (clarsimp simp only: simp_thms if_simps dest!: if_bool_eq_disj[where Q=False, THEN iffD1])
-
     apply (split if_split_asm[where Q="count_leading_zeros _ = _ \<longrightarrow> _"],
         simp_all only: simp_thms if_simps)
      prefer 2
@@ -4507,9 +4511,7 @@ proof -
     )
     apply (elim Run_elims; clarsimp elim!: Run_elims
         simp: CapGetTop_def
-        simp del: slice_beyond_length
-            Int.nat_le_0 word_and_mask Nat.diff_is_0_eq' Word_Extra.and_ucast_mask
-            Word_Extra.word_and_not_mask
+        simp del: Int.nat_le_0 Nat.diff_is_0_eq' Word_Extra.and_ucast_mask
         cong: if_cong;
         (thin_tac "_ = _ @ _")+;
         (erule rev_mp[where P="_ = _"] rev_mp[where P="_ \<le> _"]
