@@ -152,14 +152,15 @@
       }
     },
     "execute_aarch64_instrs_system_register_cpsr": {
-      "non_cap_exp": {
-        "proof": "(cases field; simp; non_cap_expI)"
+      "non_mem_exp": {
+        "proof": "(cases field; simp; non_mem_expI)"
       },
       "no_reg_writes_to": {
         "proof": "(cases field; simp; no_reg_writes_toI)"
       },
-      "traces_enabledI": {
-        "proof": "(traces_enabledI assms: assms elim: unat_le_add_vec_int_elim intro: unat_add_vec_int_plus_le)"
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "(cases field; simp; traces_enabledI)"
       }
     },
     "execute_aarch64_instrs_system_register_system": {
