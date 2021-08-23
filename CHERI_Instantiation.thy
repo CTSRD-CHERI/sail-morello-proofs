@@ -907,7 +907,7 @@ where
   "eq_at_bits ns x y = (\<forall>i \<in> ns. i < size x \<longrightarrow> test_bit x i = test_bit y i)"
 
 lemma monad_return_rel_undefined:
-  "monad_return_rel (undefined_bitvector RV i) (undefined_bitvector RV j) (eq_at_bits {})"
+  "monad_return_rel (undefined_bitvector BC RV i) (undefined_bitvector BC RV j) (eq_at_bits {})"
   by (simp add: monad_return_rel_def eq_at_bits_def)
 
 lemmas monad_return_rel_assert_exp_triv =
@@ -1106,12 +1106,22 @@ lemma of_bits_nondet_witness:
   apply (simp add: fold_append)
   done
 
+lemma choose_bools_witness:
+  "\<exists>t. Run (choose_bools RV_class descr n) t (replicate n False)"
+  using choose_bool_witness[of descr False]
+  apply (simp add: choose_bools_def genlistM_def genlist_def)
+  apply (rule foreachM_witness[where g = "\<lambda>_ acc. acc @ [False]"])
+  by (auto simp: fold_append map_replicate_trivial[symmetric])
+
 lemma undefined_bitvector_witness:
-  "\<exists>t. Run (undefined_bitvector instance_Sail2_values_Register_Value_Morello_types_register_value_dict n) t 0"
-  using of_bits_nondet_witness[of "replicate (nat n) BU"]
-  apply (simp add: undefined_bitvector_def of_bits_nondet_def del: repeat.simps)
-  apply fastforce
-  done
+  "\<exists>t. Run (undefined_bitvector BC_mword RV_class n :: (register_value, 'a::len word, 'e) monad) t 0"
+proof -
+  obtain t where "Run (choose_bools RV_class ''undefined_bitvector'' (nat \<bar>n\<bar>) :: (register_value, bool list, 'e) monad) t (replicate (nat \<bar>n\<bar>) False)"
+    using choose_bools_witness
+    by blast
+  then show ?thesis
+    by (intro exI[where x = t]) (auto simp: undefined_bitvector_def choose_bitvector_def)
+qed
 
 lemma CapGetBounds_top_bit:
   "Run (CapGetBounds c) t (base, limit, valid) \<Longrightarrow> unat base < 2 ^ 64"
@@ -1950,62 +1960,6 @@ section \<open>Register footprint lemmas\<close>
 text \<open>The bulk of these lemmas are auto-generated in @{path CHERI_Gen_Lemmas.thy}, but we manually prove them
   for built-ins and for helper functions we prove further lemmas about below.\<close>
 
-lemma no_reg_writes_to_undefined_bitvector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bitvector RV n)"
-  by (unfold undefined_bitvector_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bits[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bits RV n)"
-  by (unfold undefined_bits_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_mword_nondet[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (mword_nondet RV n)"
-  by (unfold mword_nondet_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bit[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bit u)"
-  by (unfold undefined_bit_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_bool[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_bool RV u)"
-  by (unfold undefined_bool_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_string[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_string RV u)"
-  by (unfold undefined_string_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_unit[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_unit u)"
-  by (unfold undefined_unit_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_vector[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_vector len v)"
-  by (unfold undefined_vector_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_int[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_int RV u)"
-  by (unfold undefined_int_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_nat[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_nat RV u)"
-  by (unfold undefined_nat_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_real[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_real RV u)"
-  by (unfold undefined_real_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_range[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_range RV i j)"
-  by (unfold undefined_range_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_undefined_atom[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (undefined_atom n)"
-  by (unfold undefined_atom_def, no_reg_writes_toI)
-
-lemma no_reg_writes_to_internal_pick[no_reg_writes_toI, simp]:
-  "no_reg_writes_to Rs (internal_pick RV xs)"
-  by (unfold internal_pick_def, no_reg_writes_toI)
-
 lemma no_reg_writes_to_UNKNOWN_Capability[no_reg_writes_toI, simp]:
   "no_reg_writes_to Rs (UNKNOWN_Capability n)"
   by (unfold UNKNOWN_Capability_def, no_reg_writes_toI)
@@ -2090,62 +2044,6 @@ lemmas privilegeds_accessible_system_reg_access[intro] =
   privileged_accessible_system_reg_access[where r = "''VBAR_EL3''", simplified]
   privileged_accessible_system_reg_access[where r = "''CDBGDTR_EL0''", simplified]
   privileged_accessible_system_reg_access[where r = "''CDLR_EL0''", simplified]
-
-lemma non_cap_exp_undefined_bitvector[non_cap_expI]:
-  "non_cap_exp (undefined_bitvector RV n)"
-  by (auto simp add: undefined_bitvector_def simp del: repeat.simps intro: non_cap_expI)
-
-lemma non_cap_exp_undefined_bits[non_cap_expI]:
-  "non_cap_exp (undefined_bits RV n)"
-  by (unfold undefined_bits_def, non_cap_expI)
-
-lemma non_cap_exp_mword_nondet[non_cap_expI]:
-  "non_cap_exp (mword_nondet RV n)"
-  by (unfold mword_nondet_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_bit[non_cap_expI]:
-  "non_cap_exp (undefined_bit u)"
-  by (unfold undefined_bit_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_bool[non_cap_expI]:
-  "non_cap_exp (undefined_bool RV u)"
-  by (unfold undefined_bool_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_string[non_cap_expI]:
-  "non_cap_exp (undefined_string RV u)"
-  by (unfold undefined_string_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_unit[non_cap_expI]:
-  "non_cap_exp (undefined_unit u)"
-  by (unfold undefined_unit_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_vector[non_cap_expI]:
-  "non_cap_exp (undefined_vector len v)"
-  by (auto simp add: undefined_vector_def simp del: repeat.simps intro: non_cap_expI)
-
-lemma non_cap_exp_undefined_int[non_cap_expI]:
-  "non_cap_exp (undefined_int RV u)"
-  by (unfold undefined_int_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_nat[non_cap_expI]:
-  "non_cap_exp (undefined_nat RV u)"
-  by (unfold undefined_nat_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_real[non_cap_expI]:
-  "non_cap_exp (undefined_real RV u)"
-  by (unfold undefined_real_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_range[non_cap_expI]:
-  "non_cap_exp (undefined_range RV i j)"
-  by (unfold undefined_range_def, non_cap_expI)
-
-lemma non_cap_exp_undefined_atom[non_cap_expI]:
-  "non_cap_exp (undefined_atom i)"
-  by (unfold undefined_atom_def, non_cap_expI)
-
-lemma non_cap_exp_internal_pick[non_cap_expI]:
-  "non_cap_exp (internal_pick RV xs)"
-  by (unfold internal_pick_def, non_cap_expI)
 
 lemma non_cap_exp_UNKNOWN_Capability[non_cap_expI]:
   "non_cap_exp (UNKNOWN_Capability u)"
@@ -3352,7 +3250,7 @@ lemma ex_run_return[simp]:
   by (simp add: ex_run_def)
 
 lemma ex_run_undefined_bitvector:
-  "ex_run (undefined_bitvector RV_class n)"
+  "ex_run (undefined_bitvector BC_mword RV_class n)"
   apply (simp add: ex_run_def)
   apply (rule exI, rule undefined_bitvector_witness)
   done
