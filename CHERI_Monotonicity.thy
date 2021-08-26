@@ -12,8 +12,6 @@ theory CHERI_Monotonicity
     "Sail-T-CHERI.Properties"
 begin
 
-locale Morello_Monotonicity = Morello_Fixed_Address_Translation + Morello_Register_Accessors
-
 locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: "register_value trace"
 
 locale Morello_Instr_Trace_Automaton = Morello_Trace_Automaton + fixes instr :: instr
@@ -90,7 +88,7 @@ locale Morello_Fetch_Trace_Mem_Automaton =
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
 
-context Morello_Monotonicity
+context Morello_Fixed_Address_Translation
 begin
 
 abbreviation "s_read_from reg s \<equiv> read_from reg (regstate s)"
@@ -172,7 +170,7 @@ abbreviation "unknown_caps_reachable t s \<equiv> unknown_caps_of_trace t \<subs
 lemma fetch_state_assms_iff_invs:
   "fetch_state_assms s \<longleftrightarrow> PCC_inv s \<and> EDSCR_inv s \<and> DCZID_inv s"
   unfolding fetch_state_assms_def EDSCR_inv_def DCZID_inv_def reg_inv_def Let_def
-  by (auto simp: register_defs regval_of_bitvector_129_dec_def regval_of_bitvector_32_dec_def)
+  by (auto simp: register_defs)
 
 theorem morello_monotonicity:
   assumes "hasTrace t (fetch_execute_loop ISA n)"
@@ -218,13 +216,13 @@ proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])
       let ?tagged_reg = "\<lambda>v. case v of Regval_bitvector_129_dec c \<Rightarrow> CapIsTagSet c | _ \<Rightarrow> True"
       have FetchInstr: "runs_establish_invariant (liftS (FetchInstr pc)) (reg_inv ''PCC'' ?tagged_reg)" for pc
         using Write_Cap.PrePostE_FetchInstr_pcc_tagged_unsealed[where pc = pc]
-        by (elim PrePostE_weaken_post) (auto simp: register_defs regval_of_bitvector_129_dec_def reg_inv_def)
+        by (elim PrePostE_weaken_post) (auto simp: register_defs reg_inv_def)
       have "runs_establish_invariant (liftS instr_fetch) (reg_inv ''PCC'' ?tagged_reg)"
         unfolding instr_fetch_def FetchNextInstr_def liftState_simp comp_def
         by (intro FetchInstr[THEN runs_establish_invariant_bindS_left] runs_establish_invariant_bindS_right)
            (auto simp: no_reg_writes_runs_no_reg_writes)
       then show ?thesis
-        by (elim PrePostE_weaken_post) (auto simp: register_defs regval_of_bitvector_129_dec_def reg_inv_def)
+        by (elim PrePostE_weaken_post) (auto simp: register_defs reg_inv_def)
     qed
     ultimately show "instr_state_assms instr sf'"
       using Run_runTraceS_Value_liftState[OF tf] sf

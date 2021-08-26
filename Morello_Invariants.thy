@@ -427,11 +427,6 @@ lemmas runs_preserve_invariant_if_split =
 lemmas runs_preserve_invariant_if_split_no_asm =
   if_split_no_asm[where P = "\<lambda>m. runs_preserve_invariant m inv" for inv]
 
-context Register_State
-begin
-
-abbreviation liftS where "liftS \<equiv> liftState (get_regval, set_regval)"
-
 definition "reg_inv r P s \<equiv> (\<forall>v. get_reg_val r s = Some v \<longrightarrow> P v)"
 
 lemma runs_establish_reg_inv_write_reg:
@@ -482,12 +477,6 @@ lemma read_modify_write_reg_preserves_reg_inv:
   by (intro runs_preserve_invariant_bindS runs_preserve_reg_inv_write_reg runs_preserve_reg_inv_read_reg)
      (auto simp: read_reg_def Value_bindS_iff reg_inv_def split: option.splits)
 
-end
-
-locale Morello_Register_Accessors = Register_State
-  where get_regval = get_regval and set_regval = set_regval
-begin
-
 fun PCC_regval_inv where
   "PCC_regval_inv (Regval_bitvector_129_dec c) = (CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c)"
 | "PCC_regval_inv _ = True"
@@ -503,8 +492,7 @@ lemma runs_establish_PCC_inv_write_PCC:
   shows "runs_establish_invariant (write_regS PCC_ref c) PCC_inv"
   unfolding liftState_simp[symmetric]
   using assms
-  by (intro runs_establish_reg_inv_write_reg)
-     (auto simp: PCC_ref_def regval_of_bitvector_129_dec_def)
+  by (intro runs_establish_reg_inv_write_reg) (auto simp: PCC_ref_def)
 
 lemmas runs_preserve_PCC_inv_write_PCC_inv =
   runs_establish_PCC_inv_write_PCC[THEN runs_establish_invariant_runs_preserve_invariant]
@@ -531,7 +519,7 @@ lemma inv_reg_simps[simp]:
   "name DCZID_EL0_ref = ''DCZID_EL0''"
   "\<And>v. regval_of DCZID_EL0_ref v = Regval_bitvector_32_dec v"
   "\<And>rv v. of_regval DCZID_EL0_ref rv = Some v \<longleftrightarrow> rv = Regval_bitvector_32_dec v"
-  by (auto simp: register_defs regval_of_bitvector_32_dec_def elim: bitvector_32_dec_of_regval.elims)
+  by (auto simp: register_defs elim: bitvector_32_dec_of_regval.elims)
 
 lemmas read_modify_write_regs_preserve_reg_invs =
   read_modify_write_reg_preserves_reg_inv[where r = EDSCR_ref and n = "''EDSCR''", simplified]
@@ -548,7 +536,7 @@ lemma runs_establish_PCC_inv_BranchToCapability:
   apply (rule runs_establish_invariant_bindS_right)
   apply (rule runs_establish_invariant_bindS_left)
   apply (rule runs_establish_reg_inv_write_reg)
-  apply (auto simp: PCC_ref_def BranchTaken_ref_def regval_of_bitvector_129_dec_def Run_BranchAddr_not_CapIsSealed_if elim!: Value_liftState_Run intro: runs_preserve_reg_inv_write_reg_other)
+  apply (auto simp: PCC_ref_def BranchTaken_ref_def Run_BranchAddr_not_CapIsSealed_if elim!: Value_liftState_Run intro: runs_preserve_reg_inv_write_reg_other)
   done
 
 lemma runs_establish_PCC_inv_BranchXToCapability:
@@ -613,10 +601,6 @@ lemmas branch_cap_instructions_preserve_PCC_inv =
 
 lemmas runs_preserve_invariant_and_boolS =
   PrePostE_and_boolS[where R = P and P = P and Q = "\<lambda>_. P" and E = "\<lambda>_ _. True" for P, simplified]
-
-lemma bitvector_129_dec_of_regval_eq_Some_iff[simp]:
-  "bitvector_129_dec_of_regval rv = Some c \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
-  by (cases rv; auto)
 
 lemma read_reg_PCC_inv_unsealed[simp]:
   assumes "(Value c, s') \<in> read_regS PCC_ref s" and "PCC_inv s" and "CapIsTagSet c"
@@ -878,7 +862,5 @@ lemma instr_fetch_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS instr_fetch) DCZID_inv"
   unfolding instr_fetch_def liftState_simp comp_def
   by (auto intro!: runs_preserve_invariant_bindS simp: no_reg_writes_runs_no_reg_writes DCZID_inv_def)
-
-end
 
 end

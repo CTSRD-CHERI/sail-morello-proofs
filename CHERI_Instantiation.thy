@@ -1541,7 +1541,7 @@ lemma exp_invokes_indirect_caps_empty_if_regs_empty[simp]:
   shows "exp_invokes_indirect_caps (write_reg ThisInstrAbstract_ref instr \<bind> f) = {}"
   using assms
   unfolding exp_invokes_indirect_caps_def trace_invokes_indirect_caps_def trace_invokes_indirect_regs_def write_reg_def hasTrace_iff_Traces_final
-  by (auto simp: instr_of_trace_Some_iff register_defs regval_of_instr_ast_def elim!: Write_reg_TracesE)
+  by (auto simp: instr_of_trace_Some_iff register_defs elim!: Write_reg_TracesE)
 
 lemma instr_of_trace_bind_write_reg_ThisInstrAbstract:
   assumes "hasTrace t (write_reg ThisInstrAbstract_ref instr \<bind> f)"
@@ -1566,7 +1566,7 @@ lemma no_reg_writes_to_instrs_of_exp:
 
 lemma instrs_of_exp_write_reg_ThisInstrAbstract[simp]:
   "instrs_of_exp (write_reg ThisInstrAbstract_ref instr \<bind> f) = {instr}"
-  by (auto simp: instrs_of_exp_def  write_reg_def register_defs regval_of_instr_ast_def
+  by (auto simp: instrs_of_exp_def  write_reg_def register_defs
            elim!: Write_reg_TracesE
            intro!: exI[where x = "[E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr)]"])
 
@@ -1676,50 +1676,60 @@ lemma ISA_simps[simp]:
   "isa.translate_address ISA vaddr load t = translate_address vaddr load t"
   by (auto simp: ISA_def)
 
-lemma no_cap_regvals[simp]:
-  "\<And>v. GTEParamType_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. PCSample_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. ProcState_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. TLBLine_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. InstrEnc_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bit_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_11_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_128_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_16_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_1_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_2_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_32_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_4_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_48_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_63_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bitvector_64_dec_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. instr_ast_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. bool_of_regval_method RV_class rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. int_of_regval_method RV_class rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. signal_of_regval rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>xs. vector_of_regval of_rv rv = Some xs \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>xs. caps_of_regval (regval_of_vector rv_of xs) = {}"
-  "\<And>v. option_of_regval of_rv rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
-  "\<And>v. caps_of_regval (regval_of_option rv_of v) = {}"
-  by (cases rv; auto simp: vector_of_regval_def regval_of_vector_def option_of_regval_def regval_of_option_def RV_class_def)+
-
-lemma caps_of_regval_of_bitvector_129[simp]:
-  "caps_of_regval (regval_of_bitvector_129_dec c) = {c}"
-  by (auto simp: regval_of_bitvector_129_dec_def)
-
-lemma member_caps_of_regval_iff[simp]:
-  "c \<in> caps_of_regval rv \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
-  by (cases rv; auto)
-
-lemma bitvector_129_Some_iff[simp]:
-  "bitvector_129_dec_of_regval rv = Some c \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
-  by (cases rv) auto
-
 lemma address_tag_aligned_iff_aligned_16[simp]:
   "address_tag_aligned ISA addr \<longleftrightarrow> aligned addr 16"
   by (auto simp: address_tag_aligned_def aligned_def)
 
 end
+
+lemma no_cap_regvals[simp]:
+  "\<And>xs. vector_of_regval of_rv rv = Some xs \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>xs. caps_of_regval (regval_of_vector rv_of xs) = {}"
+  "\<And>v. option_of_regval of_rv rv = Some v \<Longrightarrow> caps_of_regval rv = {}"
+  "\<And>v. caps_of_regval (regval_of_option rv_of v) = {}"
+  by (cases rv; auto simp: regval_of_vector_def regval_of_option_def RV_class_def)+
+
+lemma caps_of_regval_of_bitvector_129[simp]:
+  "caps_of_regval (regval_of_bitvector_129_dec c) = {c}"
+  by auto
+
+lemma member_caps_of_regval_iff[simp]:
+  "c \<in> caps_of_regval rv \<longleftrightarrow> rv = Regval_bitvector_129_dec c"
+  by (cases rv; auto)
+
+lemma vector_of_regval_eq_Some_iff:
+  assumes "\<And>rv v. of_rv rv = Some v \<longleftrightarrow> rv_of v = rv"
+  shows "vector_of_regval of_rv rv = Some v \<longleftrightarrow> rv = regval_of_vector rv_of v"
+proof -
+  from assms have "map of_rv rvs = map Some vs \<longleftrightarrow> rvs = map rv_of vs" for rvs vs
+    by (induction rvs arbitrary: vs; fastforce)
+  then show ?thesis by (cases rv) (auto simp: regval_of_vector_def)
+qed
+
+lemma vector_of_regval_eq_Some_iffs[simp]:
+  "\<And>rv vs. vector_of_regval bitvector_129_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_129_dec vs"
+  "\<And>rv vs. vector_of_regval bitvector_128_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_128_dec vs"
+  "\<And>rv vs. vector_of_regval bitvector_64_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_64_dec vs"
+  "\<And>rv vs. vector_of_regval bitvector_32_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_32_dec vs"
+  "\<And>rv vs. vector_of_regval bitvector_16_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_16_dec vs"
+  "\<And>rv vs. vector_of_regval TLBLine_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_TLBLine vs"
+  "\<And>rv vs. vector_of_regval bool_of_register_value rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bool vs"
+  "\<And>rv vs. vector_of_regval int_of_register_value rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_int vs"
+  by (intro vector_of_regval_eq_Some_iff; auto)+
+
+global_interpretation Register_State where get_regval = get_regval and set_regval = set_regval
+proof
+  fix r rv s s'
+  assume "set_regval r rv s = Some s'"
+  then show "get_regval r s' = Some rv"
+    unfolding set_regval_unfold registers_def
+    by (elim option_bind_SomeE map_of_Cons_SomeE) (auto simp: register_defs) \<comment> \<open>may take a minute\<close>
+next
+  fix r r' rv s s'
+  assume "set_regval r rv s = Some s'" and "r' \<noteq> r"
+  then show "get_regval r' s' = get_regval r' s"
+    by (elim set_regval_Some_type_cases; cases r' rule: get_regval_type_cases) auto
+qed
 
 locale Morello_Bounds_Address_Calculation =
   fixes translation_el :: "AccType \<Rightarrow> 2 word"
@@ -5214,10 +5224,6 @@ fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> r
 | "sysreg_ev_assms _ _ = True"
 
 abbreviation "sysreg_trace_assms \<equiv> holds_along_trace sysreg_ev_assms"
-
-lemma bitvector_32_dec_of_regva_eq_Some_iff[simp]:
-  "bitvector_32_dec_of_regval rv = Some v \<longleftrightarrow> rv = Regval_bitvector_32_dec v"
-  by (cases rv) auto
 
 (* In Debug mode, access to system registers seems to be generally enabled, so let's assume that
    we are not in Debug mode; otherwise we'd have to tweak the properties to allow for ambient
