@@ -22,10 +22,17 @@
     "event_clauses.sail",
     "decode_end.sail"
   ],
-  "slice": { "roots": ["__DecodeExecute", "__FetchInstr"] },
+  "slice": { "roots": ["__TopLevel"] },
+  "fetch": ["__FetchInstr", "__FetchNextInstr", "__CheckPendingInterrupts"],
+  "execute": ["__DecodeExecute", "__TryInstructionExecute"],
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
-  "privileged_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
+  "read_privileged_regs": ["CDBGDTR_EL0", "CDLR_EL0", "VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
+  "write_privileged_regs": ["CDBGDTR_EL0", "CDLR_EL0", "VBAR_EL1", "VBAR_EL2", "VBAR_EL3", "SCR_EL3", "TCR_EL1", "TCR_EL2", "TCR_EL3", "SCTLR_EL1", "SCTLR_EL2", "SCTLR_EL3", "TTBR0_EL3", "TTBR0_EL2", "TTBR0_EL1", "TTBR1_EL1", "TTBR1_EL2", "VTCR_EL2", "VTTBR_EL2", "MAIR_EL1", "MAIR_EL2", "MAIR_EL3", "MPAM3_EL3", "_MPAM2_EL2_0_62", "_MPAM1_EL1_0_62", "MPAM0_EL1", "MPAMIDR_EL1", "MPAMVPMV_EL2", "MPAMVPM0_EL2", "MPAMVPM1_EL2", "MPAMVPM2_EL2", "MPAMVPM3_EL2", "MPAMVPM4_EL2", "MPAMVPM5_EL2", "MPAMVPM6_EL2", "MPAMVPM7_EL2", "MPAMHCR_EL2"],
+  "read_exception_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
+  "write_exception_regs": [],
+  "footprint_regs": ["__ThisInstrAbstract", "EDSCR", "DCZID_EL0"],
+  "system_access_checks": ["CapIsSystemAccessEnabled", "Halted"],
   "pcc": ["PCC"],
   "idc": ["_R29"],
   "overrides": {
@@ -35,85 +42,108 @@
       },
       "runs_no_reg_writes_to": {
         "proof": "(auto simp: runs_no_reg_writes_to_def)"
+      },
+      "traces_enabled": {
+        "unfolding": [],
+        "proof": "(rule AArch64_TakeException_raises_isa_ex[THEN exp_raises_ex_traces_enabled], unfold AArch64_TakeException_def bind_assoc, traces_enabledI assms: assms elim: CapSetValue_exception_target_enabled_branch_target)"
+      }
+    },
+    "AArch64_TakeVirtualSErrorException": {
+      "runs_no_reg_writes_to": {
+        "proof": "(auto simp: runs_no_reg_writes_to_def)"
       }
     },
     "AArch64_ExceptionReturnToCapability": {
       "traces_enabled": {
-        "assms": ["arg0 \\<in> derivable_caps s"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "new_pcc__arg \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms intro: derivable_enabled_branch_target)"
+      }
+    },
+    "AArch64_CallSecureMonitor": {
+      "runs_no_reg_writes_to": {
+        "proof": "(simp add: runs_no_reg_writes_to_def)"
+      }
+    },
+    "AArch64_CallHypervisor": {
+      "runs_no_reg_writes_to": {
+        "proof": "(simp add: runs_no_reg_writes_to_def)"
+      }
+    },
+    "AArch64_CallSupervisor": {
+      "runs_no_reg_writes_to": {
+        "proof": "(simp add: runs_no_reg_writes_to_def)"
       }
     },
     "ConstrainUnpredictable": {
       "non_cap_exp": {
-        "proof": "(cases arg0; simp; non_cap_expI)"
+        "proof": "(cases which; simp; non_cap_expI)"
       },
       "no_reg_writes_to": {
-        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
-      }
-    },
-    "FPRoundBase": {
-      "runs_no_reg_writes_to": {
-        "proof": "- (* TODO *)"
+        "proof": "(cases which; simp; no_reg_writes_toI)"
       }
     },
     "CapabilityFromData": {
       "derivable_caps": {
-        "stmts": ["Run (CapabilityFromData n arg1 arg2) t c \\<Longrightarrow> n = 128 \\<Longrightarrow> Capability_of_tag_word (arg1 !! 0) arg2 \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, auto simp: CapabilityFromData_def)"
+        "stmts": ["Run (CapabilityFromData n tag data) t c \\<Longrightarrow> n = 128 \\<Longrightarrow> Capability_of_tag_word (tag !! 0) data \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(auto simp: CapabilityFromData_def)"
       }
     },
     "CheckCapability": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       }
     },
     "CapSetValue": {
       "derivable_caps": {
-        "stmts": ["Run (CapSetValue arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, unfold CapSetValue_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentable_derivable intro: update_subrange_if_derivable update_subrange_addr_CapWithTagClear_derivable)"
+        "stmts": ["Run (CapSetValue c__arg addr) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_derivable_insert_run, unfold CapSetValue_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentable_derivable_caps intro: update_subrange_if_derivable update_subrange_addr_CapWithTagClear_derivable)"
       }
     },
     "CapAdd": {
       "derivable_caps": {
-        "stmts": ["Run (CapAdd arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, unfold CapAdd_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentableFast_derivable)"
+        "stmts": ["Run (CapAdd c__arg arg1) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_derivable_insert_run, unfold CapAdd_def, derivable_capsI elim: update_subrange_addr_CapIsRepresentableFast_derivable simp: word_bl.Abs_inject nth_ucast CapGetValue_def update_subrange_vec_dec_test_bit)"
       }
     },
     "CapAdd__1": {
       "derivable_caps": {
-        "stmts": ["Run (CapAdd__1 arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"]
+        "stmts": ["Run (CapAdd__1 c__arg incr) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> c \\<in> derivable_caps s"]
       }
     },
     "CapSetOffset": {
       "derivable_caps": {
-        "stmts": ["Run (CapSetOffset arg0 arg1) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "(non_cap_exp_insert_run s, unfold CapSetOffset_def, derivable_capsI)"
+        "stmts": ["Run (CapSetOffset c__arg incr) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(non_cap_exp_derivable_insert_run, unfold CapSetOffset_def, derivable_capsI)"
       }
     },
     "CapSetBounds": {
       "derivable_caps": {
-        "stmts": ["Run (CapSetBounds arg0 arg1 arg2) t c \\<Longrightarrow> arg0 \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet arg0 \\<longrightarrow> \\<not>CapIsSealed arg0 \\<Longrightarrow> c \\<in> derivable_caps s"],
-        "proof": "- (* TODO *)"
+        "stmts": ["Run (CapSetBounds c__arg req_len exact) t c \\<Longrightarrow> c__arg \\<in> derivable_caps s \\<Longrightarrow> CapIsTagSet c__arg \\<longrightarrow> \\<not>CapIsSealed c__arg \\<Longrightarrow> req_len \\<le> 2 ^ 64 \\<Longrightarrow> inv_trace_assms s t \\<Longrightarrow> c \\<in> derivable_caps s"],
+        "proof": "(auto dest!: CapSetBounds_derivable_proof inv_trace_assms_accessed_caps_invariant(1) elim!: derivable_cap_invariant simp: accessed_caps_invariant_def derivable_caps_def)"
+      }
+    },
+    "CapSquashPostLoadCap": {
+      "derivable_caps": {
+        "stmts": ["Run (CapSquashPostLoadCap data addr) t c \\<Longrightarrow> data \\<in> derivable_caps s \\<Longrightarrow> c \\<in> derivable_caps (run s t)"]
       }
     },
     "X_set": {
       "traces_enabled": {
         "assms": ["LENGTH('a) \\<in> {32, 64}"],
-        "stmts": ["traces_enabled (X_set arg0 arg1 (arg2 :: 'a::len word)) s"],
+        "stmts": ["traces_enabled (X_set width n (value_name :: 'a::len word)) s"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
     "SP_set": {
       "traces_enabled": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "LENGTH('a) \\<in> {32, 64}"],
-        "stmts": ["traces_enabled (SP_set arg0 (arg1 :: 'a::len word)) s"],
+        "stmts": ["traces_enabled (SP_set width (value_name :: 'a::len word)) s"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
     "BaseReg_set": {
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable arg1 s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable address s"]
       }
     },
     "BranchXToCapability": {
@@ -122,61 +152,91 @@
       }
     },
     "execute_aarch64_instrs_system_register_cpsr": {
-      "non_cap_exp": {
-        "proof": "(cases arg0; simp; non_cap_expI)"
+      "non_mem_exp": {
+        "proof": "(cases field; simp; non_mem_expI)"
       },
       "no_reg_writes_to": {
-        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
-      }
-    },
-    "ReduceCombine": {
+        "proof": "(cases field; simp; no_reg_writes_toI)"
+      },
       "traces_enabled": {
         "unfolding": [],
-        "proof": "(cases arg0; simp; traces_enabledI assms: assms)"
-      },
-      "non_mem_exp": {
-        "proof": "(cases arg0; simp; non_mem_expI)"
-      },
-      "runs_no_reg_writes_to": {
-        "proof": "(cases arg0; simp; no_reg_writes_toI simp: register_defs)"
+        "proof": "(cases field; simp; traces_enabledI)"
+      }
+    },
+    "execute_aarch64_instrs_system_register_system": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "(\\<not>read \\<and> sys_op0 = 3 \\<and> sys_op1 \\<in> {0, 4, 6} \\<and> sys_op2 = 2 \\<and> sys_crn = 12 \\<and> sys_crm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_system_register_system read sys_crm sys_crn sys_op0 sys_op1 sys_op2 t) s"]
+      }
+    },
+    "decode_mrs_aarch64_instrs_system_register_system": {
+      "traces_enabled": {
+        "extra_assms": ["(L \\<noteq> 1 \\<and> uint o0 = 1 \\<and> uint op1 \\<in> {0, 4, 6} \\<and> uint op2 = 2 \\<and> uint CRn = 12 \\<and> uint CRm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (decode_mrs_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L) s"]
+      }
+    },
+    "decode_msr_reg_aarch64_instrs_system_register_system": {
+      "traces_enabled": {
+        "extra_assms": ["(L \\<noteq> 1 \\<and> uint o0 = 1 \\<and> uint op1 \\<in> {0, 4, 6} \\<and> uint op2 = 2 \\<and> uint CRn = 12 \\<and> uint CRm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (decode_msr_reg_aarch64_instrs_system_register_system Rt op2 CRm CRn op1 o0 L) s"]
+      }
+    },
+    "DCPSInstruction": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI simp: HaveCapabilitiesExt_def)"
+      }
+    },
+    "DRPSInstruction": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI simp: HaveCapabilitiesExt_def)"
       }
     },
     "Reduce": {
       "traces_enabled": {
-        "assms": ["arg2 \\<in> {16, 32, 64}", "nat arg2 \\<le> size arg1", "LENGTH('esize) = nat arg2"],
-        "stmts": ["traces_enabled (Reduce arg0 arg1 arg2 :: 'esize::len word M) s"]
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "esize \\<in> {8, 16, 32, 64}", "nat esize \\<le> size input", "LENGTH('esize) = nat esize"],
+        "stmts": ["traces_enabled (Reduce op input esize :: 'esize::len word M) s"]
+      }
+    },
+    "FPRecipEstimate": {
+      "no_reg_writes_to": {
+        "proof": "(unfold FPRecipEstimate_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_if_no_asm)"
+      },
+      "runs_no_reg_writes_to": {
+        "proof": "(unfold FPRecipEstimate_def bind_assoc, no_reg_writes_toI intro: runs_no_reg_writes_to_if_no_asm)"
       }
     },
     "execute_aarch64_instrs_system_hints": {
+      "no_reg_writes_to": {
+        "proof": "(cases op; simp; no_reg_writes_toI)"
+      },
+      "runs_no_reg_writes_to": {
+        "proof": "(cases op; simp; no_reg_writes_toI)"
+      },
       "traces_enabled": {
         "unfolding": [],
-        "proof": "(cases arg0; simp; traces_enabledI)"
+        "proof": "(cases op; simp; traces_enabledI assms: assms)"
       },
       "non_mem_exp": {
-        "proof": "(cases arg0; simp; non_mem_expI)"
+        "proof": "(cases op; simp; non_mem_expI)"
       }
     },
     "AArch64_MemSingle_read": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
-        "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> load_enabled s (unat arg0) arg1 False"],
-        "unfolding": ["AArch64_MemSingle_read_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
+        "assms": ["translate_address (unat address) \\<noteq> None \\<longrightarrow> load_enabled s acctype (unat address) size__arg False"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "AArch64_MemSingle_set": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
-        "assms": ["translate_address (unat arg0) \\<noteq> None \\<longrightarrow> store_enabled s (unat arg0) arg1 arg4 False", "LENGTH('a) = 8 * nat arg1"],
-        "stmts": ["traces_enabled (AArch64_MemSingle_set arg0 arg1 arg2 arg3 (arg4 :: 'a::len word)) s"],
-        "unfolding": ["AArch64_MemSingle_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
+        "assms": ["translate_address (unat address) \\<noteq> None \\<longrightarrow> store_enabled s acctype (unat address) size__arg value_name False", "LENGTH('a) = 8 * nat size__arg"],
+        "stmts": ["traces_enabled (AArch64_MemSingle_set address size__arg acctype wasaligned (value_name :: 'a::len word)) s"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else translate_address_aligned32_plus16)"
       }
     },
     "AArch64_TaggedMemSingle": {
@@ -188,78 +248,75 @@
         "proof": "(auto simp: test_bit_of_bl elim!: Run_bindE Run_ifE ReadTaggedMem_lower_derivable[THEN derivable_caps_run_imp])"
       },
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) (nat arg1)", "load_enabled s (unat arg0) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0 + 16) 16 True", "arg1 = 32 \\<Longrightarrow> load_enabled s (unat arg0) 32 False"],
-        "unfolding": ["AArch64_TaggedMemSingle_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
+        "assms": ["aligned (unat address) (nat size__arg)", "load_enabled s acctype (unat address) 16 True", "size__arg = 32 \\<Longrightarrow> load_enabled s acctype (unat address + 16) 16 True", "size__arg = 32 \\<Longrightarrow> load_enabled s acctype (unat address) 32 False"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else translate_address_aligned32_plus16)"
       }
     },
     "AArch64_TaggedMemSingle__1": {
       "traces_enabled": {
-        "assms": ["Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "Capability_of_tag_word (tags !! 0) (ucast data) \\<in> derivable_caps s", "sz = 32 \\<Longrightarrow> Capability_of_tag_word (tags !! 1) (Word.slice 128 data) \\<in> derivable_caps s"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
         "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat addr) (nat sz)", "store_enabled s (unat addr) 16 (ucast data :: 128 word) (tags !! 0)", "sz = 32 \\<Longrightarrow> store_enabled s (unat addr + 16) 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
+        "assms": ["aligned (unat addr) (nat sz)", "store_enabled s acctype (unat addr) 16 (ucast data :: 128 word) (tags !! 0)", "sz = 32 \\<Longrightarrow> store_enabled s acctype (unat addr + 16) 16 (Word.slice 128 data :: 128 word) (tags !! 1)", "LENGTH('t) = nat sz div 16", "LENGTH('d) = 8 * nat sz"],
         "stmts": ["traces_enabled (AArch64_TaggedMemSingle__1 addr sz acctype wasaligned (tags :: 't::len word) (data :: 'd::len word)) s"],
-        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct translate_address_aligned32_plus16)"
+        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else translate_address_aligned32_plus16)"
       }
     },
     "AArch64_CapabilityTag": {
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True"],
-        "unfolding": ["AArch64_CapabilityTag_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms intro: access_enabled_runI simp: exp_fails_if_then_else IsFault_def translate_correct trace_assms_def ev_assms_def load_enabled_def)"
+        "assms": ["aligned (unat address) 16 \\<longrightarrow> load_enabled s acctype (unat address) 16 True"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "AArch64_CapabilityTag_set": {
       "traces_enabled": {
-        "assms": ["arg2 = 0"],
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "tag = 0"],
         "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
-        "assms": ["\\<And>data :: 128 word. aligned (unat vaddr) 16 \\<longrightarrow> store_enabled s (unat vaddr) 16 data False", "tag = 0"],
+        "assms": ["\\<And>data :: 128 word. aligned (unat vaddr) 16 \\<Longrightarrow> store_enabled s acctype (unat vaddr) 16 data False", "tag = 0"],
         "stmts": ["traces_enabled (AArch64_CapabilityTag_set vaddr acctype tag) s"],
         "unfolding": ["AArch64_CapabilityTag_set_def", "AArch64_TranslateAddress_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
-      }
-    },
-    "_WriteTags": {
-      "traces_enabled_mem": {
-        "assms": ["\\<And>data :: 128 word. access_enabled s Store (unat (FullAddress_address (AddressDescriptor_paddress desc))) 16 (mem_bytes_of_word data) B0", "n = 1", "tags = 0"],
-        "stmts": ["traces_enabled (WriteTags desc sz tags addrdesc) s"],
-        "unfolding": ["WriteTags_def", "bind_assoc"]
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else intro: paccess_enabled_runI store_enabled_access_enabled[OF assms(1)])"
       }
     },
     "Mem_read": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"],
+        "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
-        "assms": ["load_enabled s (unat vaddr) sz False"],
+        "assms": ["load_enabled s acctype (unat vaddr) sz False"],
         "stmts": ["traces_enabled (Mem_read0 vaddr sz acctype) s"],
         "proof": "(traces_enabledI assms: assms simp: AArch64_MemSingle_read_translate_address_Some)"
       }
     },
     "Mem_set": {
       "traces_enabled": {
-        "assms": [],
-        "proof": "(traces_enabledI)"
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"],
+        "proof": "(traces_enabledI assms: assms)"
       },
       "traces_enabled_mem": {
-        "assms": ["store_enabled s (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz"],
+        "assms": ["store_enabled s acctype (unat vaddr) sz data False", "LENGTH('a) = 8 * nat sz", "sz \\<le> 16"],
         "stmts": ["traces_enabled (Mem_set0 vaddr sz acctype (data :: 'a::len word)) s"],
         "proof": "(traces_enabledI assms: assms simp: AArch64_MemSingle_set_translate_address_Some)"
       }
     },
     "MemC_read": {
+      "derivable_caps": {
+        "stmts": ["Run (MemC_read address acctype) t c \\<Longrightarrow> use_mem_caps \\<Longrightarrow> c \\<in> derivable_caps (run s t)"],
+        "proof": "(derivable_capsI)"
+      },
+      "traces_enabled": {
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
+      },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True"],
+        "assms": ["aligned (unat address) 16 \\<longrightarrow> load_enabled s acctype (unat address) 16 True"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
@@ -268,13 +325,13 @@
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)"],
+        "assms": ["aligned (unat address) 16 \\<longrightarrow> store_enabled s acctype (unat address) 16 (ucast value_name :: 128 word) (CapIsTagSet value_name)"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       }
     },
     "MemCP": {
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 32", "load_enabled s (unat arg0) arg1 16 True", "load_enabled s (unat arg0 + 16) arg1 16 True", "load_enabled s (unat arg0) arg1 32 False"],
+        "assms": ["aligned (unat address) 32", "load_enabled s acctype (unat address) 16 True", "load_enabled s acctype (unat address + 16) 16 True", "load_enabled s acctype (unat address) 32 False"],
         "proof": "(traces_enabledI assms: assms)"
       }
     },
@@ -283,18 +340,26 @@
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit update_subrange_vec_dec_word_cat_cap_pair slice_128_cat_cap_pair)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 32", "store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "store_enabled s (unat arg0 + 16) 16 (ucast arg3 :: 128 word) (CapIsTagSet arg3)"],
+        "assms": ["aligned (unat address) 32", "store_enabled s acctype (unat address) 16 (ucast value1_name :: 128 word) (CapIsTagSet value1_name)", "store_enabled s acctype (unat address + 16) 16 (ucast value2_name :: 128 word) (CapIsTagSet value2_name)"],
         "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit update_subrange_vec_dec_word_cat_cap_pair slice_128_cat_cap_pair)"
       }
     },
     "MemAtomicC": {
+      "derivable_caps": {
+        "assms": ["Run (MemAtomicC address op value_name ldacctype stacctype) t c", "invoked_indirect_caps = {}", "load_caps_permitted"],
+        "stmts": ["c \\<in> derivable_caps (run s t)"],
+        "using": ["assms(1)"],
+        "unfolding": ["MemAtomicC_def"],
+        "proof": "- (derivable_capsI intro: assms)"
+      },
       "traces_enabled": {
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "value_name \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat arg0) 16 \\<longrightarrow> load_enabled s (unat arg0) 16 True", "aligned (unat arg0) 16 \\<longrightarrow> store_enabled s (unat arg0) 16 (ucast arg2 :: 128 word) (CapIsTagSet arg2)", "arg2 \\<in> derivable_caps s"],
-        "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else IsFault_def translate_correct)"
+        "assms": ["aligned (unat address) 16 \\<longrightarrow> load_enabled s ldacctype (unat address) 16 True", "aligned (unat address) 16 \\<longrightarrow> store_enabled s stacctype (unat address) 16 (ucast value_name :: 128 word) (CapIsTagSet value_name)", "value_name \\<in> derivable_caps s"],
+        "unfolding": ["MemAtomicC_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: DataFromCapability_def update_subrange_vec_dec_test_bit test_bit_of_bl exp_fails_if_then_else)"
       }
     },
     "MemAtomicCompareAndSwap": {
@@ -304,64 +369,90 @@
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
         "stmts": ["traces_enabled (MemAtomicCompareAndSwap base expval (newval :: 'a::len word) ldacctype stacctype) s"],
-        "unfolding": ["MemAtomicCompareAndSwap_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
+        "unfolding": ["MemAtomicCompareAndSwap_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "MemAtomicCompareAndSwapC": {
       "traces_enabled": {
+        "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "expectedcap \\<in> derivable_caps s", "newcap \\<in> derivable_caps s"],
         "proof": "(traces_enabledI assms: assms simp: update_subrange_vec_dec_test_bit)"
       },
       "traces_enabled_mem": {
-        "assms": ["aligned (unat addr) 16 \\<longrightarrow> load_enabled s (unat addr) 16 True", "aligned (unat addr) 16 \\<longrightarrow> store_enabled s (unat addr) 16 (ucast newcap :: 128 word) (CapIsTagSet newcap)", "newcap \\<in> derivable_caps s"],
+        "assms": ["aligned (unat addr) 16 \\<longrightarrow> load_enabled s ldacctype (unat addr) 16 True", "aligned (unat addr) 16 \\<longrightarrow> store_enabled s stacctype (unat addr) 16 (ucast newcap :: 128 word) (CapIsTagSet newcap)", "newcap \\<in> derivable_caps s"],
         "stmts": ["traces_enabled (MemAtomicCompareAndSwapC va addr expcap newcap ldacctype stacctype) s"],
-        "unfolding": ["MemAtomicCompareAndSwapC_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct update_subrange_vec_dec_test_bit)"
+        "unfolding": ["MemAtomicCompareAndSwapC_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else update_subrange_vec_dec_test_bit)"
       }
     },
     "MemAtomic": {
       "traces_enabled": {
-        "assms": ["{''PCC''} \\<subseteq> accessible_regs s"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       },
       "traces_enabled_mem": {
         "assms": ["{''PCC''} \\<subseteq> accessible_regs s", "VA_derivable base s", "8 dvd LENGTH('a)"],
         "stmts": ["traces_enabled (MemAtomic base op (data :: 'a::len word) ldacctype stacctype) s"],
-        "unfolding": ["MemAtomic_def", "AArch64_TranslateAddressForAtomicAccess_def", "AArch64_TranslateAddress_def", "Let_def", "bind_assoc"],
-        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else IsFault_def translate_correct)"
-      }
-    },
-    "AArch64_AutoGen_ArchitectureReset": {
-      "traces_enabled": {
-        "unfolding": [],
-        "proof": "- (* TODO: takes very long *)"
-      },
-      "no_reg_writes_to": {
-        "proof": "- (* TODO: takes very long *)"
+        "unfolding": ["MemAtomic_def", "AArch64_TranslateAddressForAtomicAccess_def", "Let_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
     "AArch64_IMPDEFResets": {
       "no_reg_writes_to": {
-        "proof": "- (* TODO: takes very long *)"
+        "proof": "(unfold AArch64_IMPDEFResets_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_bindI_ignore_left)"
+      }
+    },
+    "AArch64_AutoGen_ArchitectureReset": {
+      "no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_ArchitectureReset_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_bindI_ignore_left)"
       }
     },
     "AArch64_AutoGen_SysRegRead": {
+      "no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_SysRegRead_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_if_no_asm)"
+      },
+      "runs_no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_SysRegRead_def bind_assoc, no_reg_writes_toI intro: runs_no_reg_writes_to_if_no_asm)"
+      },
       "traces_enabled": {
         "unfolding": [],
-        "proof": "- (* TODO: takes very long *)"
+        "proof": "(unfold AArch64_AutoGen_SysRegRead_def, traces_enabledI intro: assms[THEN subset_trans[rotated]])"
       }
     },
     "AArch64_AutoGen_SysRegWrite": {
-      "traces_enabled": {
-        "unfolding": [],
-        "proof": "- (* TODO: takes very long *)"
+      "no_reg_writes_to": {
+        "proof": "(unfold AArch64_AutoGen_SysRegWrite_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_if_no_asm)"
       },
       "runs_no_reg_writes_to": {
-        "proof": "- (* TODO: takes very long *)"
+        "proof": "(unfold AArch64_AutoGen_SysRegWrite_def bind_assoc, no_reg_writes_toI intro: runs_no_reg_writes_to_if_no_asm)"
+      },
+      "traces_enabled": {
+        "proof": "(traces_enabled_step intro: assms)+"
       }
     },
-    "DC_ZVA": {
+    "AArch64_SysRegWrite": {
+      "traces_enabled": {
+        "extra_assms": ["(op0 = 3 \\<and> op1 \\<in> {0, 4, 6} \\<and> op2 = 2 \\<and> crn = 12 \\<and> crm = 0) \\<longrightarrow> no_system_reg_access"],
+        "stmts": ["traces_enabled (AArch64_SysRegWrite op0 op1 crn crm op2 val) s"],
+        "proof": "(traces_enabledI assms: assms Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access[OF _ inv_sysreg_trace_assms]; blast)"
+      },
+      "non_mem_exp": {
+        "proof": "(unfold AArch64_SysRegWrite_def TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def AArch64_ResetSpecialRegisters_def Reset_def AArch64_IMPDEFResets_def AArch32_AutoGen_ArchitectureReset_def AArch64_AutoGen_ArchitectureReset_def MPAM2_EL2_read_def MPAM1_EL1_read_def MPAM2_EL2_write_def MPAM1_EL1_write_def ICC_CTLR_EL1_write_def ICC_CTLR_EL1_read_def Let_def bind_assoc, non_mem_expI intro: non_mem_exp_bind_no_asm non_mem_exp_if_no_asm)"
+      }
+    },
+    "DC_ZVA_": {
       "traces_enabled_mem": {
-        "proof": "- (* needs fixing in ASL *)"
+	"extra_assms": ["store_enabled s AccType_DCZVA (unat (Align val_name 64)) 64 (0 :: 512 word) False"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv2[where Inv = \"\\<lambda>idx _ memaddrdesc s. {''PCC''} \\<subseteq> accessible_regs s \\<and> FullAddress_address (AddressDescriptor_paddress memaddrdesc) = FullAddress_address (AddressDescriptor_paddress memaddrdesc0) + word_of_int idx\" and var_b = memaddrdesc0 for memaddrdesc0] store_enabled_data_paccess_enabled_subset[OF assms(2)] simp: DCZID_EL0_assm exp_fails_if_then_else aligned_unat_plus_distrib[where sz = 64] AArch64_FullTranslate_translate_address[THEN translate_address_aligned_iff] wi_hom_syms elim: Run_bindE)"
+      }
+    },
+    "CAP_DC_CVAU": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_bind)"
+      }
+    },
+    "CAP_IC_IVAU": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_bind)"
       }
     },
     "VAToCapability": {
@@ -370,29 +461,101 @@
         "proof": "(auto simp: VA_derivable_def)"
       }
     },
-    "execute_STLXP_R_CR_C": {
-      "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"
-      }
-    },
     "execute_BLRS_C_C_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_targetI[where c = \"CapUnseal c\" for c] elim: branch_sealed_pair_enabled_pcc branch_sealed_pair_C_set_29)"
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
+      }
+    },
+    "execute_BLR_CI_C": {
+      "traces_enabled": {
+        "extra_assms": ["is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+      }
+    },
+    "decode_BLR_CI_C": {
+      "traces_enabled": {
+        "extra_assms": ["is_indirect_branch"]
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["is_indirect_branch"]
       }
     },
     "execute_BRS_C_C_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_targetI[where c = \"CapUnseal c\" for c] elim: branch_sealed_pair_enabled_pcc branch_sealed_pair_C_set_29)"
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
+      }
+    },
+    "execute_BR_CI_C": {
+      "traces_enabled": {
+        "extra_assms": ["is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+      }
+    },
+    "decode_BR_CI_C": {
+      "traces_enabled": {
+        "extra_assms": ["is_indirect_branch"]
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["is_indirect_branch"]
+      }
+    },
+    "execute_LDPBLR_C_C_C": {
+      "traces_enabled": {
+        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] traces_enabled_C_set_mem_cap[where n = 29] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+      }
+    },
+    "decode_LDPBLR_C_C_C": {
+      "traces_enabled": {
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+      }
+    },
+    "execute_LDPBR_C_C_C": {
+      "traces_enabled": {
+        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+      }
+    },
+    "decode_LDPBR_C_C_C": {
+      "traces_enabled": {
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+      },
+      "traces_enabled_mem": {
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
       }
     },
     "execute_RETS_C_C_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_targetI[where c = \"CapUnseal c\" for c] elim: branch_sealed_pair_enabled_pcc branch_sealed_pair_C_set_29)"
+        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
       }
     },
-    "execute_STXP_R_CR_C": {
-      "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled)"
+    "execute_SCBNDS_C_CI_C": {
+      "traces_enabled": {
+        "extra_assms": ["length__arg \\<le> 2^64"]
+      }
+    },
+    "execute_SCBNDS_C_CI_S": {
+      "traces_enabled": {
+        "extra_assms": ["length__arg \\<le> 2^64"]
       }
     },
     "execute_aarch64_instrs_memory_single_general_immediate_signed_post_idx": {
@@ -402,90 +565,96 @@
     },
     "execute_aarch64_instrs_memory_vector_single_no_wb": {
       "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (element, offset :: 64 word, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (offset :: 64 word, rval, t) s. offset = word_of_int (idx * size_itself_int arg1 div 8)\"] simp: Run_bind_iff Run_if_iff wi_hom_syms)"
+	"unfolding": ["execute_aarch64_instrs_memory_vector_single_no_wb_def", "bind_assoc", "Let_def", "case_prod_beta"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx vars s. Inv_vector_single_no_wb ebytes idx address (fst (snd vars))\" and body = \"\\<lambda>s (vars :: ('esize word * 64 word * int)). (Mem_read0 (add_vec address (fst (snd vars))) ebytes _ :: 'esize word M) \\<bind> (\\<lambda>w. _ w vars :: ('esize word * 64 word * int) M)\" for address :: \"64 word\" and ebytes] traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx vars s. Inv_vector_single_no_wb ebytes idx address (fst vars)\" and body = \"\\<lambda>s (vars :: 64 word * 128 word * int). (V_read 128 (snd (snd vars)) :: 128 word M) \\<bind> (\\<lambda>w. (if memop = MemOp_LOAD then Mem_read0 (add_vec address (fst vars)) ebytes _ \\<bind> (\\<lambda>w'. _ w' w vars :: 128 word M) else (_ w vars :: 128 word M)) \\<bind> (\\<lambda>w'. _ w' w vars :: (64 word * 128 word * int) M))\" for address :: \"64 word\" and ebytes] elim: Run_bindE[where thesis = \"Inv_vector_single_no_wb _ (_ + 1) _ _\"] Run_ifE[where thesis = \"Inv_vector_single_no_wb _ (_ + 1) _ _\"] Mem_read0_valid_address Mem_set0_valid_address simp: unat_0_iff)"
       }
     },
     "execute_aarch64_instrs_memory_exclusive_pair": {
       "traces_enabled_mem": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('regsize) \\<in> {32, 64} \\<and> arg2 \\<in> {32, 64} \\<and> arg1 = 2 * arg2"],
-        "stmts": ["traces_enabled (execute_aarch64_instrs_memory_exclusive_pair arg0 arg1 arg2 arg3 arg4 True (arg6 :: 'regsize::len itself) arg7 arg8 arg9) s"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('regsize) \\<in> {32, 64} \\<and> elsize \\<in> {32, 64} \\<and> datasize = 2 * elsize"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_memory_exclusive_pair acctype datasize elsize memop n True (regsize :: 'regsize::len itself) s__arg t__arg t2) s"]
       }
     },
     "execute_aarch64_instrs_memory_exclusive_single": {
       "traces_enabled_mem": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('regsize) \\<in> {32, 64} \\<and> arg2 \\<in> {8, 16, 32, 64} \\<and> arg1 = arg2"],
-        "stmts": ["traces_enabled (execute_aarch64_instrs_memory_exclusive_single arg0 arg1 arg2 arg3 arg4 False (arg6 :: 'regsize::len itself) arg7 arg8 arg9) s"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('regsize) \\<in> {32, 64} \\<and> elsize \\<in> {8, 16, 32, 64} \\<and> datasize = elsize"],
+        "stmts": ["traces_enabled (execute_aarch64_instrs_memory_exclusive_single acctype datasize elsize memop n False (regsize :: 'regsize::len itself) s__arg t__arg t2) s"]
       }
     },
     "execute_aarch64_instrs_memory_vector_multiple_no_wb": {
       "traces_enabled_mem": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg1 > 0 \\<and> arg6 > 0 \\<and> arg7 > 0 \\<and> LENGTH('esize) \\<ge> 8 \\<and> 8 dvd LENGTH('esize)"],
-        "proof": "- (* TODO: traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where to = \"arg6 - 1\" and Inv = \"\\<lambda>idx (offset, _, _) _. unat offset = nat idx * nat arg1 * nat arg7 * (size_itself arg2 div 8)\"] traces_enabled_foreachM_index_list_inv[where to = \"arg1 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * nat arg7 * (size_itself arg2 div 8)\" for vars0] traces_enabled_foreachM_index_list_inv[where to = \"arg7 - 1\" and vars = vars0 and Inv = \"\\<lambda>idx (offset, _, _) _. case vars0 of (offset0, _, _) \\<Rightarrow> unat offset = unat offset0 + nat idx * (size_itself arg2 div 8)\" for vars0] *)"
+	"assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "LENGTH('esize) \\<in> {8, 16, 32, 64}", "LENGTH('datasize) \\<in> {64, 128}", "elements = int LENGTH('datasize) div int LENGTH('esize)", "rpt \\<in> {1, 2, 3, 4}", "selem \\<in> {1, 2, 3, 4}"],
+	"stmts": ["traces_enabled (execute_aarch64_instrs_memory_vector_multiple_no_wb (datasize :: 'datasize::len itself) elements (esize :: 'esize::len itself) m memop n rpt selem t__arg wback) s"],
+	"unfolding": ["execute_aarch64_instrs_memory_vector_multiple_no_wb_def", "bind_assoc", "Let_def", "case_prod_beta"],
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_triple_foreachM_index_list_inv[where Inv = \"Inv_vector_multiple_no_wb (LENGTH('esize) div 8) elements selem base\" and body = \"\\<lambda>idx_a idx_b idx_c (vars :: (64 word * 'datasize word * int)). (V_read _ (snd (snd vars)) :: 'datasize word M) \\<bind> (\\<lambda>w. (if memop = MemOp_LOAD then Mem_read0 (add_vec base (fst vars)) _ _ \\<bind> (_ w idx_b vars :: 'esize word \\<Rightarrow> 'datasize word M) else _ w base idx_b vars) \\<bind> (_ vars :: 'datasize word \\<Rightarrow> (64 word * 'datasize word * int) M))\" for base :: \"64 word\"] elim: Run_bindE[where thesis = \"Inv_vector_multiple_no_wb _ _ _ _ _ _ (_ + 1) _ _\"] Run_ifE[where thesis = \"Inv_vector_multiple_no_wb _ _ _ _ _ _ (_ + 1) _ _\"] Inv_vector_multiple_no_wb_step Mem_read0_valid_address Mem_set0_valid_address simp: unat_0_iff)"
       }
     },
     "execute_aarch64_instrs_memory_pair_simdfp_no_alloc": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64, 128, 256}", "\\<not>arg5", "\\<not>arg8"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64, 128, 256}", "\\<not>postindex", "\\<not>wback"]
       }
     },
     "execute_aarch64_instrs_memory_pair_general_no_alloc": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64}", "\\<not>arg8"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64}", "\\<not>wback"]
       }
     },
     "execute_aarch64_instrs_memory_pair_simdfp_post_idx": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64, 128, 256}", "arg2 \\<noteq> MemOp_PREFETCH"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64, 128, 256}", "memop \\<noteq> MemOp_PREFETCH"]
       }
     },
     "execute_aarch64_instrs_memory_pair_general_post_idx": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64}", "arg2 \\<noteq> MemOp_PREFETCH"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {32, 64}", "memop \\<noteq> MemOp_PREFETCH"]
       }
     },
     "execute_aarch64_instrs_memory_single_simdfp_immediate_signed_post_idx": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "arg2 \\<noteq> MemOp_PREFETCH"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "memop \\<noteq> MemOp_PREFETCH"]
       }
     },
     "execute_aarch64_instrs_memory_single_general_immediate_signed_post_idx": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "arg2 \\<noteq> MemOp_PREFETCH"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "memop \\<noteq> MemOp_PREFETCH"]
       }
     },
     "execute_aarch64_instrs_memory_single_simdfp_register": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg7 \\<in> {0, 1, 2, 3, 4, 5, 6, 7}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "arg4 \\<noteq> MemOp_PREFETCH"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "shift \\<in> {0, 1, 2, 3, 4, 5, 6, 7}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "memop \\<noteq> MemOp_PREFETCH"]
+      },
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s"]
       }
     },
     "execute_aarch64_instrs_memory_single_general_register": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "arg8 \\<in> {0, 1, 2, 3}", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg11"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "shift \\<in> {0, 1, 2, 3}", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>wback__arg"]
       }
     },
     "execute_aarch64_instrs_memory_single_general_immediate_signed_offset_unpriv": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg8"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>wback__arg"]
       }
     },
     "execute_aarch64_instrs_memory_single_simdfp_immediate_signed_offset_normal": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "\\<not>arg7"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('datasize) \\<in> {8, 16, 32, 64, 128, 256, 512, 1024}", "\\<not>wback"]
       }
     },
     "execute_aarch64_instrs_memory_single_general_immediate_signed_offset_normal": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg9"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>wback__arg"]
       }
     },
     "execute_aarch64_instrs_memory_single_general_immediate_unsigned": {
       "traces_enabled": {
-        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>arg9"]
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "int LENGTH('regsize) \\<in> {32, 64}", "int LENGTH('datasize) \\<in> {8, 16, 32, 64}", "\\<not>wback__arg"]
       }
     },
     "execute_LDCT_R_R__": {
       "traces_enabled_mem": {
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv[where Inv = \"\\<lambda>idx (addr, _) s. case vars0 of (addr0, _) \\<Rightarrow> addr = addr0 + word_of_int (idx * 16)\" and vars = vars0 for vars0] simp: wi_hom_syms)"
+	"proof": "(traces_enabledI assms: assms intro: traces_enabled_foreachM_index_list_inv2[where Inv = \"\\<lambda>idx addr _ s. addr = addr0 + word_of_int (idx * 16) \\<and> {''PCC'', ''_R29''} \\<subseteq> accessible_regs s \\<and> (idx = 0 \\<or> valid_address AccType_NORMAL (unat addr0))\" and var_a = addr0 for addr0] elim: VADeref_load_enabled AArch64_CapabilityTag_valid_address simp: wi_hom_syms)"
       }
     },
     "execute_BUILD_C_C_C": {
@@ -510,13 +679,13 @@
     },
     "execute_SEAL_C_CI_C": {
       "traces_enabled": {
-        "assms": ["{''_R29''} \\<subseteq> accessible_regs s", "arg1 \\<in> {0, 1, 2, 3}"],
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "f \\<in> {0, 1, 2, 3}"],
         "proof": "(traces_enabledI assms: assms intro: CapSetObjectType_sentry_derivable)"
       }
     },
     "decode_SEAL_C_CI_C": {
       "traces_enabled": {
-        "proof": "(cases arg0 rule: exhaustive_2_word) (use assms in \\<open>auto intro: traces_enabled_execute_SEAL_C_CI_C\\<close>)"
+        "proof": "(cases form rule: exhaustive_2_word) (use assms in \\<open>auto intro: traces_enabled_execute_SEAL_C_CI_C\\<close>)"
       }
     },
     "execute_UNSEAL_C_CC_C": {
@@ -526,15 +695,177 @@
     },
     "execute_SCTAG_C_CR_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+        "proof": "(traces_enabledI assms: assms elim: and_exp_SystemAccessEnabled_TagSettingEnabledE[where thesis = \"(if a then x else y) \\<in> derivable_caps s\" and a = a for a x y s])"
       }
     },
     "execute_STCT_R_R__": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms simp: Run_and_boolM_True_iff IsTagSettingDisabled_not_False)"
+        "proof": "(traces_enabledI assms: assms elim: and_SystemAccessEnabled_TagSettingEnabledE[where thesis = \"(if a then x else y) = z\" and a = a for a x y z])"
+      },
+      "traces_enabled_mem": {
+        "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled and_SystemAccessEnabled_TagSettingEnabledE[where thesis = \"(if a then x else y) = z\" and a = a for a x y z])"
+      }
+    },
+    "__DecodeA64": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (DecodeA64 pc opcode)", "no_system_reg_access"],
+        "using": ["assms(2)"],
+        "unfolding": [],
+        "proof": "(unfold DecodeA64_def, elim instr_exp_assms_traces_enabled_ifE instr_exp_assms_traces_enabled_letE) (solves \\<open>traces_enabledI assms: assms(1) intro: assms(3) simp: instr_exp_assms_def invocation_instr_exp_assms_write_ThisInstrAbstract_iff load_instr_exp_assms_write_ThisInstrAbstract_iff\\<close>)+"
+      },
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (DecodeA64 pc opcode)", "no_system_reg_access"],
+        "using": ["assms(2)"],
+        "unfolding": [],
+        "proof": "(unfold DecodeA64_def, elim instr_exp_assms_traces_enabled_ifE instr_exp_assms_traces_enabled_letE) (solves \\<open>traces_enabledI assms: assms(1) intro: assms(3) simp: instr_exp_assms_def invocation_instr_exp_assms_write_ThisInstrAbstract_iff load_instr_exp_assms_write_ThisInstrAbstract_iff\\<close>)+"
+      }
+    },
+    "ExecuteA64": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (ExecuteA64 instr)", "no_system_reg_access"],
+        "proof": "(traces_enabledI assms: assms simp: ExecuteA64_def)"
+      },
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (ExecuteA64 instr)", "no_system_reg_access"],
+        "proof": "(traces_enabledI assms: assms simp: ExecuteA64_def)"
+      }
+    },
+    "__DecodeExecute": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (DecodeExecute enc instr)", "no_system_reg_access"],
+        "unfolding": [],
+        "proof": "(cases enc; simp; traces_enabledI assms: assms)"
+      },
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (DecodeExecute enc instr)", "no_system_reg_access"],
+        "unfolding": [],
+        "proof": "(cases enc; simp; traces_enabledI assms: assms)"
+      }
+    },
+    "__TryInstructionExecute": {
+      "traces_enabled": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (TryInstructionExecute enc instr)", "no_system_reg_access"],
+        "proof": "(traces_enabledI assms: assms(1,2) elim: BranchTaken_or_PCC_accessible intro: assms(3) simp: instr_exp_assms_TryInstructionExecute_iff)"
+      },
+      "traces_enabled_mem": {
+        "assms": ["{''PCC'', ''_R29''} \\<subseteq> accessible_regs s", "instr_exp_assms (TryInstructionExecute enc instr)", "no_system_reg_access"],
+        "proof": "(traces_enabledI assms: assms simp: instr_exp_assms_TryInstructionExecute_iff)"
+      }
+    },
+    "__FetchInstr": {
+      "traces_enabled_mem_fetch": {
+        "unfolding": ["FetchInstr_def", "CheckPCCCapability_def", "bind_assoc"],
+        "proof": "(traces_enabledI assms: assms elim: CheckCapability_load_enabled intro: derivable_or_invokedI1)"
       }
     }
   },
+  "invoked_regs": {
+    "execute_BLRR_C_C": ["n"],
+    "decode_BLRR_C_C": ["uint Cn"],
+    "execute_BLRS_C_C": ["n"],
+    "decode_BLRS_C_C": ["uint Cn"],
+    "execute_BLRS_C_C_C": ["m", "n"],
+    "decode_BLRS_C_C_C": ["uint Cm", "uint Cn"],
+    "execute_BLR_C_C": ["n"],
+    "decode_BLR_C_C": ["uint Cn"],
+    "execute_BRR_C_C": ["n"],
+    "decode_BRR_C_C": ["uint Cn"],
+    "execute_BRS_C_C": ["n"],
+    "decode_BRS_C_C": ["uint Cn"],
+    "execute_BRS_C_C_C": ["m", "n"],
+    "decode_BRS_C_C_C": ["uint Cm", "uint Cn"],
+    "execute_BR_C_C": ["n"],
+    "decode_BR_C_C": ["uint Cn"],
+    "execute_RETR_C_C": ["n"],
+    "decode_RETR_C_C": ["uint Cn"],
+    "execute_RETS_C_C": ["n"],
+    "decode_RETS_C_C": ["uint Cn"],
+    "execute_RETS_C_C_C": ["m", "n"],
+    "decode_RETS_C_C_C": ["uint Cm", "uint Cn"],
+    "execute_RET_C_C": ["n"],
+    "decode_RET_C_C": ["uint Cn"]
+  },
+  "invoked_indirect_regs": {
+    "execute_BLR_CI_C": ["n = 29 \\<longrightarrow> 29"],
+    "decode_BLR_CI_C": ["uint Cn = 29 \\<longrightarrow> 29"],
+    "execute_BR_CI_C": ["n = 29 \\<longrightarrow> 29"],
+    "decode_BR_CI_C": ["uint Cn = 29 \\<longrightarrow> 29"],
+    "execute_LDPBLR_C_C_C": ["t__arg = 29 \\<longrightarrow> n"],
+    "decode_LDPBLR_C_C_C": ["uint Ct = 29 \\<longrightarrow> uint Cn"],
+    "execute_LDPBR_C_C_C": ["t__arg = 29 \\<longrightarrow> n"],
+    "decode_LDPBR_C_C_C": ["uint Ct = 29 \\<longrightarrow> uint Cn"]
+  },
+  "load_auths": {
+    "execute_ALDAR_C_R_C": ["AltBaseRegAuth n"],
+    "decode_ALDAR_C_R_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_ALDR_C_RUI_C": ["AltBaseRegAuth n"],
+    "decode_ALDR_C_RUI_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_ALDR_C_RRB_C": ["AltBaseRegAuth n"],
+    "decode_ALDR_C_RRB_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_ALDUR_C_RI_C": ["AltBaseRegAuth n"],
+    "decode_ALDUR_C_RI_C": ["AltBaseRegAuth (uint Rn)"],
+    "execute_BLR_CI_C": ["RegAuth n"],
+    "decode_BLR_CI_C": ["RegAuth (uint Cn)"],
+    "execute_BR_CI_C": ["RegAuth n"],
+    "decode_BR_CI_C": ["RegAuth (uint Cn)"],
+    "execute_CASAL_C_R_C": ["BaseRegAuth n"],
+    "decode_CASAL_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_CASA_C_R_C": ["BaseRegAuth n"],
+    "decode_CASA_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_CASL_C_R_C": ["BaseRegAuth n"],
+    "decode_CASL_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_CAS_C_R_C": ["BaseRegAuth n"],
+    "decode_CAS_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAPR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAPR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAXP_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAXP_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDAXR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDAXR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDNP_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDNP_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDPBLR_C_C_C": ["RegAuth n"],
+    "decode_LDPBLR_C_C_C": ["RegAuth (uint Cn)"],
+    "execute_LDPBR_C_C_C": ["RegAuth n"],
+    "decode_LDPBR_C_C_C": ["RegAuth (uint Cn)"],
+    "execute_LDP_CC_RIAW_C": ["BaseRegAuth n"],
+    "decode_LDP_CC_RIAW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDP_C_RIBW_C": ["BaseRegAuth n"],
+    "decode_LDP_C_RIBW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDP_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDP_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_I_C": ["PCCAuth"],
+    "decode_LDR_C_I_C": ["PCCAuth"],
+    "execute_LDR_C_RIAW_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RIAW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_RIBW_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RIBW_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_RUIB_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RUIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDR_C_RRB_C": ["BaseRegAuth n"],
+    "decode_LDR_C_RRB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDTR_C_RIB_C": ["BaseRegAuth n"],
+    "decode_LDTR_C_RIB_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDUR_C_RI_C": ["BaseRegAuth n"],
+    "decode_LDUR_C_RI_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDXP_C_R_C": ["BaseRegAuth n"],
+    "decode_LDXP_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDXR_C_R_C": ["BaseRegAuth n"],
+    "decode_LDXR_C_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWPAL_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWPAL_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWPA_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWPA_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWPL_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWPL_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_SWP_CC_R_C": ["BaseRegAuth n"],
+    "decode_SWP_CC_R_C": ["BaseRegAuth (uint Rn)"],
+    "execute_LDCT_R_R__": ["BaseRegAuth n"],
+    "decode_LDCT_R_R__": ["BaseRegAuth (uint Rn)"]
+  },
+  "cap_load_funs": ["_ReadTaggedMem"],
   "skips": [
     "__ReadRAM",
     "__WriteRAM",
@@ -545,6 +876,45 @@
     "_ReadTags",
     "_WriteMem",
     "_WriteTaggedMem",
-    "_WriteTags"
+    "_WriteTags",
+    "__UNKNOWN_Capability",
+    "__UNKNOWN_VirtualAddress"
+  ],
+  "skip_lemmas": {
+    "MemAtomicCompareAndSwapC": ["derivable_caps"],
+    "MemC_read": ["derivable_caps"],
+    "CapSquashPostLoadCap": ["derivable_caps"],
+    "DDC_read": ["derivable_caps"],
+    "CSP_read": ["derivable_caps"],
+    "__UNKNOWN_bits": ["no_reg_writes_to"],
+    "AArch32_AutoGen_ArchitectureReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "AArch64_AutoGen_ArchitectureReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "AArch64_IMPDEFResets": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "__Reset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "ResetControlRegisters": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "AArch64_ResetControlRegisters": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "AArch64_ResetSpecialRegisters": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "AArch64_TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"]
+  },
+  "reserved_ids": [
+    "mask",
+    "id",
+    "size",
+    "perm",
+    "length",
+    "round",
+    "sign_extend",
+    "extend",
+    "iszero",
+    "index",
+    "lsb",
+    "abs",
+    "min",
+    "max",
+    "replicate",
+    "s",
+    "t",
+    "c"
   ]
 }

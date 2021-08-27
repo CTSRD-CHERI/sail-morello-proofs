@@ -11,7 +11,7 @@ SMT_SAIL_BASE_PATHS = $(addprefix $(MORELLO_SAIL_DIR)/,$(SMT_SAIL_BASE))
 SAIL_FLAGS = -verbose 1 -memo_z3 -no_effects -non_lexical_flow -no_warn
 SMT_FLAGS = # -mono_rewrites
 
-EXTRA_GEN_FLAGS = -splice ${MORELLO_DIR}/patches/translation_stubs.sail -splice ${MORELLO_DIR}/patches/archex_stubs.sail
+EXTRA_GEN_FLAGS = -splice ${MORELLO_DIR}/patches/translation_stubs.sail -splice ${MORELLO_DIR}/patches/archex_stubs.sail -splice ${MORELLO_DIR}/patches/unknown_capability.sail -splice ${MORELLO_DIR}/patches/write_tag.sail
 
 isail: $(SMT_SAIL_BASE_PATHS) properties.sail
 	$(SAIL) -i $(SAIL_FLAGS) $^
