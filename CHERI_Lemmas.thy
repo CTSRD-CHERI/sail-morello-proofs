@@ -279,14 +279,14 @@ lemma determ_instrs_of_exp_DecodeA64:
      (intro determ_instrs_of_exp_if_split_no_asm determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract no_reg_writes_to_determ_instrs_of_exp;
             no_reg_writes_toI)
 
-lemma determ_instrs_of_exp_DecodeExecute:
+(*lemma determ_instrs_of_exp_DecodeExecute:
   "determ_instrs_of_exp (DecodeExecute enc opcode)"
-  by (cases enc; auto simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32_def determ_instrs_of_exp_DecodeA64 no_reg_writes_to_determ_instrs_of_exp)
+  by (cases enc; auto simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32_def determ_instrs_of_exp_DecodeA64 no_reg_writes_to_determ_instrs_of_exp)*)
 
 lemma determ_instrs_instr_sem:
   "determ_instrs_of_exp (instr_sem instr)"
-  unfolding instr_sem_def TryInstructionExecute_def
-  by (auto intro!: determ_instrs_of_exp_DecodeExecute[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)
+  unfolding instr_sem_def Step_PC_def
+  by (intro determ_instrs_of_exp_DecodeA64[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)
 
 lemma instrs_eq_instr_exp_assms_iff:
   assumes "instrs_of_exp m1 = instrs_of_exp m2"
@@ -296,11 +296,16 @@ lemma instrs_eq_instr_exp_assms_iff:
   unfolding exp_invokes_regs_def exp_invokes_indirect_regs_def exp_load_auths_def
   by auto
 
-lemma instr_exp_assms_TryInstructionExecute_iff:
+(*lemma instr_exp_assms_TryInstructionExecute_iff:
   "instr_exp_assms (TryInstructionExecute enc instr) \<longleftrightarrow> instr_exp_assms (DecodeExecute enc instr)"
   unfolding TryInstructionExecute_def SSAdvance_def bind_assoc
   by (intro instrs_eq_instr_exp_assms_iff instrs_of_exp_bind_no_writes allI)
-     (no_reg_writes_toI simp: register_defs)
+     (no_reg_writes_toI simp: register_defs)*)
+
+lemma instr_exp_assms_instr_sem_iff:
+  "instr_exp_assms (instr_sem instr) \<longleftrightarrow> instr_exp_assms (DecodeA64 0 instr)"
+  unfolding instr_sem_def Step_PC_def bind_assoc
+  by (intro instrs_eq_instr_exp_assms_iff instrs_of_exp_bind_no_writes allI) (no_reg_writes_toI)
 
 end
 
@@ -384,7 +389,7 @@ lemma traces_enabled_PCC_set:
   assumes "enabled_pcc c s"
   shows "traces_enabled (write_reg PCC_ref c) s"
   using assms
-  unfolding PCC_set_def enabled_pcc_def derivable_caps_def derivable_mem_caps_def
+  unfolding enabled_pcc_def derivable_caps_def derivable_mem_caps_def
   by (intro traces_enabled_write_reg)
      (auto simp: register_defs is_sentry_def invokable_def CapIsSealed_def leq_cap_tag_imp[of CC, simplified])
 

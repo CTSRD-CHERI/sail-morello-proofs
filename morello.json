@@ -7,7 +7,7 @@
     "v8_base_public.sail",
     "config.sail",
     "sysops.sail",
-    "devices.sail",
+    "no_devices.sail",
     "mem.sail",
     "impdefs.sail",
     "interrupts.sail",
@@ -21,7 +21,7 @@
   ],
   "slice": { "roots": ["__TopLevel"] },
   "fetch": ["__FetchInstr", "__FetchNextInstr", "__CheckPendingInterrupts", "__SetThisInstr"],
-  "execute": ["__DecodeExecute", "__TryInstructionExecute", "__DecodeA64"],
+  "execute": ["__DecodeExecute", "__TryInstructionExecute", "__DecodeA64", "Step_PC"],
   "mutrecs": ["AArch64_TakeException", "AArch32_SecondStageTranslate", "AArch64_SecondStageTranslate"],
   "cap_typs": ["Capability"],
   "read_privileged_regs": ["CDBGDTR_EL0", "CDLR_EL0", "VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
@@ -433,7 +433,7 @@
         "proof": "(traces_enabledI assms: assms Run_AArch64_AutoGen_SysRegWrite_RMR_EL_system_reg_access[OF _ inv_sysreg_trace_assms]; blast)"
       },
       "non_mem_exp": {
-        "proof": "(unfold AArch64_SysRegWrite_def TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def AArch64_ResetSpecialRegisters_def Reset_def AArch64_IMPDEFResets_def AArch32_AutoGen_ArchitectureReset_def AArch64_AutoGen_ArchitectureReset_def MPAM2_EL2_read_def MPAM1_EL1_read_def MPAM2_EL2_write_def MPAM1_EL1_write_def ICC_CTLR_EL1_write_def ICC_CTLR_EL1_read_def Let_def bind_assoc, non_mem_expI intro: non_mem_exp_bind_no_asm non_mem_exp_if_no_asm)"
+        "proof": "(unfold AArch64_SysRegWrite_def TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def AArch64_ResetSpecialRegisters_def AArch64_IMPDEFResets_def AArch64_AutoGen_ArchitectureReset_def MPAM2_EL2_read_def MPAM1_EL1_read_def MPAM2_EL2_write_def MPAM1_EL1_write_def ICC_CTLR_EL1_write_def ICC_CTLR_EL1_read_def Let_def bind_assoc, non_mem_expI intro: non_mem_exp_bind_no_asm non_mem_exp_if_no_asm)"
       }
     },
     "DC_ZVA_": {
@@ -749,10 +749,16 @@
         "proof": "(traces_enabledI assms: assms simp: instr_exp_assms_TryInstructionExecute_iff)"
       }
     },
-    "__FetchInstr": {
+    "__FetchNextInstr": {
       "traces_enabled_mem_fetch": {
-        "unfolding": ["FetchInstr_def", "CheckPCCCapability_def", "bind_assoc"],
+        "unfolding": ["FetchNextInstr_def", "CheckPCCCapability_def", "bind_assoc"],
         "proof": "(traces_enabledI assms: assms elim: CheckCapability_load_enabled intro: derivable_or_invokedI1)"
+      }
+    },
+    "Step_PC": {
+      "traces_enabled": {
+        "assms": [],
+        "proof": "(traces_enabledI elim: BranchTaken_or_PCC_accessible)"
       }
     }
   },
@@ -866,6 +872,7 @@
   "skips": [
     "__ReadRAM",
     "__WriteRAM",
+    "__read_memt",
     "_Mem_read",
     "_Mem_set",
     "_ReadMem",
@@ -875,7 +882,8 @@
     "_WriteTaggedMem",
     "_WriteTags",
     "__UNKNOWN_Capability",
-    "__UNKNOWN_VirtualAddress"
+    "__UNKNOWN_VirtualAddress",
+    "Step_Timers"
   ],
   "skip_lemmas": {
     "MemAtomicCompareAndSwapC": ["derivable_caps"],
@@ -892,7 +900,8 @@
     "AArch64_ResetControlRegisters": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
     "AArch64_ResetSpecialRegisters": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
     "TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
-    "AArch64_TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"]
+    "AArch64_TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "__DecodeA64": ["no_reg_writes_to"]
   },
   "reserved_ids": [
     "mask",

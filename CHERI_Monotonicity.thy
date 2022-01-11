@@ -122,13 +122,13 @@ proof
   from ia have no_asr: "\<not>trace_has_system_reg_access t"
     by simp
   have *: "Write_Cap.traces_enabled (instr_sem instr) Write_Cap.initial"
-    using iea no_asr
+    using iea[unfolded Write_Cap.instr_exp_assms_instr_sem_iff] no_asr
     unfolding instr_sem_def
     by (intro Write_Cap.traces_enabledI) auto
   interpret Mem: Morello_Instr_Trace_Mem_Automaton where instr = instr and t = t
     ..
   have **: "Mem.traces_enabled (instr_sem instr) Mem.initial"
-    using iea no_asr
+    using iea[unfolded Write_Cap.instr_exp_assms_instr_sem_iff] no_asr
     unfolding instr_sem_def
     by (intro Mem.traces_enabledI) auto
   show "instr_cheri_axioms instr t n"
@@ -208,22 +208,8 @@ proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])
       unfolding fetch_state_assms_iff_invs
       by (intro runs_preserve_invariant_conjI instr_fetch_preserves_PCC_inv instr_fetch_preserves_EDSCR_inv instr_fetch_preserves_DCZID_inv)
     moreover have "runs_establish_invariant (liftS instr_fetch) pcc_tagged"
-    proof -
-      \<comment> \<open>TODO: Rephrase and move FetchInstr lemma out of its probably overspecific context, so that
-          we don't have to instantiate this locale here and translate the invariant back and forth.\<close>
-      interpret Write_Cap: Morello_Fetch_Trace_Write_Cap_Automaton where t = tf
-        ..
-      let ?tagged_reg = "\<lambda>v. case v of Regval_bitvector_129_dec c \<Rightarrow> CapIsTagSet c | _ \<Rightarrow> True"
-      have FetchInstr: "runs_establish_invariant (liftS (FetchInstr pc)) (reg_inv ''PCC'' ?tagged_reg)" for pc
-        using Write_Cap.PrePostE_FetchInstr_pcc_tagged_unsealed[where pc = pc]
-        by (elim PrePostE_weaken_post) (auto simp: register_defs reg_inv_def)
-      have "runs_establish_invariant (liftS instr_fetch) (reg_inv ''PCC'' ?tagged_reg)"
-        unfolding instr_fetch_def FetchNextInstr_def liftState_simp comp_def
-        by (intro FetchInstr[THEN runs_establish_invariant_bindS_left] runs_establish_invariant_bindS_right)
-           (auto simp: no_reg_writes_runs_no_reg_writes)
-      then show ?thesis
-        by (elim PrePostE_weaken_post) (auto simp: register_defs reg_inv_def)
-    qed
+      by (rule instr_fetch_establishes_PCC_tagged[THEN PrePostE_weaken_post])
+         (auto simp: register_defs PCC_tagged_def reg_inv_def)
     ultimately show "instr_state_assms instr sf'"
       using Run_runTraceS_Value_liftState[OF tf] sf
       by (auto simp: instr_state_assms_def elim: PrePostE_elim)

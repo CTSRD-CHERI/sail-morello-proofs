@@ -483,19 +483,51 @@ fun PCC_regval_inv where
 
 abbreviation "PCC_inv \<equiv> reg_inv ''PCC'' PCC_regval_inv"
 
+definition "PCC_tagged \<equiv> reg_inv ''PCC'' (\<lambda>rv. \<forall>c. rv = Regval_bitvector_129_dec c \<longrightarrow> CapIsTagSet c)"
+
 definition "EDSCR_inv \<equiv> reg_inv ''EDSCR'' (\<lambda>rv. \<forall>v. rv = Regval_bitvector_32_dec v \<longrightarrow> (ucast v :: 6 word) = 2)"
 
 definition "DCZID_inv \<equiv> reg_inv ''DCZID_EL0'' (\<lambda>rv. \<forall>v. rv = Regval_bitvector_32_dec v \<longrightarrow> (ucast v :: 4 word) = 4)"
 
+lemma CheckCapability_CapIsTagSet:
+  "\<lbrace>\<lambda>_. True\<rbrace> \<lbrakk>CheckCapability c addr sz perms acctype\<rbrakk>\<^sub>S \<lbrace>\<lambda>_ _. CapIsTagSet c \<bar> \<lambda>_ _. True\<rbrace>"
+  unfolding CheckCapability_def
+  by (intro PrePostE_I) (auto elim!: Value_liftState_Run_runTraceS Run_bindE)
+
+lemma CheckCapability_PCC_tagged:
+  "\<lbrace>\<lambda>s. CapIsTagSet c \<longrightarrow> PCC_tagged s\<rbrace> \<lbrakk>CheckCapability c addr sz perms acctype\<rbrakk>\<^sub>S \<lbrace>\<lambda>_. PCC_tagged \<bar> \<lambda>_ _. True\<rbrace>"
+proof -
+  have "runs_preserve_invariant \<lbrakk>CheckCapability c addr sz perms acctype\<rbrakk>\<^sub>S PCC_tagged"
+    by (auto simp: PCC_tagged_def)
+  with CheckCapability_CapIsTagSet[of c addr sz perms acctype]
+  show ?thesis
+    by (cases "CapIsTagSet c") (auto elim: PrePostE_consequence)
+qed
+
+lemma CheckPCCCapability_establishes_PCC_tagged:
+  shows "runs_establish_invariant (liftS (CheckPCCCapability ())) PCC_tagged"
+  unfolding CheckPCCCapability_def liftState_simp comp_def
+  by (rule PrePostE_strengthen_pre, (rule PrePostE_bindS CheckCapability_PCC_tagged PrePostE_read_regS)+)
+     (auto simp: PCC_tagged_def register_defs reg_inv_def)
+
+lemma instr_fetch_establishes_PCC_tagged:
+  shows "runs_establish_invariant \<lbrakk>instr_fetch\<rbrakk>\<^sub>S PCC_tagged"
+  unfolding instr_fetch_def FetchNextInstr_def liftState_bind liftState_return comp_def bind_assoc
+  by (intro CheckPCCCapability_establishes_PCC_tagged[THEN runs_establish_invariant_bindS_left]
+            runs_establish_invariant_bindS_right runs_preserve_invariant_bindS)
+     (auto simp: PCC_tagged_def register_defs intro: runs_preserve_reg_inv_write_reg_other)
+
 lemma runs_establish_PCC_inv_write_PCC:
   assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "runs_establish_invariant (write_regS PCC_ref c) PCC_inv"
-  unfolding liftState_simp[symmetric]
+  shows "runs_establish_invariant (liftS (write_reg PCC_ref c)) PCC_inv"
   using assms
   by (intro runs_establish_reg_inv_write_reg) (auto simp: PCC_ref_def)
 
-lemmas runs_preserve_PCC_inv_write_PCC_inv =
+lemmas runs_preserve_PCC_inv_write_PCC =
   runs_establish_PCC_inv_write_PCC[THEN runs_establish_invariant_runs_preserve_invariant]
+
+lemmas runs_establish_PCC_inv_writeS_PCC = runs_establish_PCC_inv_write_PCC[unfolded liftState_simp]
+lemmas runs_preserve_PCC_inv_writeS_PCC = runs_preserve_PCC_inv_write_PCC[unfolded liftState_simp]
 
 lemma runs_preserve_sysreg_invs_write_others[simp]:
   "\<And>v. runs_preserve_invariant (write_regS ThisInstrAbstract_ref v) PCC_inv"
@@ -633,20 +665,20 @@ lemma BranchAddr_seal_tag:
 lemma runs_preserve_PCC_inv_BranchTo:
   "runs_preserve_invariant (liftS (BranchTo target branch_type)) PCC_inv"
   unfolding BranchTo_def Let_def bind_assoc liftState_simp comp_def
-  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm runs_preserve_invariant_assert_expS runs_preserve_invariant_read_regS runs_preserve_invariant_and_boolS runs_preserve_PCC_inv_write_PCC_inv)
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm runs_preserve_invariant_assert_expS runs_preserve_invariant_read_regS runs_preserve_invariant_and_boolS runs_preserve_PCC_inv_writeS_PCC)
      (auto simp: no_reg_writes_runs_no_reg_writes elim!: CapSetValue_seal_tag)
 
 lemma runs_preserve_PCC_inv_BranchToOffset:
   "runs_preserve_invariant (liftS (BranchToOffset offset branch_type)) PCC_inv"
   unfolding BranchToOffset_def Let_def bind_assoc liftState_simp comp_def
-  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm runs_preserve_invariant_assert_expS runs_preserve_invariant_read_regS runs_preserve_invariant_and_boolS runs_preserve_PCC_inv_write_PCC_inv)
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm runs_preserve_invariant_assert_expS runs_preserve_invariant_read_regS runs_preserve_invariant_and_boolS runs_preserve_PCC_inv_writeS_PCC)
      (auto simp: no_reg_writes_runs_no_reg_writes elim!: CapAdd_seal_tag BranchAddr_seal_tag)
 
-lemma runs_preserve_PCC_inv_BranchToAddr:
+(*lemma runs_preserve_PCC_inv_BranchToAddr:
   "runs_preserve_invariant (liftS (BranchToAddr target branch_type)) PCC_inv"
   unfolding BranchToAddr_def Let_def bind_assoc liftState_simp comp_def
   by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm runs_preserve_invariant_assert_expS runs_preserve_invariant_read_regS runs_preserve_invariant_and_boolS runs_preserve_PCC_inv_write_PCC_inv)
-     (auto simp: no_reg_writes_runs_no_reg_writes elim!: CapSetValue_seal_tag)
+     (auto simp: no_reg_writes_runs_no_reg_writes elim!: CapSetValue_seal_tag)*)
 
 lemma branch_int_instructions_preserve_PCC_inv:
   "runs_preserve_invariant (liftS (decode_cbnz_aarch64_instrs_branch_conditional_compare Rt imm19 op sf)) PCC_inv"
@@ -687,23 +719,31 @@ lemma eret_establishes_PCC_inv:
 
 lemmas eret_preserves_PCC_inv = eret_establishes_PCC_inv[THEN runs_establish_invariant_runs_preserve_invariant]
 
-lemma ResetControlRegisters_establishes_PCC_inv:
+(*lemma ResetControlRegisters_establishes_PCC_inv:
   "runs_establish_invariant (liftS (ResetControlRegisters cold)) PCC_inv"
   unfolding ResetControlRegisters_def bind_assoc liftState_simp comp_def
   by (intro runs_establish_PCC_inv_write_PCC[THEN runs_establish_invariant_bindS_left] runs_establish_invariant_bindS_right)
-     (auto simp add: vector_truncate_def CapIsSealed_def CapGetObjectType_def no_reg_writes_runs_no_reg_writes)
+     (auto simp add: vector_truncate_def CapIsSealed_def CapGetObjectType_def no_reg_writes_runs_no_reg_writes)*)
 
-lemma AArch64_TakeReset_establishes_PCC_inv:
-  "runs_establish_invariant (liftS (AArch64_TakeReset cold)) PCC_inv"
+lemma AArch64_TakeReset_preserves_PCC_inv:
+  "runs_preserve_invariant (liftS (AArch64_TakeReset cold)) PCC_inv"
   unfolding AArch64_TakeReset_def AArch64_ResetControlRegisters_def bind_assoc Let_def liftState_bind comp_def
-  by (intro ResetControlRegisters_establishes_PCC_inv[THEN runs_establish_invariant_bindS_left] runs_establish_invariant_bindS_right runs_preserve_invariant_bindS runs_preserve_PCC_inv_BranchTo)
+  by (intro runs_establish_invariant_bindS_right runs_preserve_invariant_bindS runs_preserve_PCC_inv_BranchTo)
      (auto simp: no_reg_writes_runs_no_reg_writes register_defs)
+
+lemma AArch64_IMPDEFResets_preserves_PCC_inv:
+  "runs_preserve_invariant (liftS (AArch64_IMPDEFResets u)) PCC_inv"
+  unfolding AArch64_IMPDEFResets_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def
+  by (intro runs_preserve_invariant_bindS_no_asm runs_preserve_invariant_if_split_no_asm runs_preserve_reg_inv_read_reg runs_preserve_reg_inv_write_reg_other)
+     (auto simp: register_defs no_reg_writes_runs_no_reg_writes)
 
 lemma TakeReset_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (TakeReset cold)) PCC_inv"
-  unfolding TakeReset_def liftState_bind liftState_if_distrib comp_def
-  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm AArch64_TakeReset_establishes_PCC_inv[THEN runs_establish_invariant_runs_preserve_invariant])
-     (auto simp: no_reg_writes_runs_no_reg_writes register_defs)
+  unfolding TakeReset_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def
+  by (intro runs_preserve_invariant_bindS runs_preserve_invariant_if_split_no_asm
+            AArch64_TakeReset_preserves_PCC_inv AArch64_IMPDEFResets_preserves_PCC_inv
+            runs_preserve_PCC_inv_write_PCC runs_preserve_reg_inv_write_reg_other runs_preserve_reg_inv_read_reg)
+     (auto simp: register_defs CMAX_def CapIsSealed_def CapGetObjectType_def)
 
 lemma AArch64_SysRegWrite_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (AArch64_SysRegWrite op0 op1 crn cr op2 v)) PCC_inv"
@@ -722,14 +762,14 @@ lemma DecodeA64_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (DecodeA64 pc opcode)) PCC_inv"
   by (unfold DecodeA64_def bind_assoc Let_def liftState_simp comp_def; intro runs_preserve_invariant_if_split_no_asm branch_cap_instructions_preserve_PCC_inv branch_int_instructions_preserve_PCC_inv eret_preserves_PCC_inv sys_reg_instrs_preserve_PCC_inv runs_preserve_sysreg_invs_write_others runs_preserve_invariant_bindS runs_preserve_invariant_returnS runs_preserve_invariant_throwS; (simp add: no_reg_writes_runs_no_reg_writes)?)
 
-lemma DecodeExecute_preserves_PCC_inv:
+(*lemma DecodeExecute_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (DecodeExecute enc opcode)) PCC_inv"
-  by (cases enc; auto intro: DecodeA64_preserves_PCC_inv simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32__1_def no_reg_writes_runs_no_reg_writes)
+  by (cases enc; auto intro: DecodeA64_preserves_PCC_inv simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32__1_def no_reg_writes_runs_no_reg_writes)*)
 
 lemma instr_sem_preserves_PCC_inv:
   "runs_preserve_invariant (liftS (instr_sem instr)) PCC_inv"
-  unfolding instr_sem_def TryInstructionExecute_def Let_def liftState_simp prod.case_distrib comp_def
-  by (auto intro!: runs_preserve_invariant_bindS DecodeExecute_preserves_PCC_inv runs_preserve_PCC_inv_write_PCC_inv
+  unfolding instr_sem_def Step_PC_def bind_assoc Let_def liftState_simp prod.case_distrib comp_def
+  by (auto intro!: runs_preserve_invariant_bindS DecodeA64_preserves_PCC_inv runs_preserve_PCC_inv_writeS_PCC
            elim!: CapAdd_seal_tag simp: no_reg_writes_runs_no_reg_writes CapAdd__1_def)
 
 lemma instr_fetch_preserves_PCC_inv:
@@ -823,13 +863,13 @@ lemmas ucast_update_subrange_vec_dec_simps = ucast_update_subrange_vec_dec_above
 
 lemma AArch64_IMPDEFResets_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS (AArch64_IMPDEFResets u)) DCZID_inv"
-  unfolding AArch64_IMPDEFResets_def HasArchVersion_def HaveVirtHostExt_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def DCZID_inv_def
+  unfolding AArch64_IMPDEFResets_def bind_assoc liftState_bind liftState_if_distrib liftState_return comp_def DCZID_inv_def
   by (intro read_modify_write_regs_preserve_reg_invs runs_preserve_invariant_bindS_no_asm runs_preserve_invariant_if_split_no_asm runs_preserve_reg_inv_read_reg runs_preserve_reg_inv_write_reg_other)
      (auto simp: set_slice_def ucast_update_subrange_vec_dec_simps register_defs no_reg_writes_runs_no_reg_writes)
 
 lemma TakeReset_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS (TakeReset cold)) DCZID_inv"
-  unfolding TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def ResetControlRegisters_def
+  unfolding TakeReset_def AArch64_TakeReset_def AArch64_ResetControlRegisters_def
   unfolding bind_assoc liftState_bind liftState_if_distrib comp_def
   by (intro AArch64_IMPDEFResets_preserves_DCZID_inv runs_preserve_invariant_bindS_no_asm runs_preserve_invariant_if_split_no_asm)
      (auto simp: DCZID_inv_def no_reg_writes_runs_no_reg_writes register_defs)
@@ -848,19 +888,19 @@ lemma DecodeA64_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS (DecodeA64 pc opcode)) DCZID_inv"
   by (unfold DecodeA64_def bind_assoc Let_def liftState_simp comp_def; intro runs_preserve_invariant_if_split_no_asm sys_reg_instrs_preserve_DCZID_inv runs_preserve_sysreg_invs_write_others runs_preserve_invariant_bindS runs_preserve_invariant_returnS runs_preserve_invariant_throwS; (simp add: no_reg_writes_runs_no_reg_writes DCZID_inv_def)?)
 
-lemma DecodeExecute_preserves_DCZID_inv:
+(*lemma DecodeExecute_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS (DecodeExecute enc opcode)) DCZID_inv"
-  by (cases enc; auto intro: DecodeA64_preserves_DCZID_inv simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32__1_def no_reg_writes_runs_no_reg_writes liftState_simp comp_def)
+  by (cases enc; auto intro: DecodeA64_preserves_DCZID_inv simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32__1_def no_reg_writes_runs_no_reg_writes liftState_simp comp_def)*)
 
 lemma instr_sem_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS (instr_sem instr)) DCZID_inv"
-  unfolding instr_sem_def TryInstructionExecute_def Let_def liftState_simp prod.case_distrib comp_def
-  by (auto intro!: runs_preserve_invariant_bindS DecodeExecute_preserves_DCZID_inv runs_preserve_sysreg_invs_write_others;
+  unfolding instr_sem_def Step_PC_def bind_assoc Let_def liftState_simp prod.case_distrib comp_def
+  by (auto intro!: runs_preserve_invariant_bindS DecodeA64_preserves_DCZID_inv runs_preserve_sysreg_invs_write_others;
       simp add: no_reg_writes_runs_no_reg_writes DCZID_inv_def)
 
 lemma instr_fetch_preserves_DCZID_inv:
   "runs_preserve_invariant (liftS instr_fetch) DCZID_inv"
-  unfolding instr_fetch_def liftState_simp comp_def
-  by (auto intro!: runs_preserve_invariant_bindS simp: no_reg_writes_runs_no_reg_writes DCZID_inv_def)
+  unfolding instr_fetch_def liftState_bind liftState_return comp_def
+  by (auto intro!: runs_preserve_invariant_bindS simp: no_reg_writes_runs_no_reg_writes DCZID_inv_def register_defs)
 
 end

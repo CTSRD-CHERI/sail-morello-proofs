@@ -699,11 +699,12 @@ proof -
     by (auto simp: unat_plus_if_size)
 qed
 
-lemma HaveAArch32EL_False[simp]:
-  "Run (HaveAArch32EL el) t a \<longleftrightarrow> (t = [] \<and> a = False)"
+declare HaveAArch32EL_def[simp]
+(*lemma HaveAArch32EL_False[simp]:
+  "HaveAArch32EL el = False"
   unfolding HaveAArch32EL_def HaveAnyAArch32_def HaveEL_def
   unfolding EL0_def EL1_def EL2_def EL3_def
-  by (cases el rule: exhaustive_2_word) (auto elim: Run_bindE)
+  by (cases el rule: exhaustive_2_word) (auto elim: Run_bindE)*)
 
 lemma ELUsingAArch32_False:
   shows "\<not>Run (ELUsingAArch32 el) t True"
@@ -723,13 +724,13 @@ lemma AddrTop_63_or_55:
 
 lemmas datatype_splits =
   ArchVersion.split Constraint.split Unpredictable.split Exception.split InstrEnc.split
-  BranchType.split Fault.split AccType.split DeviceType.split MemType.split InstrSet.split
-  GTEParamType.split PrivilegeLevel.split MBReqDomain.split MBReqTypes.split PrefetchHint.split
-  FPExc.split FPRounding.split FPType.split SysRegAccess.split OpType.split TimeStamp.split
+  BranchType.split Fault.split AccType.split DeviceType.split MemType.split
+  MBReqDomain.split MBReqTypes.split PrefetchHint.split
+  FPExc.split FPRounding.split FPType.split
   CountOp.split ExtendType.split FPMaxMinOp.split FPUnaryOp.split FPConvOp.split
   MoveWideOp.split ShiftType.split LogicalOp.split MemOp.split MemAtomicOp.split
-  MemBarrierOp.split SystemHintOp.split PSTATEField.split SystemOp.split VBitOp.split
-  CompareOp.split ImmediateOp.split ReduceOp.split AsyncErrorType.split
+  SystemHintOp.split PSTATEField.split VBitOp.split
+  CompareOp.split ImmediateOp.split ReduceOp.split
 
 section \<open>Capabilities\<close>
 
@@ -1275,18 +1276,22 @@ interpretation Capabilities_Invariant CC cap_invariant
 
 section \<open>Architecture abstraction\<close>
 
-type_synonym instr = "(InstrEnc * 32 word)"
+type_synonym instr = "32 word"
 
-definition instr_sem :: "instr \<Rightarrow> unit M" where
-  "instr_sem instr = do {
-     let (enc, opcode) = instr;
-     TryInstructionExecute enc opcode
-   }"
+text \<open>Condensed version of the __TopLevel step function, without debug output and the timer
+interrupt handling, and split into fetch and execute phases\<close>
 
 definition instr_fetch :: "instr M" where
   "instr_fetch \<equiv> do {
-     CheckPendingInterrupts ();
-     FetchNextInstr ()
+     instr \<leftarrow> FetchNextInstr();
+     write_reg BranchTaken_ref False;
+     return instr
+   }"
+
+definition instr_sem :: "instr \<Rightarrow> unit M" where
+  "instr_sem instr = do {
+     DecodeA64 0 instr;
+     Step_PC ()
    }"
 
 fun caps_of_regval :: "register_value \<Rightarrow> Capability set" where
@@ -1711,8 +1716,6 @@ lemma vector_of_regval_eq_Some_iffs[simp]:
   "\<And>rv vs. vector_of_regval bitvector_128_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_128_dec vs"
   "\<And>rv vs. vector_of_regval bitvector_64_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_64_dec vs"
   "\<And>rv vs. vector_of_regval bitvector_32_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_32_dec vs"
-  "\<And>rv vs. vector_of_regval bitvector_16_dec_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bitvector_16_dec vs"
-  "\<And>rv vs. vector_of_regval TLBLine_of_regval rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_TLBLine vs"
   "\<And>rv vs. vector_of_regval bool_of_register_value rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_bool vs"
   "\<And>rv vs. vector_of_regval int_of_register_value rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_int vs"
   by (intro vector_of_regval_eq_Some_iff; auto)+
@@ -2013,9 +2016,9 @@ lemma no_reg_writes_to_ReadTags[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (ReadTags x0 x1 x2)"
   by (unfold ReadTags_def, no_reg_writes_toI)
 
-lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
+(*lemma no_reg_writes_to_WriteMem[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (WriteMem x0 x1 x2 x3)"
-  by (unfold WriteMem_def, no_reg_writes_toI)
+  by (unfold WriteMem_def, no_reg_writes_toI)*)
 
 lemma no_reg_writes_to_WriteTaggedMem[simp, no_reg_writes_toI]:
   "no_reg_writes_to Rs (WriteTaggedMem x0 x1 x2 x3 x4)"
@@ -5009,7 +5012,7 @@ lemma MemC_read_accessed_mem_cap:
   unfolding MemC_read_def CapabilityFromData_def
   by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_lower_accessed_mem_cap)
 
-lemma MemCP_fst_accessed_mem_cap:
+(*lemma MemCP_fst_accessed_mem_cap:
   assumes "Run (MemCP addr acctype) t a"
   shows "accessed_mem_cap_of_trace_if_tagged (fst a) t"
   using assms
@@ -5021,15 +5024,15 @@ lemma MemCP_snd_accessed_mem_cap:
   shows "accessed_mem_cap_of_trace_if_tagged (snd a) t"
   using assms
   unfolding MemCP_def CapabilityFromData_def
-  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_upper_accessed_mem_cap)
+  by (auto simp: test_bit_of_bl elim!: Run_bindE dest: AArch64_TaggedMemSingle_upper_accessed_mem_cap)*)
 
 lemmas tagged_mem_primitives_accessed_mem_caps =
   ReadTaggedMem_lower_prod_accessed_mem_cap
   AArch64_TaggedMemSingle_lower_accessed_mem_cap
   AArch64_TaggedMemSingle_upper_accessed_mem_cap
   MemC_read_accessed_mem_cap
-  MemCP_fst_accessed_mem_cap
-  MemCP_snd_accessed_mem_cap
+  (*MemCP_fst_accessed_mem_cap
+  MemCP_snd_accessed_mem_cap*)
 
 lemmas tagged_mem_primitives_derivable_mem_caps[derivable_capsE] =
   tagged_mem_primitives_accessed_mem_caps[THEN accessed_mem_cap_of_trace_derivable_mem_cap]
@@ -5367,9 +5370,10 @@ lemma system_access_disabled_system_reg_access[derivable_capsE]:
 lemmas system_access_disabled_system_reg_access_or_ex[derivable_capsE] =
   system_access_disabled_system_reg_access[THEN disjI1]
 
-lemma HaveEL_True[simp]: "HaveEL el = return True"
+declare HaveEL_def[simp]
+(*lemma HaveEL_True[simp]: "HaveEL el = True"
   using EL_exhaust_disj[of el]
-  by (auto simp: HaveEL_def CFG_ID_AA64PFR0_EL1_EL2_def CFG_ID_AA64PFR0_EL1_EL3_def)
+  by (auto simp: HaveEL_def CFG_ID_AA64PFR0_EL1_EL2_def CFG_ID_AA64PFR0_EL1_EL3_def)*)
 
 (*lemma Run_try_catch_leftI: "Run m t a \<Longrightarrow> Run (try_catch m h) t a"
   apply (induction m t "Done a :: ('a, 'b, 'c) monad" rule: Traces.induct)
