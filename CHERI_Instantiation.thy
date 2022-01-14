@@ -5220,6 +5220,8 @@ fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> r
 | "sysreg_ev_assms s (E_read_reg r (Regval_bitvector_32_dec v)) =
      ((r = ''CSCR_EL3'' \<longrightarrow> no_system_reg_access \<or> v !! 0) \<and>
       (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2))" (* Non-debug state *)
+| "sysreg_ev_assms s (E_read_reg r (Regval_signal v)) =
+     (r = ''DBGEN'' \<longrightarrow> v = LOW)" (* No external debugger *)
 | "sysreg_ev_assms s (E_read_reg r (Regval_ProcState v)) =
      (r = ''PSTATE'' \<longrightarrow> no_system_reg_access \<or> ProcState_EL v \<noteq> EL3)"
 | "sysreg_ev_assms s (E_read_reg r (Regval_bool v)) =
@@ -5251,6 +5253,45 @@ lemma Run_Halted_accessible_regs[accessible_regsE]:
   using assms
   by (intro accessible_regs_no_writes_run_subset[of "Halted u" t h Rs])
      (auto intro: no_reg_writes_runs_no_reg_writes no_reg_writes_to_Halted split: if_splits)
+
+lemma HaltingAllowed_False:
+  assumes "Run (HaltingAllowed u) t a" and "sysreg_trace_assms s t"
+  shows "\<not>a"
+  using assms
+  unfolding HaltingAllowed_def ExternalInvasiveDebugEnabled_def ExternalSecureInvasiveDebugEnabled_def
+  by (auto simp: DBGEN_ref_def elim!: Run_bindE Run_and_boolM_E Run_read_regE Run_ifE)
+
+lemma Run_HaltingAllowed_True_False[simp]:
+  assumes "sysreg_trace_assms s t"
+  shows "Run (HaltingAllowed ()) t True \<longleftrightarrow> False"
+  using assms
+  by (auto dest: HaltingAllowed_False)
+
+lemma Run_and_HaltOnBreakpointOrWatchpoint_False[simp]:
+  assumes "sysreg_trace_assms s t"
+  shows "Run (and_boolM m (HaltOnBreakpointOrWatchpoint ())) t True \<longleftrightarrow> False"
+  using assms
+  by (auto simp: HaltOnBreakpointOrWatchpoint_def elim!: Run_and_boolM_E)
+
+lemma Run_and_HaltOnBreakpointOrWatchpoint_system_reg_access:
+  assumes "Run (and_boolM m (HaltOnBreakpointOrWatchpoint ())) t a"
+    and "a" and "sysreg_trace_assms s t"
+  shows "system_reg_access s"
+  using assms
+  by auto
+
+lemma Run_or_not_HaltingAllowed_True[simp]:
+  assumes "sysreg_trace_assms s t"
+  shows "Run (or_boolM m (HaltingAllowed () \<bind> (\<lambda>a. return (\<not>a)))) t False \<longleftrightarrow> False"
+  using assms
+  by (auto elim!: Run_or_boolM_E)
+
+lemma Run_or_not_HaltingAllowed_system_reg_access:
+  assumes "Run (or_boolM m (HaltingAllowed () \<bind> (\<lambda>a. return (\<not>a)))) t a"
+    and "\<not>a" and "sysreg_trace_assms s t"
+  shows "system_reg_access s"
+  using assms
+  by auto
 
 lemma PCC_tagged:
   assumes "Run (read_reg PCC_ref) t c"

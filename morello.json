@@ -28,7 +28,7 @@
   "write_privileged_regs": ["CDBGDTR_EL0", "CDLR_EL0", "VBAR_EL1", "VBAR_EL2", "VBAR_EL3", "SCR_EL3", "TCR_EL1", "TCR_EL2", "TCR_EL3", "SCTLR_EL1", "SCTLR_EL2", "SCTLR_EL3", "TTBR0_EL3", "TTBR0_EL2", "TTBR0_EL1", "TTBR1_EL1", "TTBR1_EL2", "VTCR_EL2", "VTTBR_EL2", "MAIR_EL1", "MAIR_EL2", "MAIR_EL3", "MPAM3_EL3", "_MPAM2_EL2_0_62", "_MPAM1_EL1_0_62", "MPAM0_EL1", "MPAMIDR_EL1", "MPAMVPMV_EL2", "MPAMVPM0_EL2", "MPAMVPM1_EL2", "MPAMVPM2_EL2", "MPAMVPM3_EL2", "MPAMVPM4_EL2", "MPAMVPM5_EL2", "MPAMVPM6_EL2", "MPAMVPM7_EL2", "MPAMHCR_EL2"],
   "read_exception_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
   "write_exception_regs": [],
-  "footprint_regs": ["__ThisInstrAbstract", "EDSCR", "DCZID_EL0"],
+  "footprint_regs": ["__ThisInstrAbstract", "EDSCR", "DCZID_EL0", "DBGEN"],
   "system_access_checks": ["CapIsSystemAccessEnabled", "Halted"],
   "pcc": ["PCC"],
   "idc": ["_R29"],
@@ -393,6 +393,21 @@
         "proof": "(traces_enabledI assms: assms simp: exp_fails_if_then_else)"
       }
     },
+    "AArch64_CheckBreakpoint": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms elim: Run_and_HaltOnBreakpointOrWatchpoint_system_reg_access)"
+      }
+    },
+    "AArch64_CheckWatchpoint": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms elim: Run_and_HaltOnBreakpointOrWatchpoint_system_reg_access)"
+      }
+    },
+    "decode_hlt_aarch64_instrs_system_exceptions_debug_halt": {
+      "traces_enabled": {
+        "proof": "(traces_enabledI assms: assms elim: Run_or_not_HaltingAllowed_system_reg_access)"
+      }
+    },
     "AArch64_IMPDEFResets": {
       "no_reg_writes_to": {
         "proof": "(unfold AArch64_IMPDEFResets_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_bindI_ignore_left)"
@@ -701,6 +716,16 @@
       },
       "traces_enabled_mem": {
         "proof": "(traces_enabledI assms: assms elim: VADeref_store_enabled and_SystemAccessEnabled_TagSettingEnabledE[where thesis = \"(if a then x else y) = z\" and a = a for a x y z])"
+      }
+    },
+    "Halt": {
+      "traces_enabled": {
+        "extra_assms": ["system_reg_access s"]
+      }
+    },
+    "execute_aarch64_instrs_system_exceptions_debug_halt": {
+      "traces_enabled": {
+        "extra_assms": ["system_reg_access s"]
       }
     },
     "__DecodeA64": {
