@@ -10,6 +10,7 @@ theory CHERI_Instantiation
     "Word_Lib.Norm_Words"
     "Sail-T-CHERI.BW2"
     "New_CVC4"
+    "State_Invariants"
 begin
 
 no_notation Sail2_prompt_monad.bind (infixr "\<bind>" 54)
@@ -533,6 +534,9 @@ lemma CapSetFlags_128th_iff[simp]:
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
   by (auto simp: CapIsSealed_def CapUnseal_def CapGetObjectType_CapSetObjectType_and_mask)
+
+lemma CMAX_not_sealed[simp]: "\<not>CapIsSealed CMAX"
+  by (auto simp: CMAX_def CapIsSealed_def CapGetObjectType_def)
 
 lemma CapUnsignedGreaterThan_iff_unat_gt[simp]:
   "CapUnsignedGreaterThan x y \<longleftrightarrow> unat x > unat y"
@@ -1720,7 +1724,8 @@ lemma vector_of_regval_eq_Some_iffs[simp]:
   "\<And>rv vs. vector_of_regval int_of_register_value rv = Some vs \<longleftrightarrow> rv = regval_of_vector Regval_int vs"
   by (intro vector_of_regval_eq_Some_iff; auto)+
 
-global_interpretation Register_State where get_regval = get_regval and set_regval = set_regval
+global_interpretation Morello_Register_State?: Register_State
+  where get_regval = get_regval and set_regval = set_regval
 proof
   fix r rv s s'
   assume "set_regval r rv s = Some s'"

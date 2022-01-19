@@ -215,6 +215,7 @@ lemma no_reg_writes_to_determ_instrs_of_exp:
   using assms
   by (auto simp: determ_instrs_of_exp_def no_reg_writes_to_instrs_of_exp no_reg_writes_to_instr_of_trace_None)
 
+(* TODO: Move *)
 lemma if_split_no_asm: "P x \<Longrightarrow> P y \<Longrightarrow> P (if b then x else y)"
   by auto
 
@@ -2490,5 +2491,249 @@ lemma load_enabled_paccess_enabled_Fetch[intro]:
   by (cases tagged) auto
 
 end
+
+fun PCC_regval_inv where
+  "PCC_regval_inv (Regval_bitvector_129_dec c) = (CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c)"
+| "PCC_regval_inv _ = True"
+
+definition "PCC_inv \<equiv> reg_inv ''PCC'' PCC_regval_inv"
+
+definition "PCC_tagged \<equiv> reg_inv ''PCC'' (\<lambda>rv. \<forall>c. rv = Regval_bitvector_129_dec c \<longrightarrow> CapIsTagSet c)"
+
+definition "DBGEN_inv \<equiv> reg_inv ''DBGEN'' (\<lambda>rv. \<forall>v. rv = Regval_signal v \<longrightarrow> v = LOW)"
+
+definition "EDSCR_inv \<equiv> reg_inv ''EDSCR'' (\<lambda>rv. \<forall>v. rv = Regval_bitvector_32_dec v \<longrightarrow> (ucast v :: 6 word) = 2)"
+
+definition "DCZID_inv \<equiv> reg_inv ''DCZID_EL0'' (\<lambda>rv. \<forall>v. rv = Regval_bitvector_32_dec v \<longrightarrow> (ucast v :: 4 word) = 4)"
+
+definition "cheri_invariant s \<equiv> DBGEN_inv s \<and> DCZID_inv s \<and> EDSCR_inv s \<and> PCC_inv s"
+
+lemmas cheri_invariant_defs = cheri_invariant_def DBGEN_inv_def DCZID_inv_def EDSCR_inv_def PCC_inv_def
+
+lemma non_inv_reg_writes_preserve_cheri_invariant:
+  assumes "name r \<notin> {''DBGEN'', ''DCZID_EL0'', ''EDSCR'', ''PCC''}"
+  shows "runs_preserve_invariant (liftS (write_reg r v)) cheri_invariant"
+  using assms
+  unfolding cheri_invariant_defs
+  by (intro runs_preserve_invariant_conjI runs_preserve_reg_inv_write_reg_other) auto
+
+method non_inv_reg_writes_preserve_cheri_invariant =
+  (rule non_inv_reg_writes_preserve_cheri_invariant; auto simp: register_defs)
+
+lemma runs_no_reg_writes_to_union:
+  "runs_no_reg_writes_to (Rs \<union> Rs') m \<longleftrightarrow> runs_no_reg_writes_to Rs m \<and> runs_no_reg_writes_to Rs' m"
+  by (auto simp: runs_no_reg_writes_to_def)
+
+lemma runs_no_reg_writes_to_insert:
+  "runs_no_reg_writes_to (insert r (insert r' Rs)) m \<longleftrightarrow> runs_no_reg_writes_to {r} m \<and> runs_no_reg_writes_to (insert r' Rs) m"
+  by (auto simp: runs_no_reg_writes_to_def)
+
+lemma runs_no_reg_writes_to_mono:
+  assumes "runs_no_reg_writes_to Rs m" and "Rs' \<subseteq> Rs"
+  shows "runs_no_reg_writes_to Rs' m"
+  using assms
+  by (auto simp: runs_no_reg_writes_to_def)
+
+lemma runs_preserve_invariant_no_inv_reg_writes:
+  assumes "runs_no_reg_writes_to {''DBGEN'', ''DCZID_EL0'', ''EDSCR'', ''PCC''} m"
+  shows "runs_preserve_invariant (liftS m) cheri_invariant"
+  using assms
+  unfolding cheri_invariant_defs runs_no_reg_writes_to_insert
+  by (intro runs_preserve_invariant_conjI; auto)
+
+lemma PCC_write_preserves_invariant[runs_preserve_invariantI]:
+  assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "runs_preserve_invariant (write_regS PCC_ref c) cheri_invariant"
+  using assms
+  unfolding cheri_invariant_defs
+  by (intro PrePostE_write_regS[THEN PrePostE_strengthen_pre]) (auto simp: reg_inv_def register_defs)
+
+(* TODO: Move *)
+named_theorems preserves_invariantE
+
+lemmas runs_preserve_invariant_datatype_splits[runs_preserve_invariant_split] =
+  datatype_splits[where P = "\<lambda>m. runs_preserve_invariant m cheri_invariant", THEN iffD2]
+
+lemmas datatype_case_distribs =
+  ArchVersion.case_distrib Constraint.case_distrib Unpredictable.case_distrib Exception.case_distrib InstrEnc.case_distrib
+  BranchType.case_distrib Fault.case_distrib AccType.case_distrib DeviceType.case_distrib MemType.case_distrib
+  MBReqDomain.case_distrib MBReqTypes.case_distrib PrefetchHint.case_distrib
+  FPExc.case_distrib FPRounding.case_distrib FPType.case_distrib
+  CountOp.case_distrib ExtendType.case_distrib FPMaxMinOp.case_distrib FPUnaryOp.case_distrib FPConvOp.case_distrib
+  MoveWideOp.case_distrib ShiftType.case_distrib LogicalOp.case_distrib MemOp.case_distrib MemAtomicOp.case_distrib
+  SystemHintOp.case_distrib PSTATEField.case_distrib VBitOp.case_distrib
+  CompareOp.case_distrib ImmediateOp.case_distrib ReduceOp.case_distrib
+
+lemmas liftState_datatype_case[liftState_simp] = datatype_case_distribs[where h = liftS]
+
+lemma CapAdd__1_preserves_invariant[preserves_invariantE]:
+  assumes "(Value c', s') \<in> \<lbrakk>CapAdd__1 c incr\<rbrakk>\<^sub>S s"
+   and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "CapIsTagSet c' \<longrightarrow> \<not>CapIsSealed c'"
+  using assms
+  unfolding Value_liftState_iff CapAdd__1_def Let_def
+  by (auto intro: Run_CapAdd_tag_imp)
+
+lemma CapSetValue_preserves_invariant[preserves_invariantE]:
+  assumes "(Value c, s') \<in> \<lbrakk>CapSetValue c' v\<rbrakk>\<^sub>S s"
+    and "CapIsTagSet c' \<longrightarrow> \<not>CapIsSealed c'"
+  shows "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  using assms
+  unfolding CapSetValue_def Value_liftState_iff Let_def
+  by (auto simp: CapIsSealed_def CapWithTagClear_def update_subrange_vec_dec_test_bit test_bit_set elim!: Run_bindE split: if_splits)
+
+lemma BranchAddr_PCC_invariant[preserves_invariantE]:
+  assumes "(Value c, s') \<in> \<lbrakk>BranchAddr target el\<rbrakk>\<^sub>S s"
+  shows "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  using assms
+  unfolding BranchAddr_def Value_liftState_iff Let_def
+  by (auto elim!: Run_bindE split: if_splits)
+
+lemma read_regS_PCC_inv[preserves_invariantE]:
+  assumes "(Value c, s') \<in> read_regS PCC_ref s"
+    and "cheri_invariant s"
+  shows "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  using assms
+  by (auto simp: read_regS_def cheri_invariant_defs reg_inv_def register_defs)
+
+lemma CheckCapability_CapIsTagSet:
+  "\<lbrace>\<lambda>_. True\<rbrace> \<lbrakk>CheckCapability c addr sz perms acctype\<rbrakk>\<^sub>S \<lbrace>\<lambda>_ _. CapIsTagSet c \<bar> \<lambda>_ _. True\<rbrace>"
+  unfolding CheckCapability_def
+  by (intro PrePostE_I) (auto elim!: Value_liftState_Run_runTraceS Run_bindE)
+
+lemma CheckCapability_PCC_tagged:
+  "\<lbrace>\<lambda>s. CapIsTagSet c \<longrightarrow> PCC_tagged s\<rbrace> \<lbrakk>CheckCapability c addr sz perms acctype\<rbrakk>\<^sub>S \<lbrace>\<lambda>_. PCC_tagged \<bar> \<lambda>_ _. True\<rbrace>"
+proof -
+  have "runs_preserve_invariant \<lbrakk>CheckCapability c addr sz perms acctype\<rbrakk>\<^sub>S PCC_tagged"
+    by (auto simp: PCC_tagged_def)
+  with CheckCapability_CapIsTagSet[of c addr sz perms acctype]
+  show ?thesis
+    by (cases "CapIsTagSet c") (auto elim: PrePostE_consequence)
+qed
+
+lemma CheckPCCCapability_establishes_PCC_tagged:
+  shows "runs_establish_invariant (liftS (CheckPCCCapability ())) PCC_tagged"
+  unfolding CheckPCCCapability_def liftState_simp comp_def
+  by (rule PrePostE_strengthen_pre, (rule PrePostE_bindS CheckCapability_PCC_tagged PrePostE_read_regS)+)
+     (auto simp: PCC_tagged_def register_defs reg_inv_def)
+
+lemma instr_fetch_establishes_PCC_tagged:
+  shows "runs_establish_invariant \<lbrakk>instr_fetch\<rbrakk>\<^sub>S PCC_tagged"
+  unfolding instr_fetch_def FetchNextInstr_def liftState_bind liftState_return comp_def bind_assoc
+  by (intro CheckPCCCapability_establishes_PCC_tagged[THEN runs_establish_invariant_bindS_left]
+            runs_establish_invariant_bindS_right runs_preserve_invariant_bindS)
+     (auto simp: PCC_tagged_def register_defs intro: runs_preserve_reg_inv_write_reg_other)
+
+lemma ExternalInvasiveDebugEnabled_False:
+  assumes "(Value a, s') \<in> \<lbrakk>ExternalInvasiveDebugEnabled ()\<rbrakk>\<^sub>S s"
+    and "DBGEN_inv s"
+  obtains "\<not>a"
+  using assms
+  unfolding ExternalInvasiveDebugEnabled_def DBGEN_inv_def liftState_simp comp_def
+  by (auto elim!: Value_bindS_elim simp: register_defs reg_inv_def Value_read_regS_iff)
+
+lemma HaltingAllowed_False:
+  assumes "(Value a, s') \<in> \<lbrakk>HaltingAllowed ()\<rbrakk>\<^sub>S s"
+    and "cheri_invariant s"
+  obtains "\<not>a"
+  using assms
+  unfolding HaltingAllowed_def ExternalSecureInvasiveDebugEnabled_def liftState_simp comp_def cheri_invariant_def DBGEN_inv_def
+  by (auto elim!: Value_bindS_elim Value_or_boolS_elim Value_and_boolS_elim ExternalInvasiveDebugEnabled_False
+           split: if_splits simp: DBGEN_inv_def runs_no_reg_writes_to_reg_inv_iff no_reg_writes_runs_no_reg_writes)
+
+lemma and_boolS_HaltingAllowed_False:
+  assumes "(Value a, s') \<in> and_boolS (and_boolS (and_boolS m1 m2) \<lbrakk>HaltingAllowed ()\<rbrakk>\<^sub>S) m3 s"
+    and "runs_preserve_invariant m1 cheri_invariant"
+    and "runs_preserve_invariant m2 cheri_invariant"
+    and "cheri_invariant s"
+  obtains "\<not>a"
+  using assms
+  by (auto elim!: Value_and_boolS_elim HaltingAllowed_False elim: PrePostE_elim)
+
+lemmas and_boolS_HaltingAllowed_Halt_preserves_invariant[preserves_invariantE] =
+  and_boolS_HaltingAllowed_False[where thesis = "runs_preserve_invariant \<lbrakk>Halt reason\<rbrakk>\<^sub>S cheri_invariant" for reason]
+
+lemma or_boolS_not_HaltingAllowed_True:
+  assumes "(Value a, s') \<in> or_boolS m ((\<lbrakk>HaltingAllowed ()\<rbrakk>\<^sub>S) \<bind>\<^sub>S (\<lambda>x. returnS (\<not>x))) s"
+    and "runs_preserve_invariant m cheri_invariant"
+    and "cheri_invariant s"
+  obtains "a"
+  using assms
+  by (auto elim!: Value_or_boolS_elim Value_bindS_elim HaltingAllowed_False elim: PrePostE_elim[OF assms(2,3)])
+
+lemmas or_boolS_not_HaltingAllowed_preserves_invariantE[preserves_invariantE] =
+  or_boolS_not_HaltingAllowed_True[where thesis = "runs_preserve_invariant m cheri_invariant" for m]
+
+lemma HaltOnBreakpointOrWatchpoint_False:
+  assumes "(Value a, s') \<in> \<lbrakk>HaltOnBreakpointOrWatchpoint ()\<rbrakk>\<^sub>S s"
+    and "cheri_invariant s"
+  obtains "\<not>a"
+  using assms
+  unfolding HaltOnBreakpointOrWatchpoint_def liftState_simp comp_def
+  by (auto elim!: Value_bindS_elim Value_and_boolS_elim HaltingAllowed_False)
+
+lemma Halted_False:
+  assumes "(Value a, s') \<in> liftS (Halted u) s" and "cheri_invariant s"
+  obtains "\<not>a"
+  using assms
+  unfolding Halted_def bind_assoc liftState_bind liftState_or_boolM comp_def liftState_return or_boolS_def cheri_invariant_def
+  by (auto simp: Value_bindS_iff EDSCR_inv_def reg_inv_def EDSCR_ref_def read_reg_def
+           split: if_splits option.splits elim!: bitvector_32_dec_of_regval.elims)
+
+lemmas Halted_preserves_invariantE[preserves_invariantE] =
+  Halted_False[where thesis = "runs_preserve_invariant m cheri_invariant" for m]
+
+lemma or_boolS_not_Halted_True:
+  assumes "(Value a, s') \<in> or_boolS ((\<lbrakk>Halted ()\<rbrakk>\<^sub>S) \<bind>\<^sub>S (\<lambda>x. returnS (\<not>x))) m s"
+    and "cheri_invariant s"
+  obtains "a"
+  using assms
+  by (auto elim!: Value_or_boolS_elim Value_bindS_elim Halted_False)
+
+lemmas or_boolS_not_Halted_preserves_invariantE[preserves_invariantE] =
+  or_boolS_not_Halted_True[where thesis = "runs_preserve_invariant m cheri_invariant" for m]
+
+lemma ucast_update_subrange_vec_dec_above:
+  fixes w :: "'a::len word" and w' :: "'b::len word" and i j :: "int"
+  defines "w'' \<equiv> ucast (update_subrange_vec_dec w i j w') :: 'c::len word"
+  assumes "0 \<le> j" and "j \<le> i" and "nat i < LENGTH('a)" and "LENGTH('b) = nat (i - j + 1)"
+    and "nat j \<ge> LENGTH('c)"
+  shows "w'' = ucast w"
+  using assms
+  by (auto simp: nth_ucast update_subrange_vec_dec_test_bit intro: word_eqI)
+
+lemma ucast_update_subrange_vec_dec_0:
+  fixes w :: "'a::len word" and w' :: "'b::len word" and i :: "int"
+  defines "w'' \<equiv> ucast (update_subrange_vec_dec w i 0 w') :: 'c::len word"
+  assumes "0 \<le> i" and "nat i < LENGTH('a)" and "LENGTH('b) = nat (i + 1)"
+    and "LENGTH('c) = nat i + 1"
+  shows "w'' = ucast w'"
+  using assms
+  by (auto simp: nth_ucast update_subrange_vec_dec_test_bit intro: word_eqI)
+
+lemmas ucast_update_subrange_vec_dec_simps = ucast_update_subrange_vec_dec_above ucast_update_subrange_vec_dec_0
+
+lemma modify_DCZID_preserves_invariant:
+  assumes f: "\<forall>v. (ucast v :: 4 word) = 4 \<longrightarrow> (ucast (f v) :: 4 word) = 4"
+    and m: "\<And>u. runs_preserve_invariant (m u) cheri_invariant"
+  shows "runs_preserve_invariant (read_regS DCZID_EL0_ref \<bind>\<^sub>S (\<lambda>v. write_regS DCZID_EL0_ref (f v) \<bind>\<^sub>S m)) cheri_invariant"
+  by (rule PrePostE_strengthen_pre, (rule PrePostE_compositeI PrePostE_atomI m)+)
+     (use f in \<open>auto simp: cheri_invariant_defs register_defs reg_inv_def\<close>)
+
+lemma modify_EDSCR_preserves_invariant:
+  assumes f: "\<forall>v. (ucast v :: 6 word) = 2 \<longrightarrow> (ucast (f v) :: 6 word) = 2"
+    and m: "\<And>u. runs_preserve_invariant (m u) cheri_invariant"
+  shows "runs_preserve_invariant (read_regS EDSCR_ref \<bind>\<^sub>S (\<lambda>v. write_regS EDSCR_ref (f v) \<bind>\<^sub>S m)) cheri_invariant"
+  by (rule PrePostE_strengthen_pre, (rule PrePostE_compositeI PrePostE_atomI m)+)
+     (use f in \<open>auto simp: cheri_invariant_defs register_defs reg_inv_def\<close>)
+
+
+method preserves_invariantI uses intro elim simp =
+  (erule preserves_invariantE TrueE
+    | preserves_invariant_step intro: intro elim: elim simp: simp
+    | rule PrePostE_compositeI
+    | (rule runs_preserve_invariant_no_inv_reg_writes, solves \<open>intro runs_no_reg_writes_toI no_reg_writes_runs_no_reg_writes no_reg_writes_toI insert_mono subset_insertI2 empty_subsetI\<close>)
+    | assumption
+    | (solves \<open>auto simp: simp intro: intro elim: elim\<close>))+
 
 end

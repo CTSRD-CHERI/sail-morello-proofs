@@ -7,7 +7,7 @@ theory CHERI_Monotonicity
     CHERI_Cap_Properties
     CHERI_Mem_Properties
     CHERI_Fetch_Properties
-    Morello_Invariants
+    CHERI_Invariant
     "Sail-T-CHERI.Trace_Assumptions"
     "Sail-T-CHERI.Properties"
 begin
@@ -95,7 +95,7 @@ abbreviation "s_read_from reg s \<equiv> read_from reg (regstate s)"
 
 abbreviation "pcc_not_sealed s \<equiv> (let pcc = s_read_from PCC_ref s in CapIsTagSet pcc \<longrightarrow> \<not>CapIsSealed pcc)"
 abbreviation "pcc_tagged s \<equiv> CapIsTagSet (s_read_from PCC_ref s)"
-abbreviation "non_debug_state s \<equiv> ((ucast (s_read_from EDSCR_ref s) :: 6 word) = 2)"
+abbreviation "non_debug_state s \<equiv> ((ucast (s_read_from EDSCR_ref s) :: 6 word) = 2) \<and> (s_read_from DBGEN_ref s = LOW)"
 abbreviation "cache_line_size_64 s \<equiv> ((ucast (s_read_from DCZID_EL0_ref s) :: 4 word) = 4)"
 
 definition "fetch_state_assms s \<equiv> pcc_not_sealed s \<and> non_debug_state s \<and> cache_line_size_64 s"
@@ -168,9 +168,9 @@ abbreviation "unknown_caps_of_trace t \<equiv> {c. E_choose ''UNKNOWN_Capability
 abbreviation "unknown_caps_reachable t s \<equiv> unknown_caps_of_trace t \<subseteq> UNKNOWN_caps \<and> UNKNOWN_caps \<subseteq> reachable_caps s"
 
 lemma fetch_state_assms_iff_invs:
-  "fetch_state_assms s \<longleftrightarrow> PCC_inv s \<and> EDSCR_inv s \<and> DCZID_inv s"
-  unfolding fetch_state_assms_def EDSCR_inv_def DCZID_inv_def reg_inv_def Let_def
-  by (auto simp: register_defs)
+  "fetch_state_assms s \<longleftrightarrow> cheri_invariant s"
+  unfolding fetch_state_assms_def
+  by (auto simp: register_defs cheri_invariant_defs reg_inv_def)
 
 theorem morello_monotonicity:
   assumes "hasTrace t (fetch_execute_loop ISA n)"
@@ -193,8 +193,8 @@ proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])
     assume ti: "Run (instr_sem_ISA instr) ti ()" "s_run_trace ti si = Some si'"
       and si: "instr_state_assms instr si"
     have "runs_preserve_invariant (liftS (instr_sem instr)) fetch_state_assms"
-      unfolding fetch_state_assms_iff_invs
-      by (intro runs_preserve_invariant_conjI instr_sem_preserves_PCC_inv instr_sem_preserves_EDSCR_inv instr_sem_preserves_DCZID_inv)
+      unfolding fetch_state_assms_iff_invs instr_sem_def liftState_simp comp_def
+      by (preserves_invariantI)
     then show "fetch_state_assms si'"
       using Run_runTraceS_Value_liftState[OF ti] si
       by (auto simp: instr_state_assms_def elim: PrePostE_elim)
@@ -205,8 +205,8 @@ proof (rule reachable_caps_instrs_trace_intradomain_monotonicity[OF assms(1)])
     assume tf: "Run (isa.instr_fetch ISA) tf instr" "s_run_trace tf sf = Some sf'"
       and sf: "fetch_state_assms sf"
     have "runs_preserve_invariant (liftS instr_fetch) fetch_state_assms"
-      unfolding fetch_state_assms_iff_invs
-      by (intro runs_preserve_invariant_conjI instr_fetch_preserves_PCC_inv instr_fetch_preserves_EDSCR_inv instr_fetch_preserves_DCZID_inv)
+      unfolding fetch_state_assms_iff_invs instr_fetch_def liftState_simp comp_def
+      by (preserves_invariantI)
     moreover have "runs_establish_invariant (liftS instr_fetch) pcc_tagged"
       by (rule instr_fetch_establishes_PCC_tagged[THEN PrePostE_weaken_post])
          (auto simp: register_defs PCC_tagged_def reg_inv_def)

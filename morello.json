@@ -29,6 +29,8 @@
   "read_exception_regs": ["VBAR_EL1", "VBAR_EL2", "VBAR_EL3"],
   "write_exception_regs": [],
   "footprint_regs": ["__ThisInstrAbstract", "EDSCR", "DCZID_EL0", "DBGEN"],
+  "needed_footprints": ["Step_PC", "SSAdvance"],
+  "inv_regs": ["PCC", "DBGEN", "DCZID_EL0", "EDSCR"],
   "system_access_checks": ["CapIsSystemAccessEnabled", "Halted"],
   "pcc": ["PCC"],
   "idc": ["_R29"],
@@ -396,11 +398,17 @@
     "AArch64_CheckBreakpoint": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms elim: Run_and_HaltOnBreakpointOrWatchpoint_system_reg_access)"
+      },
+      "preserves_invariant": {
+        "proof": "(unfold AArch64_CheckBreakpoint_def bind_assoc liftState_simp comp_def, preserves_invariantI elim: Value_and_boolS_elim HaltOnBreakpointOrWatchpoint_False)"
       }
     },
     "AArch64_CheckWatchpoint": {
       "traces_enabled": {
         "proof": "(traces_enabledI assms: assms elim: Run_and_HaltOnBreakpointOrWatchpoint_system_reg_access)"
+      },
+      "preserves_invariant": {
+        "proof": "(unfold AArch64_CheckWatchpoint_def bind_assoc liftState_simp comp_def, preserves_invariantI elim: Value_and_boolS_elim HaltOnBreakpointOrWatchpoint_False)"
       }
     },
     "decode_hlt_aarch64_instrs_system_exceptions_debug_halt": {
@@ -411,11 +419,19 @@
     "AArch64_IMPDEFResets": {
       "no_reg_writes_to": {
         "proof": "(unfold AArch64_IMPDEFResets_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_bindI_ignore_left)"
+      },
+      "preserves_invariant": {
+        "proof": "(unfold AArch64_IMPDEFResets_def bind_assoc liftState_simp comp_def, preserves_invariantI intro: modify_DCZID_preserves_invariant simp: set_slice_def ucast_update_subrange_vec_dec_simps)"
       }
     },
     "AArch64_AutoGen_ArchitectureReset": {
       "no_reg_writes_to": {
         "proof": "(unfold AArch64_AutoGen_ArchitectureReset_def bind_assoc, no_reg_writes_toI intro: no_reg_writes_to_bindI_ignore_left)"
+      }
+    },
+    "TakeReset": {
+      "preserves_invariant": {
+        "proof": "(unfold TakeReset_def bind_assoc liftState_simp comp_def, preserves_invariantI intro: modify_EDSCR_preserves_invariant simp: set_slice_def ucast_update_subrange_vec_dec_simps)"
       }
     },
     "AArch64_AutoGen_SysRegRead": {
@@ -439,6 +455,11 @@
       },
       "traces_enabled": {
         "proof": "(traces_enabled_step intro: assms)+"
+      }
+    },
+    "AArch64_SysRegRead": {
+      "preserves_invariant": {
+        "proof": "(unfold AArch64_SysRegRead_def catch_early_return_bind_liftR liftState_bind liftState_read_reg comp_def, preserves_invariantI)"
       }
     },
     "AArch64_SysRegWrite": {
@@ -926,6 +947,13 @@
     "AArch64_ResetSpecialRegisters": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
     "TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
     "AArch64_TakeReset": ["traces_enabled", "traces_enabled_mem", "traces_enabled_fetch", "traces_enabled_mem_fetch"],
+    "UpdateEDSCRFields": ["preserves_invariant"],
+    "Halt": ["preserves_invariant"],
+    "DCPSInstruction": ["preserves_invariant"],
+    "DRPSInstruction": ["preserves_invariant"],
+    "execute_aarch64_instrs_system_exceptions_debug_exception": ["preserves_invariant"],
+    "execute_aarch64_instrs_branch_unconditional_dret": ["preserves_invariant"],
+    "execute_aarch64_instrs_system_exceptions_debug_halt": ["preserves_invariant"],
     "__DecodeA64": ["no_reg_writes_to"]
   },
   "reserved_ids": [
