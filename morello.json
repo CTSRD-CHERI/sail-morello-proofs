@@ -916,9 +916,10 @@
   },
   "cap_load_funs": ["_ReadTaggedMem"],
   "skips": [
-    "__ReadRAM",
-    "__WriteRAM",
-    "__read_memt",
+    "__ReadMem",
+    "__WriteMem",
+    "__ReadTaggedMem",
+    "__WriteTaggedMem",
     "_Mem_read",
     "_Mem_set",
     "_ReadMem",
