@@ -1282,7 +1282,7 @@ section \<open>Architecture abstraction\<close>
 
 type_synonym instr = "32 word"
 
-text \<open>Condensed version of the __TopLevel step function, without debug output and the timer
+text \<open>Condensed version of the \<open>__TopLevel\<close> step function, without debug output and the timer
 interrupt handling, and split into fetch and execute phases\<close>
 
 definition instr_fetch :: "instr M" where
