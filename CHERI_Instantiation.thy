@@ -3756,7 +3756,7 @@ proof -
   note if_split[split del]
 
   show ?thesis
-    using run exp
+    using run exp CapGetExponent_range[of cap]
     apply (simp add: CapGetBounds_def update_vec_dec_bitU_of_bool word_ops_nth_size
                 Let_def[where s="If _ _ _"] Let_def[where s="_ - _"]
                 if_distrib[where f="word_of_int"] wi_hom_syms
@@ -4425,6 +4425,7 @@ proof -
      (* just the one impossible case left *)
      apply clarsimp
      apply (elim Run_elims; clarsimp)
+    using CapGetExponent_range[of cap] CapGetExponent_range[of cap']
     apply (clarsimp simp: CapGetBounds_def[where c="update_subrange_vec_dec _ _ _ _"]
         elim!: Run_elims)
     apply (cut_tac CapIsInternalExponent_def[of cap'])
