@@ -73,6 +73,10 @@ Note that the proof might run for several hours (on an i7-10510U CPU at
 1.80GHz, it ran in around 7.5h CPU time / 3.5h real time, with peak memory
 consumption of 18GB).
 
+## Licence
+
+This proof is distributed under the BSD 2-clause licence in [`LICENCE`](LICENCE).
+
 [sail]: https://github.com/rems-project/sail
 [sail-morello]: https://github.com/CTSRD-CHERI/sail-morello
 [sail-arm]: https://github.com/rems-project/sail-arm
