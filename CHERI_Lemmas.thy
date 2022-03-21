@@ -2115,8 +2115,7 @@ proof (unfold store_enabled_def, intro conjI allI impI)
       and perms: "cap_permits CAP_PERM_STORE c'"
       and "c_or_DDC_in t c'"
     unfolding MorelloCheckForCMO_def VAToCapability_def bounds_address_def has_ttbr1_def
-    (* TODO: This takes extremely long (around 20 minutes, on a somewhat slow machine).
-       It also assumes that CheckCapability.patch has been applied to the ASL. *)
+    (* TODO: This takes extremely long (around 20 minutes, on a somewhat slow machine). *)
     by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
        (auto simp: bin_nth_int_unat unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def has_ttbr1_def
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E Run_ifE[where f = "VAFromCapability c"]

@@ -215,7 +215,7 @@ function propRepresentableSetBoundsExact(c : Capability, len : bits(64)) -> bool
   (baseAligned & lenPadded) --> (tagCorrect & exact56 & (flagsCheckPassed --> exactFlags))
 }
 
-/* RRLEN is not idempotent on Morello, as pointed out by Silviu Baranga on the Arm slack */
+/* RRLEN is not idempotent on Morello */
 
 $counterexample
 function propRepresentableLengthIdempotent(len : bits(64)) -> bool = {
