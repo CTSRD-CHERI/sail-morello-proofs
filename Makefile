@@ -22,12 +22,21 @@ else
 LEM_DIR:=$(shell opam config var lem:share)
 endif
 
+# Check if the sail-morello directory has snapshots of the Lem and Sail Isabelle libraries
+ifneq ($(wildcard $(MORELLO_DIR)/lib/isabelle),)
+  SAIL_LEM_LIB = $(MORELLO_DIR)/lib/isabelle/lem
+  SAIL_ISA_LIB = $(MORELLO_DIR)/lib/isabelle/sail
+else
+  SAIL_LEM_LIB = $(LEM_DIR)/isabelle-lib
+  SAIL_ISA_LIB = $(SAIL_DIR)/lib/isabelle
+endif
+
 GEN_LEMMAS = $(T_CHERI_DIR)/tools/gen_lemmas
 MORELLO_SAIL_DIR = $(MORELLO_DIR)/src
 MORELLO_ISA_DIR = $(MORELLO_DIR)/isabelle
 MORELLO_PATCHES_DIR = $(MORELLO_SAIL_DIR)/patches
 
-ISA_DEPS = $(LEM_DIR)/isabelle-lib $(SAIL_DIR)/lib/isabelle $(AFP_DIR)/thys/Word_Lib $(T_CHERI_DIR)/model/isabelle $(MORELLO_ISA_DIR)
+ISA_DEPS = $(SAIL_LEM_LIB) $(SAIL_ISA_LIB) $(AFP_DIR)/thys/Word_Lib $(T_CHERI_DIR)/model/isabelle $(MORELLO_ISA_DIR)
 ISA_DEP_FLAGS = $(foreach dir,$(ISA_DEPS),-d $(dir))
 ISA_BUILD_FLAGS = -v $(ISA_DEP_FLAGS)
 

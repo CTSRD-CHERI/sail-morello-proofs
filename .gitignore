@@ -1,8 +1,8 @@
-CHERI_Gen_Lemmas.thy
-CHERI_Cap_Properties.thy
-CHERI_Mem_Properties.thy
-CHERI_Fetch_Properties.thy
-CHERI_Invariant.thy
+# CHERI_Gen_Lemmas.thy
+# CHERI_Cap_Properties.thy
+# CHERI_Mem_Properties.thy
+# CHERI_Fetch_Properties.thy
+# CHERI_Invariant.thy
 *.thy~
 *.smt2
 z3_problems
