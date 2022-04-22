@@ -35,8 +35,9 @@ of the architecture (auxiliary functions and instructions).  They are generated
 by the `gen_lemmas` tool developed as part of [the CHERI abstraction on which
 this proof builds][t-cheri], using information in the file
 [`morello.json`](morello.json) about details of the architecture as well as
-patches needed for the proofs of specific lemmas.  The `gen_lemmas` Makefile
-target performs this generation, producing the following files:
+patches needed for the proofs of specific lemmas.  The following files are
+generated (these are distributed with the release tarballs on Github, or can be
+freshly generated using the `gen_lemmas` Makefile target):
 
 * `CHERI_Gen_Lemmas.thy`: miscellaneous lemmas about register footprints, functions that do not involve capabilities at all, etc.
 * `CHERI_Cap_Properties.thy`: lemmas showing that helper functions and instructions only produce monotonically derivable capabilities (with well-defined exceptions)
@@ -64,9 +65,10 @@ bugs in the specification) before the Isabelle proof was developed.
 
 ## Running the proof
 
-After the lemma files have been generated using the `gen_lemmas` Makefile
-target, the `check_proof` Makefile target runs the Isabelle proof (you might
-have to override some variables pointing to the location of dependencies, e.g.
+With the auto-generated lemma files in place (either downloaded as part of a
+Github release, or generated using the `gen_lemmas` Makefile target), the
+`check_proof` Makefile target runs the Isabelle proof (you might have to
+override some variables pointing to the location of dependencies, e.g.
 `AFP_DIR`).
 
 Note that the proof might run for several hours (on an i7-10510U CPU at
