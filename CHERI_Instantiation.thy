@@ -741,8 +741,11 @@ section \<open>Capabilities\<close>
 definition is_sentry :: "Capability \<Rightarrow> bool" where
   "is_sentry c \<equiv> CapGetObjectType c = CAP_SEAL_TYPE_RB"
 
-definition is_indirect_sentry :: "Capability \<Rightarrow> bool" where
-  "is_indirect_sentry c \<equiv> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+definition get_indirect_sentry_type :: "Capability \<Rightarrow> indirect_sentry_type option" where
+  "get_indirect_sentry_type c \<equiv>
+   (if CapGetObjectType c = CAP_SEAL_TYPE_LB then Some Points_to_PCC
+    else if CapGetObjectType c = CAP_SEAL_TYPE_LPB then Some Points_to_Pair
+    else None)"
 
 definition get_base :: "Capability \<Rightarrow> nat" where
   "get_base c \<equiv> unat (THE b. \<exists>t. Run (CapGetBase c) t b)"
@@ -776,7 +779,7 @@ definition "CC \<equiv>
   \<lparr>is_tagged_method = CapIsTagSet,
    is_sealed_method = CapIsSealed,
    is_sentry_method = is_sentry,
-   is_indirect_sentry_method = is_indirect_sentry,
+   get_indirect_sentry_type_method = get_indirect_sentry_type,
    get_base_method = get_base,
    get_top_method = get_limit,
    get_obj_type_method = (\<lambda>c. unat (CapGetObjectType c)),
@@ -823,7 +826,7 @@ lemma CC_simps[simp]:
   "is_tagged_method CC c = CapIsTagSet c"
   "is_sealed_method CC c = CapIsSealed c"
   "is_sentry_method CC c = is_sentry c"
-  "is_indirect_sentry_method CC c = is_indirect_sentry c"
+  "get_indirect_sentry_type_method CC c = get_indirect_sentry_type c"
   "seal_method CC c otype = seal c otype"
   "unseal_method CC c = CapUnseal c"
   "get_cursor_method CC c = unat (CapGetValue c)"
@@ -1304,34 +1307,47 @@ fun caps_of_regval :: "register_value \<Rightarrow> Capability set" where
 
 text \<open>Characterisation of invoked capabilities\<close>
 
-fun instr_invokes_regs :: "instr_ast \<Rightarrow> int set" where
-  "instr_invokes_regs (Instr_BRS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
-| "instr_invokes_regs (Instr_BRS_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_BLRR_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_BLRS_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_BLRS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
-| "instr_invokes_regs (Instr_BLR_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_BRR_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_BR_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_RETR_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_RETS_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs (Instr_RETS_C_C_C (Cm, opc, Cn)) = {uint Cm, uint Cn}"
-| "instr_invokes_regs (Instr_RET_C_C (opc, Cn)) = {uint Cn}"
-| "instr_invokes_regs _ = {}"
+fun instr_invokes_code_cap_from_reg :: "instr_ast \<Rightarrow> int option" where
+  "instr_invokes_code_cap_from_reg (Instr_BRS_C_C_C (Cm, opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BRS_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BLRR_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BLRS_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BLRS_C_C_C (Cm, opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BLR_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BRR_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_BR_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_RETR_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_RETS_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_RETS_C_C_C (Cm, opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg (Instr_RET_C_C (opc, Cn)) = Some (uint Cn)"
+| "instr_invokes_code_cap_from_reg _ = None"
 
-fun instr_invokes_indirect_regs :: "instr_ast \<Rightarrow> int set" where
-  "instr_invokes_indirect_regs (Instr_BLR_CI_C (imm7, Cn)) = (if uint Cn = 29 then {29} else {})"
-| "instr_invokes_indirect_regs (Instr_BR_CI_C (imm7, Cn)) = (if uint Cn = 29 then {29} else {})"
-| "instr_invokes_indirect_regs (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = (if uint Ct = 29 then {uint Cn} else {})"
-| "instr_invokes_indirect_regs (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = (if uint Ct = 29 then {uint Cn} else {})"
-| "instr_invokes_indirect_regs _ = {}"
+fun instr_invokes_data_cap_from_reg :: "instr_ast \<Rightarrow> int option" where
+  "instr_invokes_data_cap_from_reg (Instr_BRS_C_C_C (Cm, opc, Cn)) = Some (uint Cm)"
+| "instr_invokes_data_cap_from_reg (Instr_BLRS_C_C_C (Cm, opc, Cn)) = Some (uint Cm)"
+| "instr_invokes_data_cap_from_reg (Instr_RETS_C_C_C (Cm, opc, Cn)) = Some (uint Cm)"
+| "instr_invokes_data_cap_from_reg _ = None"
 
-fun instr_is_indirect_branch :: "instr_ast \<Rightarrow> bool" where
-  "instr_is_indirect_branch (Instr_BLR_CI_C (imm7, Cn)) = True"
-| "instr_is_indirect_branch (Instr_BR_CI_C (imm7, Cn)) = True"
-| "instr_is_indirect_branch (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = True"
-| "instr_is_indirect_branch (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = True"
-| "instr_is_indirect_branch _ = False"
+fun instr_invokes_indirect_cap_from_reg :: "instr_ast \<Rightarrow> int option" where
+  "instr_invokes_indirect_cap_from_reg (Instr_BLR_CI_C (imm7, Cn)) = (if uint Cn = 29 then Some 29 else None)"
+| "instr_invokes_indirect_cap_from_reg (Instr_BR_CI_C (imm7, Cn)) = (if uint Cn = 29 then Some 29 else None)"
+| "instr_invokes_indirect_cap_from_reg (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = (if uint Ct = 29 then Some (uint Cn) else None)"
+| "instr_invokes_indirect_cap_from_reg (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = (if uint Ct = 29 then Some (uint Cn) else None)"
+| "instr_invokes_indirect_cap_from_reg _ = None"
+
+fun instr_indirect_sentry_type :: "instr_ast \<Rightarrow> indirect_sentry_type option" where
+  "instr_indirect_sentry_type (Instr_BLR_CI_C (imm7, Cn)) = Some Points_to_PCC"
+| "instr_indirect_sentry_type (Instr_BR_CI_C (imm7, Cn)) = Some Points_to_PCC"
+| "instr_indirect_sentry_type (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = Some Points_to_Pair"
+| "instr_indirect_sentry_type (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = Some Points_to_Pair"
+| "instr_indirect_sentry_type _ = None"
+
+fun instr_indirect_sentry_code_offset :: "instr_ast \<Rightarrow> 64 word option" where
+  "instr_indirect_sentry_code_offset (Instr_BLR_CI_C (imm7, Cn)) = Some (scast imm7 << 4)"
+| "instr_indirect_sentry_code_offset (Instr_BR_CI_C (imm7, Cn)) = Some (scast imm7 << 4)"
+| "instr_indirect_sentry_code_offset (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = Some 16"
+| "instr_indirect_sentry_code_offset (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = Some 16"
+| "instr_indirect_sentry_code_offset _ = None"
 
 datatype load_auth =
   RegAuth int
@@ -1339,51 +1355,51 @@ datatype load_auth =
   | AltBaseRegAuth int
   | PCCAuth
 
-fun instr_load_auths :: "instr_ast \<Rightarrow> load_auth set" where
-  "instr_load_auths (Instr_BLR_CI_C (imm7, Cn)) = {RegAuth (uint Cn)}"
-| "instr_load_auths (Instr_BR_CI_C (imm7, Cn)) = {RegAuth (uint Cn)}"
-| "instr_load_auths (Instr_ALDAR_C_R_C (L, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_ALDUR_C_RI_C (op1, V, imm9, op2, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_ALDR_C_RUI_C (L, imm9, op, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_ALDR_C_RRB_C (Rm, sign, sz, S, L, Rn, Ct)) = {AltBaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_CASAL_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_CASA_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_CASL_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_CAS_C_R_C (L, Cs, R, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDAPR_C_R_C (Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDAR_C_R_C (L, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDAXP_C_R_C (L, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDAXR_C_R_C (L, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDNP_C_RIB_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = {RegAuth (uint Cn)}"
-| "instr_load_auths (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = {RegAuth (uint Cn)}"
-| "instr_load_auths (Instr_LDP_CC_RIAW_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDP_C_RIB_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDP_C_RIBW_C (L, imm7, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDR_C_I_C (imm17, Ct)) = {PCCAuth}"
-| "instr_load_auths (Instr_LDR_C_RIAW_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDR_C_RIBW_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDR_C_RUIB_C (L, imm12, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDR_C_RRB_C (opc, Rm, sign, sz, S, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDTR_C_RIB_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDUR_C_RI_C (opc, imm9, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDXP_C_R_C (L, Ct2, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDXR_C_R_C (L, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_SWPAL_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_SWPA_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_SWPL_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_SWP_CC_R_C (A, R, Cs, Rn, Ct)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths (Instr_LDCT_R_R (opc, Rn, Rt)) = {BaseRegAuth (uint Rn)}"
-| "instr_load_auths _ = {}"
+fun instr_load_auth :: "instr_ast \<Rightarrow> load_auth option" where
+  "instr_load_auth (Instr_BLR_CI_C (imm7, Cn)) = Some (RegAuth (uint Cn))"
+| "instr_load_auth (Instr_BR_CI_C (imm7, Cn)) = Some (RegAuth (uint Cn))"
+| "instr_load_auth (Instr_ALDAR_C_R_C (L, Rn, Ct)) = Some (AltBaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_ALDUR_C_RI_C (op1, V, imm9, op2, Rn, Ct)) = Some (AltBaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_ALDR_C_RUI_C (L, imm9, op, Rn, Ct)) = Some (AltBaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_ALDR_C_RRB_C (Rm, sign, sz, S, L, Rn, Ct)) = Some (AltBaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_CASAL_C_R_C (L, Cs, R, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_CASA_C_R_C (L, Cs, R, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_CASL_C_R_C (L, Cs, R, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_CAS_C_R_C (L, Cs, R, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDAPR_C_R_C (Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDAR_C_R_C (L, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDAXP_C_R_C (L, Ct2, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDAXR_C_R_C (L, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDNP_C_RIB_C (L, imm7, Ct2, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = Some (RegAuth (uint Cn))"
+| "instr_load_auth (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = Some (RegAuth (uint Cn))"
+| "instr_load_auth (Instr_LDP_CC_RIAW_C (L, imm7, Ct2, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDP_C_RIB_C (L, imm7, Ct2, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDP_C_RIBW_C (L, imm7, Ct2, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDR_C_I_C (imm17, Ct)) = Some (PCCAuth)"
+| "instr_load_auth (Instr_LDR_C_RIAW_C (opc, imm9, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDR_C_RIBW_C (opc, imm9, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDR_C_RUIB_C (L, imm12, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDR_C_RRB_C (opc, Rm, sign, sz, S, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDTR_C_RIB_C (opc, imm9, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDUR_C_RI_C (opc, imm9, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDXP_C_R_C (L, Ct2, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDXR_C_R_C (L, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_SWPAL_CC_R_C (A, R, Cs, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_SWPA_CC_R_C (A, R, Cs, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_SWPL_CC_R_C (A, R, Cs, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_SWP_CC_R_C (A, R, Cs, Rn, Ct)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth (Instr_LDCT_R_R (opc, Rn, Rt)) = Some (BaseRegAuth (uint Rn))"
+| "instr_load_auth _ = None"
 
-definition cap_reg_in_load_auths :: "bool \<Rightarrow> int \<Rightarrow> load_auth set \<Rightarrow> bool" where
-  "cap_reg_in_load_auths c64 n auths \<equiv> (RegAuth n \<in> auths \<or> (if c64 then BaseRegAuth n \<in> auths else AltBaseRegAuth n \<in> auths))"
+definition cap_reg_is_load_auth :: "bool \<Rightarrow> int \<Rightarrow> load_auth option \<Rightarrow> bool" where
+  "cap_reg_is_load_auth c64 n auth \<equiv> (auth = Some (RegAuth n) \<or> auth = Some (if c64 then BaseRegAuth n else AltBaseRegAuth n))"
 
-definition ddc_in_load_auths :: "bool \<Rightarrow> load_auth set \<Rightarrow> bool" where
-  "ddc_in_load_auths c64 auths \<equiv> (\<exists>n. if c64 then AltBaseRegAuth n \<in> auths else BaseRegAuth n \<in> auths)"
+definition ddc_is_load_auth :: "bool \<Rightarrow> load_auth option \<Rightarrow> bool" where
+  "ddc_is_load_auth c64 auth \<equiv> (\<exists>n. auth = Some (if c64 then AltBaseRegAuth n else BaseRegAuth n))"
 
-definition pcc_in_load_auths :: "load_auth set \<Rightarrow> bool" where
-  "pcc_in_load_auths auths \<equiv> PCCAuth \<in> auths"
+definition pcc_is_load_auth :: "load_auth option \<Rightarrow> bool" where
+  "pcc_is_load_auth auth \<equiv> (auth = Some PCCAuth)"
 
 definition R_name :: "int \<Rightarrow> string set" where
   "R_name n \<equiv>
@@ -1459,69 +1475,50 @@ lemma instr_of_trace_Some_iff:
   "instr_of_trace t = Some instr \<longleftrightarrow> (\<exists>t'. t = E_write_reg ''__ThisInstrAbstract'' (Regval_instr_ast instr) # t')"
   by (cases t rule: instr_of_trace.cases) auto
 
-definition trace_invokes_indirect_regs :: "register_value trace \<Rightarrow> int set" where
-  "trace_invokes_indirect_regs t \<equiv>
-    (case instr_of_trace t of Some instr \<Rightarrow> instr_invokes_indirect_regs instr | None \<Rightarrow> {})"
+definition trace_invokes_indirect_cap_from_reg :: "register_value trace \<Rightarrow> int option" where
+  "trace_invokes_indirect_cap_from_reg t \<equiv>
+    (Option.bind (instr_of_trace t) instr_invokes_indirect_cap_from_reg)"
 
-definition trace_invokes_indirect_caps :: "register_value trace \<Rightarrow> Capability set" where
-  "trace_invokes_indirect_caps t =
+definition trace_indirect_sentry_type :: "register_value trace \<Rightarrow> indirect_sentry_type option" where
+  "trace_indirect_sentry_type t \<equiv>
+    (Option.bind (instr_of_trace t) instr_indirect_sentry_type)"
+
+definition trace_invokes_indirect_sentries :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_indirect_sentries t \<equiv>
      {CapUnseal c' | c'.
-        \<exists>n r.
-         n \<in> trace_invokes_indirect_regs t \<and> r \<in> R_name n \<and>
+        \<exists>n r sentry_type.
+         trace_invokes_indirect_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
-         CapIsTagSet c' \<and> CapIsSealed c' \<and> is_indirect_sentry c'}"
+         CapIsTagSet c' \<and> CapIsSealed c' \<and>
+         trace_indirect_sentry_type t = Some sentry_type \<and>
+         get_indirect_sentry_type_method CC c' = Some sentry_type}"
 
-abbreviation invokes_indirect_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
-  "invokes_indirect_caps instr t \<equiv> trace_invokes_indirect_caps t"
+definition instr_invokes_indirect_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "instr_invokes_indirect_caps _ t \<equiv> trace_invokes_indirect_sentries t"
 
-definition trace_is_indirect_branch :: "register_value trace \<Rightarrow> bool" where
-  "trace_is_indirect_branch t \<equiv> (\<exists>instr. instr_of_trace t = Some instr \<and> instr_is_indirect_branch instr)"
+definition trace_indirect_sentry_code_offset :: "register_value trace \<Rightarrow> 64 word option" where
+  "trace_indirect_sentry_code_offset t \<equiv>
+     (Option.bind (instr_of_trace t) instr_indirect_sentry_code_offset)"
 
-definition trace_invokes_regs :: "register_value trace \<Rightarrow> int set" where
-  "trace_invokes_regs t \<equiv>
-    (case instr_of_trace t of Some instr \<Rightarrow> instr_invokes_regs instr | None \<Rightarrow> {})"
+definition trace_invokes_code_cap_from_reg :: "register_value trace \<Rightarrow> int option" where
+  "trace_invokes_code_cap_from_reg t \<equiv> Option.bind (instr_of_trace t) instr_invokes_code_cap_from_reg"
 
-definition trace_invokes_mem_caps :: "register_value trace \<Rightarrow> Capability set" where
-  "trace_invokes_mem_caps t \<equiv>
-     (if trace_is_indirect_branch t
-      then {c. \<exists>rk addr sz bytes tag c'.
-                 E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
-                 cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
-                 c \<in> mem_branch_caps c'}
-      else {})"
-
-abbreviation invokes_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
-  "invokes_mem_caps instr t \<equiv> trace_invokes_mem_caps t"
-
-definition trace_invokes_caps :: "register_value trace \<Rightarrow> Capability set" where
-  "trace_invokes_caps t =
-     {c. \<exists>n r c'.
-          n \<in> trace_invokes_regs t \<and> r \<in> R_name n \<and>
-          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
-          CapIsTagSet c' \<and> CapIsSealed c' \<and>
-          c \<in> branch_caps (CapUnseal c')}
-     \<union> invokes_mem_caps instr t"
-
-abbreviation invokes_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
-  "invokes_caps instr t \<equiv> trace_invokes_caps t"
+definition trace_invokes_data_cap_from_reg :: "register_value trace \<Rightarrow> int option" where
+  "trace_invokes_data_cap_from_reg t \<equiv> Option.bind (instr_of_trace t) instr_invokes_data_cap_from_reg"
 
 definition trace_is_in_c64 :: "register_value trace \<Rightarrow> bool" where
   "trace_is_in_c64 t \<equiv> (\<exists>pstate. E_read_reg ''PSTATE'' (Regval_ProcState pstate) \<in> set t \<and> ProcState_C64 pstate = 1)"
 
-definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth set" where
-  "trace_load_auths t \<equiv>
-     (case instr_of_trace t of Some instr \<Rightarrow> instr_load_auths instr | None \<Rightarrow> {})"
+definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth option" where
+  "trace_load_auths t \<equiv> Option.bind (instr_of_trace t) instr_load_auth"
 
-definition trace_uses_mem_caps :: "register_value trace \<Rightarrow> bool" where
+definition trace_uses_mem_caps :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
   "trace_uses_mem_caps t \<equiv>
      (\<exists>auth r c.
-        auth \<in> trace_load_auths t \<and>
-        r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
-        E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
+        trace_load_auths (trace t) = Some auth \<and>
+        r \<in> load_auth_reg_names (trace_is_in_c64 (trace t)) auth \<and>
+        E_read_reg r (Regval_bitvector_129_dec c) \<in> set (trace t) \<and>
         cap_permits CAP_PERM_LOAD_CAP c)"
-
-abbreviation uses_mem_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
-  "uses_mem_caps instr t \<equiv> trace_uses_mem_caps t"
 
 definition trace_has_system_reg_access :: "register_value trace \<Rightarrow> bool" where
   "trace_has_system_reg_access t \<equiv>
@@ -1531,11 +1528,16 @@ definition trace_has_system_reg_access :: "register_value trace \<Rightarrow> bo
 definition instrs_of_exp :: "(register_value, 'a, 'e) monad \<Rightarrow> instr_ast set" where
   "instrs_of_exp m \<equiv> {instr. \<exists>t m'. (m, t, m') \<in> Traces \<and> instr_of_trace t = Some instr}"
 
-definition exp_invokes_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
-  "exp_invokes_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. instr_invokes_regs i"
+(* TODO
 
-definition exp_invokes_indirect_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
-  "exp_invokes_indirect_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. instr_invokes_indirect_regs i"
+definition exp_invokes_code_caps_from_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
+  "exp_invokes_code_caps_from_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. set_option (instr_invokes_code_cap_from_reg i)"
+
+definition exp_invokes_data_caps_from_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
+  "exp_invokes_data_caps_from_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. set_option (instr_invokes_data_cap_from_reg i)"
+
+definition exp_invokes_indirect_caps_from_regs :: "(register_value, 'a, 'e) monad \<Rightarrow> int set" where
+  "exp_invokes_indirect_caps_from_regs m \<equiv> \<Union>i \<in> instrs_of_exp m. set_option (instr_invokes_indirect_cap_from_reg i)"
 
 definition exp_invokes_indirect_caps :: "(register_value, 'a, 'e) monad \<Rightarrow> Capability set" where
   "exp_invokes_indirect_caps m \<equiv> {c. \<exists>t m'. (m, t, m') \<in> Traces \<and> c \<in> trace_invokes_indirect_caps t}"
@@ -1550,7 +1552,7 @@ lemma exp_invokes_indirect_caps_empty_if_regs_empty[simp]:
   shows "exp_invokes_indirect_caps (write_reg ThisInstrAbstract_ref instr \<bind> f) = {}"
   using assms
   unfolding exp_invokes_indirect_caps_def trace_invokes_indirect_caps_def trace_invokes_indirect_regs_def write_reg_def hasTrace_iff_Traces_final
-  by (auto simp: instr_of_trace_Some_iff register_defs elim!: Write_reg_TracesE)
+  by (auto simp: instr_of_trace_Some_iff register_defs elim!: Write_reg_TracesE)*)
 
 lemma instr_of_trace_bind_write_reg_ThisInstrAbstract:
   assumes "hasTrace t (write_reg ThisInstrAbstract_ref instr \<bind> f)"
@@ -1583,11 +1585,11 @@ fun is_isa_exception :: "exception \<Rightarrow> bool" where
   "is_isa_exception (Error_ExceptionTaken u) = True"
 | "is_isa_exception _ = False"
 
-definition instr_raises_ex :: "instr \<Rightarrow> register_value trace \<Rightarrow> bool" where
-  "instr_raises_ex instr t \<equiv> runTrace t (instr_sem instr) = Some (Exception (Error_ExceptionTaken ()))"
-
-definition fetch_raises_ex :: "register_value trace \<Rightarrow> bool" where
-  "fetch_raises_ex t \<equiv> runTrace t instr_fetch = Some (Exception (Error_ExceptionTaken ()))"
+definition trace_raises_ex :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
+  "trace_raises_ex t \<equiv>
+     (case trace_kind t of
+        Instr_Trace instr \<Rightarrow> runTrace (trace t) (instr_sem instr) = Some (Exception (Error_ExceptionTaken ()))
+      | Fetch_Trace \<Rightarrow> runTrace (trace t) instr_fetch = Some (Exception (Error_ExceptionTaken ())))"
 
 text \<open>Over-approximation of allowed exception targets
 TODO: Restrict to valid branch targets of KCC caps with (small) offset?\<close>
@@ -1618,7 +1620,7 @@ fun is_mem_event :: "'regval event \<Rightarrow> bool" where
 locale Morello_ISA =
   Wellformed_Traces wellformed_ev is_isa_exception
   for wellformed_ev :: "register_value event \<Rightarrow> bool" +
-  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> register_value trace \<Rightarrow> nat option"
+  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" \<comment> \<open>assuming fixed translation throughout trace; TODO: Move Morello_Fixed_Address_Translation locale up\<close>
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     and UNKNOWN_caps :: "Capability set"
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
@@ -1640,6 +1642,51 @@ abbreviation "translation_control_regs \<equiv>
    ''MPAMVPM4_EL2'', ''MPAMVPM5_EL2'', ''MPAMVPM6_EL2'', ''MPAMVPM7_EL2'',
    ''MPAMHCR_EL2''}"
 
+definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_indirectly_invokes_code_caps t \<equiv>
+     (case trace_indirect_sentry_code_offset t of
+        Some offset \<Rightarrow>
+          {c. \<exists>rk addr sz bytes tag sentry c'.
+                 sentry \<in> trace_invokes_indirect_sentries t \<and>
+                 translate_address (unat (CapGetValue sentry + offset)) Load = Some addr \<and>
+                 E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
+                 cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
+                 c \<in> mem_branch_caps c'}
+      | None \<Rightarrow> {})"
+
+definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_indirectly_invokes_data_caps t \<equiv>
+     (case trace_indirect_sentry_type t of
+        Some Points_to_Pair \<Rightarrow>
+          {c. \<exists>rk addr sz bytes tag sentry c'.
+                 sentry \<in> trace_invokes_indirect_sentries t \<and>
+                 translate_address (unat (CapGetValue sentry)) Load = Some addr \<and>
+                 E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
+                 cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
+                 c \<in> mem_branch_caps c'}
+      | Some Points_to_PCC \<Rightarrow>
+          \<comment> \<open>Indirect sentry becomes data capability\<close>
+          trace_invokes_indirect_sentries t
+      | None \<Rightarrow> {})"
+
+definition instr_invokes_code_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "instr_invokes_code_caps instr t =
+     {c. \<exists>n r c'.
+          trace_invokes_code_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
+          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
+          CapIsTagSet c' \<and> CapIsSealed c' \<and>
+          c \<in> branch_caps (CapUnseal c')}
+     \<union> trace_indirectly_invokes_code_caps t"
+
+definition instr_invokes_data_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "instr_invokes_data_caps instr t =
+     {c. \<exists>n r c'.
+          trace_invokes_data_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
+          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
+          CapIsTagSet c' \<and> CapIsSealed c' \<and>
+          c \<in> branch_caps (CapUnseal c')}
+     \<union> trace_indirectly_invokes_data_caps t"
+
 definition "ISA \<equiv>
   \<lparr>isa.instr_sem = instr_sem,
    isa.instr_fetch = instr_fetch,
@@ -1648,18 +1695,20 @@ definition "ISA \<equiv>
    KCC = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    IDC = {''_R29''},
    isa.caps_of_regval = caps_of_regval,
-   isa.uses_mem_caps = uses_mem_caps,
-   isa.invokes_indirect_caps = invokes_indirect_caps,
-   isa.invokes_caps = invokes_caps,
-   isa.instr_raises_ex = instr_raises_ex,
-   isa.fetch_raises_ex = fetch_raises_ex,
+   isa.trace_uses_mem_caps = trace_uses_mem_caps,
+   isa.instr_invokes_indirect_caps = instr_invokes_indirect_caps,
+   isa.instr_invokes_code_caps = instr_invokes_code_caps,
+   isa.instr_invokes_data_caps = instr_invokes_data_caps,
+   isa.indirect_pair_sentry_code_offset = 16,
+   isa.indirect_pair_sentry_data_offset = 0,
+   isa.trace_raises_ex = trace_raises_ex,
    isa.exception_targets = exception_targets,
    read_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    write_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs,
    read_exception_regs = {''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    write_exception_regs = {},
    isa.is_translation_event = is_translation_event,
-   isa.translate_address = translate_address\<rparr>"
+   isa.translate_address = \<lambda>vaddr acctype _. translate_address vaddr acctype\<rparr>"
 
 sublocale Capability_Invariant_ISA CC ISA UNKNOWN_caps cap_invariant ..
 
@@ -1677,12 +1726,14 @@ lemma ISA_simps[simp]:
   "isa.caps_of_regval ISA = caps_of_regval"
   "isa.is_translation_event ISA = is_translation_event"
   "isa.exception_targets ISA = exception_targets"
-  "isa.instr_raises_ex ISA instr t = instr_raises_ex instr t"
-  "isa.uses_mem_caps ISA instr t = trace_uses_mem_caps t"
-  "isa.invokes_caps ISA instr t = trace_invokes_caps t"
-  "isa.invokes_indirect_caps ISA instr t = trace_invokes_indirect_caps t"
-  "isa.fetch_raises_ex ISA t = fetch_raises_ex t"
-  "isa.translate_address ISA vaddr load t = translate_address vaddr load t"
+  "\<And>t. isa.trace_raises_ex ISA t = trace_raises_ex t"
+  "\<And>t. isa.trace_uses_mem_caps ISA t = trace_uses_mem_caps t"
+  "\<And>instr t. isa.instr_invokes_code_caps ISA instr t = instr_invokes_code_caps instr t"
+  "\<And>instr t. isa.instr_invokes_data_caps ISA instr t = instr_invokes_data_caps instr t"
+  "\<And>instr t. isa.instr_invokes_indirect_caps ISA instr t = instr_invokes_indirect_caps instr t"
+  "isa.indirect_pair_sentry_code_offset ISA = 16"
+  "isa.indirect_pair_sentry_data_offset ISA = 0"
+  "\<And>vaddr acctype t. isa.translate_address ISA vaddr acctype t = translate_address vaddr acctype"
   by (auto simp: ISA_def)
 
 lemma address_tag_aligned_iff_aligned_16[simp]:
@@ -1954,7 +2005,7 @@ lemma AArch64_TranslateAddressForAtomicAccess_translate_address[simp]:
   using assms
   by (auto simp: AArch64_TranslateAddressForAtomicAccess_def IsFault_def elim!: Run_bindE Run_ifE Run_letE)
 
-sublocale Morello_ISA where translate_address = "\<lambda>addr _ _. translate_address addr"
+sublocale Morello_ISA where translate_address = "\<lambda>addr _. translate_address addr"
   using no_cap_load_translation_events AArch64_TakeException_raises_isa_ex
   by unfold_locales auto
 
