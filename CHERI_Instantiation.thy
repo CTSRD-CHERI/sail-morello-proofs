@@ -1342,12 +1342,15 @@ fun instr_indirect_sentry_type :: "instr_ast \<Rightarrow> indirect_sentry_type 
 | "instr_indirect_sentry_type (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = Some Points_to_Pair"
 | "instr_indirect_sentry_type _ = None"
 
-fun instr_indirect_sentry_code_offset :: "instr_ast \<Rightarrow> 64 word option" where
+(* TODO: Precisely characterising which addresses code capabilities get loaded from during
+   indirect sentry invocation requires threading the offset through the proof *)
+
+(*fun instr_indirect_sentry_code_offset :: "instr_ast \<Rightarrow> 64 word option" where
   "instr_indirect_sentry_code_offset (Instr_BLR_CI_C (imm7, Cn)) = Some (scast imm7 << 4)"
 | "instr_indirect_sentry_code_offset (Instr_BR_CI_C (imm7, Cn)) = Some (scast imm7 << 4)"
 | "instr_indirect_sentry_code_offset (Instr_LDPBLR_C_C_C (opc, Cn, Ct)) = Some 16"
 | "instr_indirect_sentry_code_offset (Instr_LDPBR_C_C_C (opc, Cn, Ct)) = Some 16"
-| "instr_indirect_sentry_code_offset _ = None"
+| "instr_indirect_sentry_code_offset _ = None"*)
 
 datatype load_auth =
   RegAuth int
@@ -1496,9 +1499,9 @@ definition trace_invokes_indirect_sentries :: "register_value trace \<Rightarrow
 definition instr_invokes_indirect_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "instr_invokes_indirect_caps _ t \<equiv> trace_invokes_indirect_sentries t"
 
-definition trace_indirect_sentry_code_offset :: "register_value trace \<Rightarrow> 64 word option" where
+(*definition trace_indirect_sentry_code_offset :: "register_value trace \<Rightarrow> 64 word option" where
   "trace_indirect_sentry_code_offset t \<equiv>
-     (Option.bind (instr_of_trace t) instr_indirect_sentry_code_offset)"
+     (Option.bind (instr_of_trace t) instr_indirect_sentry_code_offset)"*)
 
 definition trace_invokes_code_cap_from_reg :: "register_value trace \<Rightarrow> int option" where
   "trace_invokes_code_cap_from_reg t \<equiv> Option.bind (instr_of_trace t) instr_invokes_code_cap_from_reg"
@@ -1644,6 +1647,19 @@ abbreviation "translation_control_regs \<equiv>
 
 definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_indirectly_invokes_code_caps t \<equiv>
+     {c. \<exists>rk vaddr paddr sz bytes tag sentry c'.
+            sz = nat CAPABILITY_DBYTES \<and>
+            sentry \<in> trace_invokes_indirect_sentries t \<and>
+            set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>
+            translate_address vaddr Load = Some paddr \<and>
+            E_read_memt rk paddr sz (bytes, tag) \<in> set t \<and>
+            cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
+            c \<in> mem_branch_caps c'}"
+
+(* TODO: Version of indirectly invoked code caps that pins down the memory address of the load exactly *)
+
+(*definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_indirectly_invokes_code_caps t \<equiv>
      (case trace_indirect_sentry_code_offset t of
         Some offset \<Rightarrow>
           {c. \<exists>rk addr sz bytes tag sentry c'.
@@ -1652,13 +1668,14 @@ definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightar
                  E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
                  cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
                  c \<in> mem_branch_caps c'}
-      | None \<Rightarrow> {})"
+      | None \<Rightarrow> {})"*)
 
 definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_indirectly_invokes_data_caps t \<equiv>
      (case trace_indirect_sentry_type t of
         Some Points_to_Pair \<Rightarrow>
           {c. \<exists>rk addr sz bytes tag sentry c'.
+                 sz = nat CAPABILITY_DBYTES \<and>
                  sentry \<in> trace_invokes_indirect_sentries t \<and>
                  translate_address (unat (CapGetValue sentry)) Load = Some addr \<and>
                  E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
