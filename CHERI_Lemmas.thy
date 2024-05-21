@@ -152,7 +152,7 @@ lemmas VA_derivable_combinators[derivable_caps_combinators] =
 
 end
 
-definition "determ_instrs_of_exp m \<equiv>
+(*definition "determ_instrs_of_exp m \<equiv>
   (\<forall>t. hasTrace t m \<longrightarrow> instrs_of_exp m = set_option (instr_of_trace t))"
 
 lemma hasTrace_determ_instrs_eqs:
@@ -166,7 +166,7 @@ lemma hasTrace_determ_instrs_eqs:
   unfolding exp_invokes_indirect_regs_def trace_invokes_indirect_regs_def
   unfolding exp_load_auths_def trace_load_auths_def
   unfolding trace_is_indirect_branch_def
-  by (auto simp: determ_instrs_of_exp_def split: option.splits)
+  by (auto simp: determ_instrs_of_exp_def split: option.splits)*)
 
 lemma T_bind_leftI:
   assumes "(m, e, m') \<in> T"
@@ -199,9 +199,14 @@ lemma instrs_of_exp_bind_no_writes:
   by (fastforce simp: instrs_of_exp_def instr_of_trace_append_no_writes no_reg_writes_to_def
                 intro: Traces_bind_leftI elim!: bind_Traces_cases)
 
+lemma instrs_of_exp_instr_of_exp:
+  assumes "instrs_of_exp m1 = instrs_of_exp m2"
+  shows "instr_of_exp m1 = instr_of_exp m2"
+  by (use assms in \<open>auto simp: instr_of_exp_def\<close>)
+
 lemma determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract:
-  "determ_instrs_of_exp (write_reg ThisInstrAbstract_ref instr \<bind> f)"
-  by (auto simp: determ_instrs_of_exp_def instr_of_trace_bind_write_reg_ThisInstrAbstract)
+  "determ_instr_exp (write_reg ThisInstrAbstract_ref instr \<bind> f)"
+  by (auto simp: determ_instr_exp_def)
 
 lemma no_reg_writes_to_instr_of_trace_None:
   assumes "hasTrace t m" and "no_reg_writes_to {''__ThisInstrAbstract''} m"
@@ -211,15 +216,15 @@ lemma no_reg_writes_to_instr_of_trace_None:
 
 lemma no_reg_writes_to_determ_instrs_of_exp:
   assumes "no_reg_writes_to {''__ThisInstrAbstract''} m"
-  shows "determ_instrs_of_exp m"
+  shows "determ_instr_exp m"
   using assms
-  by (auto simp: determ_instrs_of_exp_def no_reg_writes_to_instrs_of_exp no_reg_writes_to_instr_of_trace_None)
+  by (auto simp: determ_instr_exp_def)
 
 (* TODO: Move *)
 lemma if_split_no_asm: "P x \<Longrightarrow> P y \<Longrightarrow> P (if b then x else y)"
   by auto
 
-lemmas determ_instrs_of_exp_if_split_no_asm = if_split_no_asm[where P = determ_instrs_of_exp]
+lemmas determ_instr_exp_if_split_no_asm = if_split_no_asm[where P = determ_instr_exp]
 
 lemma hasTrace_intros:
   "Run m t a \<Longrightarrow> hasTrace t m"
@@ -228,56 +233,30 @@ lemma hasTrace_intros:
   by (auto simp: hasTrace_iff_Traces_final hasException_iff_Traces_Exception hasFailure_iff_Traces_Fail)
 
 lemma determ_instrs_of_exp_bind_no_reg_writes:
-  assumes "determ_instrs_of_exp m" and"\<forall>a. no_reg_writes_to {''__ThisInstrAbstract''} (f a)"
-  shows "determ_instrs_of_exp (bind m f)"
-proof (unfold determ_instrs_of_exp_def, intro allI impI)
-  fix t
-  assume "hasTrace t (m \<bind> f)"
-  then show "instrs_of_exp (m \<bind> f) = set_option (instr_of_trace t)"
-  proof (cases rule: hasTrace_bind_cases)
-    case (Bind tm am tf)
-    then have "instr_of_trace (tm @ tf) = instr_of_trace tm"
-      using assms(2)
-      by (intro instr_of_trace_append_no_writes)
-         (auto simp: no_reg_writes_to_def hasTrace_iff_Traces_final)
-    with assms Bind show ?thesis
-      by (auto simp: determ_instrs_of_exp_def instrs_of_exp_bind_no_writes hasTrace_intros)
-  next
-    case Fail
-    with assms show ?thesis
-      by (auto simp: determ_instrs_of_exp_def instrs_of_exp_bind_no_writes hasTrace_intros)
-  next
-    case Ex
-    with assms show ?thesis
-      by (auto simp: determ_instrs_of_exp_def instrs_of_exp_bind_no_writes hasTrace_intros)
-  qed
-qed
+  assumes "determ_instr_exp m" and"\<forall>a. no_reg_writes_to {''__ThisInstrAbstract''} (f a)"
+  shows "determ_instr_exp (bind m f)"
+  using assms
+  by (auto simp: determ_instr_exp_def write_reg_def)
 
 lemma trace_invokes_indirect_regs_None[simp]:
   assumes "instr_of_trace t = None"
-  shows "trace_invokes_indirect_regs t = {}"
+  shows "trace_invokes_indirect_cap_from_reg t = None"
   using assms
-  by (auto simp: trace_invokes_indirect_regs_def)
-
-lemma instr_trace_invokes_indirect_regs[simp]:
-  assumes "instr_of_trace t = Some instr"
-  shows "trace_invokes_indirect_regs t = instr_invokes_indirect_regs instr"
-  using assms
-  by (auto simp: trace_invokes_indirect_regs_def)
+  by (auto simp: trace_invokes_indirect_cap_from_reg_def)
 
 lemma trace_invokes_indirect_caps_no_regs[simp]:
-  assumes "trace_invokes_indirect_regs t = {}"
-  shows "trace_invokes_indirect_caps t = {}"
+  assumes "trace_invokes_indirect_cap_from_reg t = None"
+  shows "trace_invokes_indirect_sentries t = {}"
   using assms
-  by (auto simp: trace_invokes_indirect_caps_def)
+  by (auto simp: trace_invokes_indirect_sentries_def)
 
 context Morello_Axiom_Automaton
 begin
 
 lemma determ_instrs_of_exp_DecodeA64:
-  "determ_instrs_of_exp (DecodeA64 pc opcode)"
+  "determ_instr_exp (DecodeA64 pc opcode)"
   by (unfold DecodeA64_def Let_def)
-     (intro determ_instrs_of_exp_if_split_no_asm determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract no_reg_writes_to_determ_instrs_of_exp;
+     (intro determ_instr_exp_if_split_no_asm determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract no_reg_writes_to_determ_instrs_of_exp;
             no_reg_writes_toI)
 
 (*lemma determ_instrs_of_exp_DecodeExecute:
@@ -285,17 +264,24 @@ lemma determ_instrs_of_exp_DecodeA64:
   by (cases enc; auto simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32_def determ_instrs_of_exp_DecodeA64 no_reg_writes_to_determ_instrs_of_exp)*)
 
 lemma determ_instrs_instr_sem:
-  "determ_instrs_of_exp (instr_sem instr)"
+  "determ_instr_exp (instr_sem instr)"
   unfolding instr_sem_def Step_PC_def
   by (intro determ_instrs_of_exp_DecodeA64[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)
 
-lemma instrs_eq_instr_exp_assms_iff:
+(*lemma instrs_eq_instr_exp_assms_iff:
   assumes "instrs_of_exp m1 = instrs_of_exp m2"
   shows "instr_exp_assms m1 \<longleftrightarrow> instr_exp_assms m2"
   using assms
   unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def
   unfolding exp_invokes_regs_def exp_invokes_indirect_regs_def exp_load_auths_def
-  by auto
+  by auto*)
+
+lemma instr_eq_instr_exp_assms_iff:
+  assumes "instr_of_exp m1 = instr_of_exp m2"
+  shows "instr_exp_assms m1 \<longleftrightarrow> instr_exp_assms m2"
+  using assms
+  unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def
+  by (cases "instr_of_exp m2") (auto simp: exp_invokes_indirect_cap_from_reg_def exp_load_auth_def)
 
 (*lemma instr_exp_assms_TryInstructionExecute_iff:
   "instr_exp_assms (TryInstructionExecute enc instr) \<longleftrightarrow> instr_exp_assms (DecodeExecute enc instr)"
@@ -306,7 +292,7 @@ lemma instrs_eq_instr_exp_assms_iff:
 lemma instr_exp_assms_instr_sem_iff:
   "instr_exp_assms (instr_sem instr) \<longleftrightarrow> instr_exp_assms (DecodeA64 0 instr)"
   unfolding instr_sem_def Step_PC_def bind_assoc
-  by (intro instrs_eq_instr_exp_assms_iff instrs_of_exp_bind_no_writes allI) (no_reg_writes_toI)
+  by (intro instr_eq_instr_exp_assms_iff instrs_of_exp_bind_no_writes[THEN instrs_of_exp_instr_of_exp] allI) (no_reg_writes_toI)
 
 end
 
@@ -362,17 +348,7 @@ definition enabled_pcc :: "Capability \<Rightarrow> (Capability, register_value)
   "enabled_pcc c s \<equiv>
      c \<in> derivable_caps s \<or>
      (c \<in> exception_targets (read_from_KCC s) \<and> ex_traces) \<or>
-     (c \<in> invoked_caps \<and>
-      ((\<exists>c' \<in> derivable_caps s.
-          CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB \<and>
-          leq_cap CC c (CapUnseal c')) \<or>
-       (\<exists>cc cd.
-          cc \<in> derivable_caps s \<and> cd \<in> derivable_caps s \<and>
-          invokable CC cc cd \<and>
-          leq_cap CC c (CapUnseal cc)) \<or>
-       (\<exists>c' \<in> derivable_mem_caps s.
-          invokes_indirect_caps \<and> load_caps_permitted \<and>
-          (leq_cap CC c c' \<or> leq_cap CC c (CapUnseal c') \<and> CapIsTagSet c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB))))"
+     is_invoked_code_cap c s"
 
 lemma derivable_mem_caps_run_imp:
   assumes "c \<in> derivable_mem_caps s"
@@ -442,13 +418,35 @@ lemma exception_targets_read_from_KCC_run_imp[derivable_caps_runI]:
   using assms exception_targets_mono[OF read_from_KCC_mono]
   by auto
 
+lemma is_invoked_run_mono:
+  "is_invoked_pair_code_cap c s \<Longrightarrow> is_invoked_pair_code_cap c (run s t)"
+  "is_invoked_pair_data_cap c s \<Longrightarrow> is_invoked_pair_data_cap c (run s t)"
+  "is_invoked_direct_sentry c s \<Longrightarrow> is_invoked_direct_sentry c (run s t)"
+  "is_invoked_indirect_sentry c type s \<Longrightarrow> is_invoked_indirect_sentry c type (run s t)"
+  "is_indirectly_invoked_cap sentry sentry_type offset c s \<Longrightarrow> is_indirectly_invoked_cap sentry sentry_type offset c (run s t)"
+  "is_indirectly_invoked_single_code_cap c s \<Longrightarrow> is_indirectly_invoked_single_code_cap c (run s t)"
+  "is_indirectly_invoked_single_data_cap c s \<Longrightarrow> is_indirectly_invoked_single_data_cap c (run s t)"
+  "is_indirectly_invoked_pair_code_cap c s \<Longrightarrow> is_indirectly_invoked_pair_code_cap c (run s t)"
+  "is_indirectly_invoked_pair_data_cap c s \<Longrightarrow> is_indirectly_invoked_pair_data_cap c (run s t)"
+  using accessed_caps_run_mono[of s t]
+  unfolding is_indirectly_invoked_pair_code_cap_def is_indirectly_invoked_pair_data_cap_def
+  unfolding is_indirectly_invoked_single_code_cap_def is_indirectly_invoked_single_data_cap_def
+  unfolding is_indirectly_invoked_cap_def
+  unfolding is_invoked_direct_sentry_def is_invoked_indirect_sentry_def
+  unfolding is_invoked_pair_code_cap_def is_invoked_pair_data_cap_def
+  by (auto simp: mem_cap_loads_run_eq; fastforce)+
+
+lemma is_invoked_code_cap_run_mono:
+  "is_invoked_code_cap c s \<Longrightarrow> is_invoked_code_cap c (run s t)"
+  by (auto simp: is_invoked_code_cap_def intro: is_invoked_run_mono)
+
 lemma enabled_pcc_run_imp:
   assumes "enabled_pcc c s"
   shows "enabled_pcc c (run s t)"
   using assms derivable_caps_run_imp[of _ s t] derivable_mem_caps_run_imp[of _ s t]
   using exception_targets_read_from_KCC_run_imp
   unfolding enabled_pcc_def
-  by fastforce
+  by (auto intro: is_invoked_code_cap_run_mono)
 
 lemma enabled_branch_target_run_imp[derivable_caps_runI]:
   assumes "enabled_branch_target c s"
@@ -456,24 +454,71 @@ lemma enabled_branch_target_run_imp[derivable_caps_runI]:
   using assms
   by (auto simp: enabled_branch_target_def intro: derivable_caps_run_imp enabled_pcc_run_imp)
 
-lemma enabled_branch_target_CapUnseal:
+lemma C_read_accessed_reg_caps:
+  assumes "Run (C_read n) t c"
+  obtains "\<forall>s. ({''_R29''} \<subseteq> accessible_regs s \<or> n \<noteq> 29) \<longrightarrow> c \<in> accessed_reg_caps (run s t)" | "\<not>CapIsTagSet c"
+  using assms
+  by (elim Run_C_readE) (auto simp: R_name_def accessible_regs_def CapNull_def split: if_splits)
+
+lemma C_read_accessed_caps:
+  assumes "Run (C_read n) t c"
+  obtains "\<forall>s. ({''_R29''} \<subseteq> accessible_regs s \<or> n \<noteq> 29) \<longrightarrow> c \<in> accessed_caps (load_caps_permitted \<and> \<not>invokes_indirect_caps) (run s t)" | "\<not>CapIsTagSet c"
+  by (use assms in \<open>cases rule: C_read_accessed_reg_caps\<close>) (auto simp: accessed_caps_def)
+
+lemma CSP_read_accessed_reg_caps:
+  assumes "Run (CSP_read u) t c"
+  obtains "\<forall>s. c \<in> accessed_reg_caps (run s t)" | "\<not>CapIsTagSet c"
+  using assms
+  unfolding CSP_read_def
+  by (elim Run_bindE Run_if_ELs_cases Run_ifE Run_letE Run_read_regE)
+     (auto simp: register_defs accessible_regs_def)
+
+lemma CSP_read_accessed_caps:
+  assumes "Run (CSP_read u) t c"
+  obtains "\<forall>s. c \<in> accessed_caps (load_caps_permitted \<and> \<not>invokes_indirect_caps) (run s t)" | "\<not>CapIsTagSet c"
+  by (use assms in \<open>cases rule: CSP_read_accessed_reg_caps\<close>) (auto simp: accessed_caps_def)
+
+lemma C_read_direct_sentry_enabled_branch_target:
+  assumes "invoked_code_reg = Some n"
+    and "Run (C_read n) t c" and "invocation_trace_assms t"
+    and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB"
+    and "n = 29 \<longrightarrow> {''_R29''} \<subseteq> accessible_regs s"
+  shows "enabled_branch_target (CapUnseal c) (run s t)"
+proof (intro enabled_branch_targetI impI ballI)
+  fix c'
+  assume c: "CapIsTagSet (CapUnseal c) \<and> \<not> CapIsSealed (CapUnseal c)"
+    and c': "c' \<in> branch_caps (CapUnseal c)"
+  have "branch_caps (CapUnseal c) \<subseteq> invoked_code_caps"
+    using assms c
+    by (elim C_read_branch_caps_invoked_code_cap) (auto simp: CapIsSealed_def)
+  moreover have "c \<in> accessed_caps (load_caps_permitted \<and> invoked_indirect_caps = {}) (run s t)"
+    using assms c
+    by (elim C_read_accessed_caps) auto
+  ultimately have "is_invoked_direct_sentry c' (run s t)"
+    using assms c c' branch_caps_leq[OF c']
+    by (auto simp: is_invoked_direct_sentry_def CapIsSealed_def is_sentry_def)
+  then show "enabled_pcc c' (run s t)"
+    by (auto simp: enabled_pcc_def is_invoked_code_cap_def)
+qed
+
+(*lemma enabled_branch_target_CapUnseal:
   assumes "c \<in> derivable_caps s"
     and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps"
   shows "enabled_branch_target (CapUnseal c) s"
   using assms
   unfolding enabled_branch_target_def enabled_pcc_def
-  by (fastforce intro: branch_caps_leq)
+  by (fastforce intro: branch_caps_leq)*)
 
 lemma untagged_enabled_branch_target[simp]:
   "\<not>CapIsTagSet c \<longrightarrow> enabled_branch_target c s"
   by (auto simp: enabled_branch_target_def)
 
-lemma C_read_enabled_branch_target_CapUnseal[derivable_capsE]:
+(*lemma C_read_enabled_branch_target_CapUnseal[derivable_capsE]:
   assumes "Run (C_read n) t c" and "invocation_trace_assms t" and "{''_R29''} \<subseteq> accessible_regs s"
     and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> n \<in> invoked_regs"
   shows  "enabled_branch_target (CapUnseal c) (run s t)"
   using assms
-  by - (derivable_capsI intro: enabled_branch_target_CapUnseal simp: CapIsSealed_def)
+  by - (derivable_capsI intro: enabled_branch_target_CapUnseal simp: CapIsSealed_def)*)
 
 lemma enabled_branch_target_CapWithTagClear[derivable_capsI]:
   "enabled_branch_target (CapWithTagClear c) s"
@@ -596,13 +641,14 @@ qed
 
 lemma invokable_enabled_pccI:
   assumes "invokable CC cc cd"
-    and "cc \<in> derivable_caps s" and "cd \<in> derivable_caps s"
+    and "CapIsTagSet cc \<longrightarrow> cc \<in> accessed_reg_caps s"
+    and "CapIsTagSet cd \<longrightarrow> cd \<in> accessed_reg_caps s"
     and "leq_cap CC c (CapUnseal cc)"
-    and "c \<in> invoked_caps"
+    and "c \<in> invoked_code_caps"
   shows "enabled_pcc c s"
   using assms
-  unfolding enabled_pcc_def
-  by auto
+  unfolding enabled_pcc_def is_invoked_code_cap_def is_invoked_pair_code_cap_def
+  by (auto simp: accessed_caps_def invokable_def)
 
 lemma CapGetObjectType_CapWithTagClear_eq[simp]:
   "CapGetObjectType (CapWithTagClear c) = CapGetObjectType c"
@@ -612,14 +658,23 @@ lemma CapGetObjectType_if_CapWithTagClear_eq:
   "CapGetObjectType (if clear then CapWithTagClear c else c) = CapGetObjectType c"
   by auto
 
+lemma is_indirect_sentry_simps[simp]:
+  "is_indirect_sentry CC c \<longleftrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  "is_indirect_pcc_sentry CC c \<longleftrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_LB"
+  "is_indirect_pair_sentry CC c \<longleftrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_LPB"
+  unfolding is_indirect_sentry_def
+  unfolding is_indirect_pcc_sentry_def is_indirect_pair_sentry_def
+  by (auto simp: get_indirect_sentry_type_def CapIsSealed_def)
+
 lemma branch_sealed_pair_enabled_pcc:
   assumes "CapGetObjectType (if clear then CapWithTagClear cc else cc) = CapGetObjectType cd"
     and "CapIsTagSet cc" and "CapIsTagSet cd"
     and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
     and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cc" and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cd"
     and "CAP_MAX_FIXED_SEAL_TYPE < uint (CapGetObjectType cc)"
-    and "cc \<in> derivable_caps s" and "cd \<in> derivable_caps s"
-    and "branch_caps (CapUnseal cc) \<subseteq> invoked_caps"
+    and "cc \<in> accessed_reg_caps s"
+    and "cd \<in> accessed_reg_caps s"
+    and "branch_caps (CapUnseal cc) \<subseteq> invoked_code_caps"
   shows "\<forall>c' \<in> branch_caps (CapUnseal cc). enabled_pcc c' s"
   using assms
   unfolding CapGetObjectType_if_CapWithTagClear_eq
@@ -627,15 +682,15 @@ lemma branch_sealed_pair_enabled_pcc:
            intro!: branch_caps_leq invokable_enabled_pccI[of cc cd])
 
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
-  assumes "c \<in> invoked_caps" and "invokable CC cc cd"
+  assumes "c \<in> invoked_data_caps" and "invokable CC cc cd"
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
-    and "cc \<in> derivable (initial_caps \<union> accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
-    and "cd \<in> derivable (initial_caps \<union> accessed_caps (\<not>invokes_indirect_caps \<and> use_mem_caps) s)"
+    and "cc \<in> accessed_caps (use_mem_caps \<and> \<not>invokes_indirect_caps) s"
+    and "cd \<in> accessed_caps (use_mem_caps \<and> \<not>invokes_indirect_caps) s"
     and "name r \<in> IDC ISA - write_privileged_regs ISA"
     and "leq_cap CC c (unseal_method CC cd)"
   shows "traces_enabled (write_reg r v) s"
   using assms
-  by (intro traces_enabled_write_reg) auto
+  by (intro traces_enabled_write_reg) (auto simp: is_invoked_data_cap_def is_invoked_pair_data_cap_def)
 
 lemma traces_enabled_C_set_29_branch_sealed_pair:
   assumes "CapGetObjectType (if clear then CapWithTagClear cc else cc) = CapGetObjectType cd"
@@ -643,24 +698,28 @@ lemma traces_enabled_C_set_29_branch_sealed_pair:
     and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
     and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cc" and "cap_permits CAP_PERM_BRANCH_SEALED_PAIR cd"
     and "CAP_MAX_FIXED_SEAL_TYPE < uint (CapGetObjectType cc)"
-    and "cc \<in> derivable_caps s" and "cd \<in> derivable_caps s"
-    and "CapUnseal cd \<in> invoked_caps"
+    and "cc \<in> accessed_reg_caps s"
+    and "cd \<in> accessed_reg_caps s"
+    and "CapUnseal cd \<in> invoked_data_caps"
   shows "traces_enabled (C_set 29 (CapUnseal cd)) s"
   using assms
   unfolding CapGetObjectType_if_CapWithTagClear_eq
-  by (fastforce simp: C_set_def R_set_def derivable_caps_def invokable_def CapIsSealed_def is_sentry_def register_defs
-                intro: traces_enabled_write_IDC_CCall[of "CapUnseal cd" cc cd])
+  by (auto simp: C_set_def R_set_def invokable_def CapIsSealed_def is_sentry_def register_defs accessed_caps_def
+           intro!: traces_enabled_write_IDC_CCall[of "CapUnseal cd" cc cd])
 
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_sentry:
   assumes "c \<in> invoked_indirect_caps"
+    and "c \<in> invoked_data_caps"
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
-    and "cs \<in> derivable (initial_caps \<union> accessed_reg_caps s)"
-    and "is_indirect_sentry_method CC cs" and "is_sealed_method CC cs"
+    and "cs \<in> accessed_reg_caps s"
+    and "get_indirect_sentry_type_method CC cs = Some Points_to_PCC"
+    and "is_tagged_method CC cs" and "is_sealed_method CC cs"
     and "leq_cap CC c (unseal_method CC cs)"
     and "name r \<in> IDC ISA - write_privileged_regs ISA"
   shows "traces_enabled (write_reg r v) s"
   using assms
-  by (intro traces_enabled_write_reg) auto
+  by (intro traces_enabled_write_reg)
+     (auto simp: is_invoked_data_cap_def is_indirectly_invoked_single_data_cap_def is_invoked_indirect_sentry_def accessed_caps_def)
 
 lemma traces_enabled_C_set_29:
   assumes "c \<in> derivable_caps s"
@@ -676,16 +735,205 @@ lemma leq_cap_derivable_mem_caps:
   using assms
   by (auto simp: derivable_mem_caps_def leq_cap_def intro: derivable.Restrict)
 
-lemma CapSquashPostLoadCap_invoked_cap[derivable_capsE]:
+lemma CapSquashPostLoadCap_invoked_code_cap[derivable_capsE]:
   assumes "Run (CapSquashPostLoadCap c base) t c'"
-    and "CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_caps"
+    and "CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_code_caps"
     and "CapIsTagSet c'"
-  shows "c' \<in> invoked_caps"
+  shows "c' \<in> invoked_code_caps"
   using assms
   by (cases rule: CapSquashPostLoadCap_cases)
      (auto simp: mem_branch_caps_def branch_caps_def CapIsSealed_def split: if_splits)
 
-lemma traces_enabled_C_set_mem_cap:
+lemma CapSquashPostLoadCap_invoked_data_cap[derivable_capsE]:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "CapIsTagSet c \<longrightarrow> mem_data_caps c \<subseteq> invoked_data_caps"
+    and "CapIsTagSet c'"
+  shows "c' \<in> invoked_data_caps"
+  using assms
+  by (cases rule: CapSquashPostLoadCap_cases) (auto simp: mem_data_caps_def)
+
+definition
+  "is_indirectly_invoked_mem_pair_data_cap sentry c s \<equiv>
+   load_caps_permitted \<longrightarrow> is_indirectly_invoked_cap sentry Points_to_Pair (Some 0) c s \<and> mem_data_caps c \<subseteq> invoked_data_caps"
+
+fun indirect_code_cap_offset :: "indirect_sentry_type \<Rightarrow> nat option" where
+  "indirect_code_cap_offset Points_to_PCC = None"
+| "indirect_code_cap_offset Points_to_Pair = Some 16"
+
+definition
+  "is_indirectly_invoked_mem_code_cap sentry type c s \<equiv>
+   load_caps_permitted \<longrightarrow> is_indirectly_invoked_cap sentry type (indirect_code_cap_offset type) c s \<and> mem_branch_caps c \<subseteq> invoked_code_caps"
+
+definition
+  "is_invoked_indirect_sentry_for_addr sentry type addr offset s \<equiv>
+   is_invoked_indirect_sentry sentry type s \<and> (case offset of Some n \<Rightarrow> addr = CapGetValue sentry + of_nat n | None \<Rightarrow> True) \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry"
+(*   is_invoked_indirect_sentry sentry type s \<and> (case offset of Some n \<Rightarrow> addr = CapGetValue sentry + of_nat n \<and> aligned (unat (CapGetValue sentry)) 16 \<and> aligned n 16 | None \<Rightarrow> True) \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry" *)
+
+lemma
+  assumes "invoked_indirect_reg = Some n"
+  shows "is_invoked_indirect_sentry sentry type (run s t)"
+  oops
+
+(*lemma
+  fixes use_mem_caps
+  assumes "Run (CSP_read u) t c"
+    and "CapIsTagSet c"
+  shows "c \<in> accessed_caps use_mem_caps (run s t)"
+  using assms
+  apply (auto simp: CSP_read_def accessed_caps_def register_defs accessible_regs_def elim!: Run_bindE Run_if_ELs_cases Run_ifE Run_letE Run_read_regE)
+  oops
+
+  find_theorems "accessed_reg_caps (run _ _)"*)
+
+(* TODO: Replace in CHERI_Instantiation *)
+(* Or delete? *)
+(*lemma CSP_or_C_read_unseal_invoked_indirect_caps:
+  assumes "Run (if n = 31 then CheckSPAlignment () \<then> CSP_read () else C_read n) t c" and "invocation_trace_assms t"
+    and "invoked_indirect_reg = Some n"
+    and "indirect_sentry_type = Some sentry_type"
+    and "invokes_indirect_caps"
+    and "CapIsTagSet c"
+  obtains "CapUnseal c \<in> invoked_indirect_caps"
+    and "get_indirect_sentry_type c = Some sentry_type"
+  using assms
+  by (auto elim!: Run_bindE C_read_unseal_invoked_indirect_caps CSP_read_invoked_indirect_caps split: if_splits)*)
+
+lemma CSP_or_C_read_is_invoked_indirect_sentry_for_addr:
+  assumes "Run (if n = 31 then CheckSPAlignment () \<bind> (\<lambda>_. CSP_read ()) else C_read n) t sentry"
+    and "invocation_trace_assms t"
+    and "invoked_indirect_reg = Some n"
+    and "indirect_sentry_type = Some type"
+    and "invokes_indirect_caps"
+    and "{''_R29''} \<subseteq> accessible_regs s"
+    and "CapIsTagSet sentry"
+    (* and "get_indirect_sentry_type sentry = Some type" *)
+    and "get_indirect_sentry_type sentry = Some type \<longrightarrow> sentry' = CapUnseal sentry"
+    and "\<forall>n. offset = Some n \<longrightarrow> addr = CapGetValue sentry + of_nat n \<and> aligned (unat (CapGetValue sentry)) 16 \<and> aligned n 16"
+    and "set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry"
+  shows "is_invoked_indirect_sentry_for_addr sentry' type addr offset (run s t)"
+proof -
+  have "sentry \<in> accessed_caps (load_caps_permitted \<and> \<not> invokes_indirect_caps) (run s t)"
+    using assms(1,6,7)
+    by (auto elim!: Run_bindE elim: C_read_accessed_caps CSP_read_accessed_caps split: if_splits)
+  moreover have "CapUnseal sentry \<in> invoked_indirect_caps \<and> get_indirect_sentry_type sentry = Some type"
+    using assms(1-5,7)
+    by (auto elim!: Run_bindE elim!: C_read_unseal_invoked_indirect_caps CSP_read_invoked_indirect_caps split: if_splits)
+  ultimately show ?thesis
+    using assms(7-10)
+    unfolding is_invoked_indirect_sentry_for_addr_def is_invoked_indirect_sentry_def
+    by (auto simp: CapIsSealed_def get_mem_region_CapUnseal_eq CapUnseal_get_bounds_helpers_eq
+             elim!: get_indirect_sentry_type_Some_cases split: option.splits)
+qed
+
+  (* using assms CSP_or_C_read_unseal_invoked_indirect_caps[OF assms(1,2,3,6)] *)
+  (*by (auto simp: is_invoked_indirect_sentry_for_addr_def is_invoked_indirect_sentry_def
+                 CapNull_def CapIsSealed_def get_mem_region_CapUnseal_eq CapUnseal_get_bounds_helpers_eq
+           elim!: Run_bindE C_read_accessed_caps CSP_read_accessed_caps get_indirect_sentry_type_Some_cases split: if_splits)*)
+
+(*lemmas CSP_or_C_read_invoked_indirect_sentry_for_addr_exists =
+  CSP_or_C_read_is_invoked_indirect_sentry_for_addr[THEN exI[where P = "\<lambda>sentry. is_invoked_indirect_sentry_for_addr sentry type addr offset s" for type addr offset s]]*)
+
+(* TODO: Feed back information from VACheckAddress, track VAFromCapability, and use that
+   information to determine whether or not we are using an unsealed sentry or not *)
+
+lemma VAFromCapability_is_invoked_indirect_sentry_for_addr:
+  assumes "Run (VAFromCapability base) t vabase"
+    and "is_invoked_indirect_sentry_for_addr base type addr offset s"
+  shows "is_invoked_indirect_sentry_for_addr (VirtualAddress_base vabase) type addr offset (run s t)"
+  using assms
+  unfolding VAFromCapability_def
+  by (elim Run_bindE Run_letE) (simp add: non_cap_exp_Run_run_invI[OF non_cap_exp_undefined_VirtualAddress])
+
+lemma is_invoked_indirect_sentry_for_addr_run:
+  assumes "is_invoked_indirect_sentry_for_addr base type addr offset s"
+  shows "is_invoked_indirect_sentry_for_addr base type addr offset (run s t)"
+  using assms is_invoked_run_mono(4)
+  unfolding is_invoked_indirect_sentry_for_addr_def
+  by blast
+
+lemma ev_assms_translation_assms:
+  "ev_assms s e \<Longrightarrow> translation_assms e"
+  by (elim ev_assms.elims; blast)
+
+lemma trace_assms_translation_assms_trace:
+  "trace_assms s t \<Longrightarrow> translation_assms_trace t"
+  by (induction t arbitrary: s) (auto elim: ev_assms_translation_assms)
+
+lemmas inv_trace_assms_translation_assms_trace[simp, derivable_capsE, accessible_regsE] =
+  inv_trace_assms_trace_assms[THEN trace_assms_translation_assms_trace]
+
+lemma MemC_read_is_indirectly_invoked_mem_pair_data_cap:
+  assumes "Run (MemC_read addr acctype) t c"
+    and "translation_assms_trace t"
+    and "invocation_trace_assms t"
+    and "indirect_sentry_type = Some Points_to_Pair"
+    and "CapIsTagSet c"
+    and "is_invoked_indirect_sentry_for_addr sentry Points_to_Pair addr (Some 0) s"
+  shows "is_indirectly_invoked_mem_pair_data_cap sentry c (run s t)"
+proof -
+  from assms have sentry: "is_invoked_indirect_sentry sentry Points_to_Pair s \<and> addr = CapGetValue sentry \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry"
+    by (auto simp: is_invoked_indirect_sentry_for_addr_def)
+  moreover have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
+    using assms
+    by (elim MemC_read_mem_cap_vaddr_loaded_in_trace_if_tagged) auto
+  moreover have "(unat addr, c) \<in> mem_cap_vaddr_loads (run s t)"
+    using loaded assms(5)
+    by (auto simp: mem_cap_vaddr_loads_run_eq mem_cap_vaddr_loaded_in_trace_if_tagged_def)
+  moreover have "mem_data_caps c \<subseteq> invoked_data_caps"
+    using assms(1-5) sentry mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap[OF loaded, where sentry = sentry]
+    by (auto simp: is_invoked_indirect_sentry_def)
+  ultimately have "is_indirectly_invoked_mem_pair_data_cap sentry c (run s t)"
+    using assms(6) is_invoked_run_mono(4)[of sentry Points_to_Pair s t]
+    unfolding is_indirectly_invoked_mem_pair_data_cap_def is_indirectly_invoked_cap_def mem_cap_vaddr_loads_def
+    by auto
+  then show ?thesis by blast
+qed
+
+lemma is_indirectly_invoked_mem_pair_data_cap_run:
+  assumes "is_indirectly_invoked_mem_pair_data_cap sentry c s"
+  shows "is_indirectly_invoked_mem_pair_data_cap sentry c (run s t)"
+  using assms is_invoked_run_mono(5)
+  unfolding is_indirectly_invoked_mem_pair_data_cap_def
+  by blast
+
+lemma traces_enabled_C_set_squashed_mem_data_cap:
+  assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
+    and "VA_from_load_auth base"
+    and "c \<in> derivable_mem_caps s"
+    and "invokes_indirect_caps \<and> CapIsTagSet c' \<and> CapIsTagSet c \<longrightarrow> n = 29 \<and> is_indirectly_invoked_mem_pair_data_cap (VirtualAddress_base base) c s"
+  shows "traces_enabled (C_set n c') s"
+proof cases
+  assume indirect: "invokes_indirect_caps \<and> CapIsTagSet c'"
+  then have "load_caps_permitted"
+    using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
+    by blast
+  from indirect have c: "CapIsTagSet c" and c': "c' \<in> mem_data_caps c" "leq_cap CC c' c"
+    using assms(1)
+    by (auto elim!: CapSquashPostLoadCap_cases simp: mem_data_caps_def intro: clear_perm_leq_cap)
+  then have "is_invoked_data_cap c' s"
+    using indirect assms \<open>load_caps_permitted\<close>
+    unfolding is_invoked_data_cap_def is_indirectly_invoked_pair_data_cap_def
+    unfolding is_indirectly_invoked_mem_pair_data_cap_def
+    by auto
+  then have "traces_enabled (write_reg R29_ref c') s"
+    using c assms indirect
+    by (intro traces_enabled_write_reg) (auto simp: register_defs intro: \<open>load_caps_permitted\<close>)
+  moreover have "n = 29"
+    using assms indirect c
+    by auto
+  ultimately show ?thesis
+    by (auto simp: C_set_def R_set_def)
+next
+  assume "\<not>(invokes_indirect_caps \<and> CapIsTagSet c')"
+  then have "c' \<in> derivable_caps s"
+    using assms(1-4)
+    by (elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps) auto
+  then show ?thesis
+    by (auto simp: C_set_def R_set_def register_defs derivable_caps_def
+             intro!: traces_enabled_write_reg traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI])
+qed
+
+(*lemma traces_enabled_C_set_mem_cap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "VA_from_load_auth base"
     and "c \<in> derivable_mem_caps s"
@@ -719,9 +967,104 @@ next
   then show ?thesis
     by (auto simp: C_set_def R_set_def register_defs derivable_caps_def
              intro!: traces_enabled_write_reg traces_enabled_bind non_cap_expI[THEN non_cap_exp_traces_enabledI])
+qed*)
+
+lemma MemC_read_is_indirectly_invoked_mem_code_cap:
+  assumes "Run (MemC_read addr acctype) t c"
+    and "translation_assms_trace t"
+    and "invocation_trace_assms t"
+    and "indirect_sentry_type = Some sentry_type"
+    and "CapIsTagSet c"
+    and "is_invoked_indirect_sentry_for_addr sentry sentry_type addr (indirect_code_cap_offset sentry_type) s"
+  shows "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"
+proof -
+  from assms have sentry: "is_invoked_indirect_sentry sentry sentry_type s \<and> (\<forall>n. indirect_code_cap_offset sentry_type = Some n \<longrightarrow> addr = CapGetValue sentry + of_nat n) \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry"
+    by (auto simp: is_invoked_indirect_sentry_for_addr_def)
+  moreover have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
+    using assms
+    by (elim MemC_read_mem_cap_vaddr_loaded_in_trace_if_tagged) auto
+  moreover have "(unat addr, c) \<in> mem_cap_vaddr_loads (run s t)"
+    using loaded assms(5)
+    by (auto simp: mem_cap_vaddr_loads_run_eq mem_cap_vaddr_loaded_in_trace_if_tagged_def)
+  moreover have "mem_branch_caps c \<subseteq> invoked_code_caps"
+    using assms(1-5) sentry mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap[OF loaded, where sentry = sentry]
+    by (auto simp: is_invoked_indirect_sentry_def)
+  ultimately have "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"
+    using assms(6) is_invoked_run_mono(4)[of sentry sentry_type s t]
+    unfolding is_indirectly_invoked_mem_code_cap_def is_indirectly_invoked_cap_def mem_cap_vaddr_loads_def
+    by (cases sentry_type) auto (* TODO: unat (CapGetValue sentry + offset) = unat (CapGetValue sentry) + offset *)
+  then show ?thesis by blast
 qed
 
+(* TODO: Replace in CHERI_Instantiation *)
+lemma branch_caps_leq:
+  assumes "c' \<in> branch_caps c"
+  shows "leq_cap CC c' c"
+  using assms
+  unfolding branch_caps_def normalise_cursor_flags_def
+  by (auto intro: leq_cap_set_0th leq_cap_CapSetFlags leq_cap_CapSetFlags[THEN leq_cap_trans] split: if_splits)
+
+lemma CapIsSealed_branch_caps_singleton:
+  "CapIsSealed c \<Longrightarrow> branch_caps c = {c}"
+  by (auto simp: branch_caps_def)
+
+lemma is_indirectly_invoked_mem_code_cap_is_single_code_cap:
+  assumes "is_indirectly_invoked_mem_code_cap sentry Points_to_PCC c s"
+    and "load_caps_permitted"
+    and "c' \<in> mem_branch_caps c"
+  shows "is_indirectly_invoked_single_code_cap c' s"
+  using assms
+  using branch_caps_leq[of c' c] branch_caps_leq[of c' "CapUnseal c"] (*branch_caps_leq[of c' "clear_perm mutable_perms c"]*)
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_perm mutable_perms c"] clear_perm_leq_cap]
+  unfolding is_indirectly_invoked_single_code_cap_def is_indirectly_invoked_mem_code_cap_def
+  apply (cases "CapIsSealed c")
+   apply (auto simp: mem_branch_caps_def is_sentry_def CapIsSealed_branch_caps_singleton split: if_splits)
+  apply (simp add: CapIsSealed_def)
+  done
+
+lemma is_indirectly_invoked_mem_code_cap_is_pair_code_cap:
+  assumes "is_indirectly_invoked_mem_code_cap sentry Points_to_Pair c s"
+    and "load_caps_permitted"
+    and "c' \<in> mem_branch_caps c"
+  shows "is_indirectly_invoked_pair_code_cap c' s"
+  using assms
+  using branch_caps_leq[of c' c] branch_caps_leq[of c' "CapUnseal c"]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_perm mutable_perms c"] clear_perm_leq_cap]
+  unfolding is_indirectly_invoked_pair_code_cap_def is_indirectly_invoked_mem_code_cap_def
+  by (cases "CapIsSealed c";
+      auto simp: mem_branch_caps_def is_sentry_def CapIsSealed_branch_caps_singleton CapIsSealed_def split: if_splits;
+      fastforce)
+
+lemma is_indirectly_invoked_mem_code_cap_is_invoked_code_cap:
+  assumes "is_indirectly_invoked_mem_code_cap sentry sentry_type c s"
+    and "load_caps_permitted"
+  shows "\<forall>c' \<in> mem_branch_caps c. is_invoked_code_cap c' s"
+  using assms(1)
+  by (cases sentry_type)
+     (auto simp: is_invoked_code_cap_def
+           intro: is_indirectly_invoked_mem_code_cap_is_single_code_cap
+                  is_indirectly_invoked_mem_code_cap_is_pair_code_cap assms(2))
+
+(* TODO: Handle non-indirectly invoked direct sentries as well *)
 lemma enabled_branch_target_CapUnseal_mem_cap:
+  assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
+    and "VA_from_load_auth base"
+    (* and "c \<in> derivable_mem_caps s" *)
+    (* and "indirect_sentry_type = Some sentry_type" *)
+    and "CapIsTagSet c' \<and> CapIsTagSet c \<and> CapGetObjectType c' = CapGetObjectType c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> is_indirectly_invoked_mem_code_cap (VirtualAddress_base base) sentry_type c s"
+  shows "enabled_branch_target (CapUnseal c') (run s t)"
+proof cases
+  assume tagged: "CapIsTagSet c'"
+  note load_caps_permitted = Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3) tagged]
+  have "c' = c"
+    using assms tagged
+    by (elim CapSquashPostLoadCap_cases) (auto simp: CapIsSealed_def)
+  then show ?thesis
+    using assms is_indirectly_invoked_mem_code_cap_is_invoked_code_cap[OF _ load_caps_permitted, of "VirtualAddress_base base" sentry_type c s]
+    by (intro enabled_branch_target_run_imp enabled_branch_targetI) (auto simp: mem_branch_caps_def enabled_pcc_def)
+qed (auto intro: derivable_enabled_branch_target)
+
+(*lemma enabled_branch_target_CapUnseal_mem_cap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "VA_from_load_auth base"
     and "c \<in> derivable_mem_caps s"
@@ -747,9 +1090,9 @@ proof cases
     using branch_caps_leq
     unfolding enabled_branch_target_def enabled_pcc_def mem_branch_caps_def
     by (auto intro: \<open>load_caps_permitted\<close>)
-qed (auto intro: derivable_enabled_branch_target)
+qed (auto intro: derivable_enabled_branch_target)*)
 
-lemma CapSquashPostLoadCap_sealed_branch_caps_invoked_caps[derivable_capsE]:
+(*lemma CapSquashPostLoadCap_sealed_branch_caps_invoked_caps[derivable_capsE]:
   assumes "Run (CapSquashPostLoadCap c base) t c'"
     and "CapIsTagSet c'"
     and "(c' = c \<or> c' = CapClearPerms c mutable_perms) \<longrightarrow> CapIsSealed c \<and> branch_caps (CapUnseal c) \<subseteq> invoked_caps"
@@ -765,7 +1108,7 @@ lemma invokes_mem_cap_leq_enabled_pccI:
   shows "enabled_pcc c s"
   using assms
   unfolding enabled_pcc_def
-  by blast
+  by blast*)
 
 lemma VAIsBits64_iff_not_VAIsCapability:
   "VAIsBits64 va \<longleftrightarrow> \<not>VAIsCapability va"
