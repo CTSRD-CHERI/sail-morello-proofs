@@ -852,7 +852,7 @@
     "execute_LDPBR_C_C_C": "(if t__arg = 29 then Some n else None)",
     "decode_LDPBR_C_C_C": "(if uint Ct = 29 then Some (uint Cn) else None)"
   },
-  "load_auths": {
+  "load_auth": {
     "execute_ALDAR_C_R_C": "AltBaseRegAuth n",
     "decode_ALDAR_C_R_C": "AltBaseRegAuth (uint Rn)",
     "execute_ALDR_C_RUI_C": "AltBaseRegAuth n",

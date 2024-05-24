@@ -6017,7 +6017,10 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
   "invocation_ev_assms (E_read_reg r v) =
     ((\<forall>n c. r \<in> R_name n \<and> invoked_code_reg = Some n \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_code_caps) \<and>
      (\<forall>n c. r \<in> R_name n \<and> invoked_data_reg = Some n \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> CapUnseal c \<in> invoked_data_caps) \<and>
-     (\<forall>n c sentry_type. r \<in> R_name n \<and> invoked_indirect_reg = Some n \<and> c \<in> caps_of_regval v \<and> indirect_sentry_type = Some sentry_type \<longrightarrow> (if CapIsTagSet c \<and> CapIsSealed c \<and> get_indirect_sentry_type c = Some sentry_type then invoked_indirect_caps = {CapUnseal c} else invoked_indirect_caps = {})))"
+     (\<forall>n c sentry_type. r \<in> R_name n \<and> invoked_indirect_reg = Some n \<and> c \<in> caps_of_regval v \<and> indirect_sentry_type = Some sentry_type
+         \<longrightarrow> (if CapIsTagSet c \<and> CapIsSealed c \<and> get_indirect_sentry_type c = Some sentry_type
+              then invoked_indirect_caps = {CapUnseal c} \<and> (sentry_type = Points_to_PCC \<longrightarrow> CapUnseal c \<in> invoked_data_caps) \<comment> \<open>Points-to-PCC sentry becomes data cap\<close>
+              else invoked_indirect_caps = {})))"
 | "invocation_ev_assms (E_read_memt rk paddr sz (bytes, tag)) \<longleftrightarrow>
     (case indirect_sentry_type of
        Some sentry_type \<Rightarrow>
@@ -6113,6 +6116,7 @@ lemma instantiated_invocation_trace_assms:
     and "invoked_code_caps = instr_invokes_code_caps opcode t"
     and "invoked_data_caps = instr_invokes_data_caps opcode t"
     and "invoked_indirect_caps = trace_invokes_indirect_sentries t"
+    and "use_mem_caps \<longrightarrow> trace_has_cap_load_auth t"
   shows "invocation_trace_assms t"
 proof (unfold invocation_trace_assms_def, intro ballI)
   fix e
@@ -6127,7 +6131,7 @@ proof (unfold invocation_trace_assms_def, intro ballI)
         use assms in \<open>auto simp: invocation_defs determ_instr_of_exp_instr_of_trace split: option.split indirect_sentry_type.split\<close>;
         fastforce)*)
     (*apply (induction e rule: invocation_ev_assms.induct; simp; cases "instr_of_exp m"; cases "t = []";
-           use assms in \<open>auto simp: invocation_defs determ_instr_of_exp_instr_of_trace reads_mem_cap_Some_iff' split: option.split indirect_sentry_type.split\<close>)
+           use assms(1-6) in \<open>auto simp: invocation_defs determ_instr_of_exp_instr_of_trace reads_mem_cap_Some_iff' split: option.split indirect_sentry_type.split\<close>)
     defer
     defer
     defer
@@ -6141,6 +6145,7 @@ proof (unfold invocation_trace_assms_def, intro ballI)
     apply fastforce
     apply fastforce
              apply fastforce
+    using assms(7)
     apply fastforce*)
     sorry
 qed

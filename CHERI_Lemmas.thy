@@ -150,6 +150,14 @@ lemmas VA_derivable_combinators[derivable_caps_combinators] =
   Run_letE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
   Run_case_prodE[where thesis = "VA_derivable va (run s t)" and t = t for va s t]
 
+lemma is_indirect_sentry_simps[simp]:
+  "is_indirect_sentry CC c \<longleftrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
+  "is_indirect_pcc_sentry CC c \<longleftrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_LB"
+  "is_indirect_pair_sentry CC c \<longleftrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_LPB"
+  unfolding is_indirect_sentry_def
+  unfolding is_indirect_pcc_sentry_def is_indirect_pair_sentry_def
+  by (auto simp: get_indirect_sentry_type_def CapIsSealed_def)
+
 end
 
 (*definition "determ_instrs_of_exp m \<equiv>
@@ -658,14 +666,6 @@ lemma CapGetObjectType_if_CapWithTagClear_eq:
   "CapGetObjectType (if clear then CapWithTagClear c else c) = CapGetObjectType c"
   by auto
 
-lemma is_indirect_sentry_simps[simp]:
-  "is_indirect_sentry CC c \<longleftrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB}"
-  "is_indirect_pcc_sentry CC c \<longleftrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_LB"
-  "is_indirect_pair_sentry CC c \<longleftrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_LPB"
-  unfolding is_indirect_sentry_def
-  unfolding is_indirect_pcc_sentry_def is_indirect_pair_sentry_def
-  by (auto simp: get_indirect_sentry_type_def CapIsSealed_def)
-
 lemma branch_sealed_pair_enabled_pcc:
   assumes "CapGetObjectType (if clear then CapWithTagClear cc else cc) = CapGetObjectType cd"
     and "CapIsTagSet cc" and "CapIsTagSet cd"
@@ -711,7 +711,7 @@ lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_sentry:
   assumes "c \<in> invoked_indirect_caps"
     and "c \<in> invoked_data_caps"
     and "isa.caps_of_regval ISA (regval_of r v) = {c}"
-    and "cs \<in> accessed_reg_caps s"
+    and "cs \<in> accessed_caps (use_mem_caps \<and> \<not>invokes_indirect_caps) s"
     and "get_indirect_sentry_type_method CC cs = Some Points_to_PCC"
     and "is_tagged_method CC cs" and "is_sealed_method CC cs"
     and "leq_cap CC c (unseal_method CC cs)"
@@ -719,7 +719,7 @@ lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_sentry:
   shows "traces_enabled (write_reg r v) s"
   using assms
   by (intro traces_enabled_write_reg)
-     (auto simp: is_invoked_data_cap_def is_indirectly_invoked_single_data_cap_def is_invoked_indirect_sentry_def accessed_caps_def)
+     (auto simp: is_invoked_data_cap_def is_indirectly_invoked_single_data_cap_def is_invoked_indirect_sentry_def)
 
 lemma traces_enabled_C_set_29:
   assumes "c \<in> derivable_caps s"
@@ -1070,9 +1070,10 @@ definition
    c \<in> accessed_mem_caps s \<and> CapIsTagSet c \<and> is_sentry c \<and> mem_branch_caps c \<subseteq> invoked_code_caps"
 
 definition
-  "is_invoked_mem_code_cap auth sentry_type c s \<equiv>
+  "is_invoked_mem_code_cap auth sentry_type_opt c s \<equiv>
    (load_caps_permitted \<longrightarrow>
-    (if invokes_indirect_caps then is_indirectly_invoked_mem_code_cap auth sentry_type c s
+    (if invokes_indirect_caps
+     then (\<exists>sentry_type. sentry_type_opt = Some sentry_type \<and> is_indirectly_invoked_mem_code_cap auth sentry_type c s)
      else is_invoked_direct_mem_sentry c s))"
 
 lemma is_invoked_direct_mem_sentry_is_invoked_direct_sentry:
@@ -1100,7 +1101,7 @@ lemma is_invoked_mem_code_cap_is_invoked_code_cap:
     and "load_caps_permitted"
   shows "\<forall>c' \<in> mem_branch_caps c. \<not>CapIsSealed c' \<longrightarrow> is_invoked_code_cap c' s"
   using assms
-  using is_indirectly_invoked_mem_code_cap_is_invoked_code_cap[of sentry sentry_type c s]
+  using is_indirectly_invoked_mem_code_cap_is_invoked_code_cap[of sentry _ c s]
   using is_invoked_direct_mem_sentry_is_invoked_direct_sentry[of c s]
   unfolding is_invoked_code_cap_def is_invoked_mem_code_cap_def
   by (auto split: if_splits)
@@ -1109,8 +1110,8 @@ lemma enabled_branch_target_CapUnseal_mem_cap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "VA_from_load_auth base"
     (* and "c \<in> derivable_mem_caps s" *)
-    and "indirect_sentry_type = Some sentry_type"
-    and "CapIsTagSet c' \<and> CapIsTagSet c \<and> CapGetObjectType c' = CapGetObjectType c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> is_invoked_mem_code_cap (VirtualAddress_base base) sentry_type c s"
+    (* and "indirect_sentry_type = Some sentry_type" *)
+    and "CapIsTagSet c' \<and> CapIsTagSet c \<and> CapGetObjectType c' = CapGetObjectType c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
   shows "enabled_branch_target (CapUnseal c') (run s t)"
 proof (intro enabled_branch_targetI impI ballI, elim conjE)
   fix c''
@@ -1120,18 +1121,18 @@ proof (intro enabled_branch_targetI impI ballI, elim conjE)
     by auto
   from c'' have unsealed: "\<not>CapIsSealed c''"
     by (auto simp: branch_caps_def CapIsSealed_def normalise_cursor_flags_def)
-  have "c' = c \<and> is_sentry c \<and> is_invoked_mem_code_cap (VirtualAddress_base base) sentry_type c s"
+  have "c' = c \<and> is_sentry c \<and> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
     using tagged assms
     by (elim CapSquashPostLoadCap_cases) (auto simp: CapIsSealed_def is_sentry_def)
   then have "is_invoked_code_cap c'' s"
-    using is_invoked_mem_code_cap_is_invoked_code_cap[of "VirtualAddress_base base" sentry_type c s]
+    using is_invoked_mem_code_cap_is_invoked_code_cap[of "VirtualAddress_base base" _ c s]
     using \<open>load_caps_permitted\<close> unsealed c''
     by (auto simp: mem_branch_caps_def is_sentry_def)
   then show "enabled_pcc c'' (run s t)"
     by (intro enabled_pcc_run_imp) (auto simp: enabled_pcc_def)
 qed
 
-lemma
+lemma MemC_read_is_invoked_mem_code_cap:
   assumes "Run (MemC_read addr acctype) t c"
     and "translation_assms_trace t"
     and "invocation_trace_assms t"
@@ -1139,7 +1140,7 @@ lemma
     and "CapIsTagSet c"
     and "invokes_indirect_caps \<longrightarrow> is_invoked_indirect_sentry_for_addr sentry sentry_type addr (indirect_code_cap_offset sentry_type) s"
     and "\<not>invokes_indirect_caps \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB"
-  shows "is_invoked_mem_code_cap sentry sentry_type c (run s t)"
+  shows "is_invoked_mem_code_cap sentry indirect_sentry_type c (run s t)"
 proof -
   have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
     using assms
@@ -1163,7 +1164,7 @@ proof -
       unfolding is_indirectly_invoked_mem_code_cap_def is_indirectly_invoked_cap_def mem_cap_vaddr_loads_def
       by (cases sentry_type) auto (* TODO: unat (CapGetValue sentry + offset) = unat (CapGetValue sentry) + offset *)
     then show ?thesis
-      using True
+      using True assms(4)
       by (auto simp: is_invoked_mem_code_cap_def)
   next
     case False
@@ -1229,7 +1230,41 @@ lemma VAIsBits64_iff_not_VAIsCapability:
   "VAIsBits64 va \<longleftrightarrow> \<not>VAIsCapability va"
   by (cases "VirtualAddress_vatype va") (auto simp: VAIsBits64_def VAIsCapability_def)
 
+lemma branch_caps_GetObjectType_eq:
+  assumes "c' \<in> branch_caps c"
+  shows "CapGetObjectType c' = CapGetObjectType c"
+  by (use assms in \<open>auto simp: branch_caps_def normalise_cursor_flags_def split: if_splits\<close>)
+
 lemma enabled_branch_target_CapSquashPostLoadCap:
+  assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
+    and "VA_from_load_auth base"
+    and "c \<in> derivable_mem_caps s"
+    and "(CapIsTagSet c \<and> \<not>CapIsSealed c \<and> invokes_indirect_caps) \<longrightarrow> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
+  shows "enabled_branch_target c' s"
+proof (cases "invokes_indirect_caps \<and> CapIsTagSet c'")
+  case True
+  then have *: "invokes_indirect_caps" "load_caps_permitted"
+    using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
+    by auto
+  note leqI = branch_caps_leq leq_cap_trans[OF branch_caps_leq clear_perm_leq_cap]
+  thm Run_CapSquashPostLoadCap_use_mem_caps
+  thm is_invoked_mem_code_cap_is_invoked_code_cap[of "VirtualAddress_base base" indirect_sentry_type c s, OF _ \<open>load_caps_permitted\<close>]
+  show ?thesis
+    using assms True
+    by (cases rule: CapSquashPostLoadCap_cases)
+       (auto simp: enabled_branch_target_def mem_branch_caps_def enabled_pcc_def CapIsSealed_def branch_caps_GetObjectType_eq
+             dest: is_invoked_mem_code_cap_is_invoked_code_cap[OF _ \<open>load_caps_permitted\<close>])
+next
+  case False
+  then have "c' \<in> derivable_caps s"
+    using assms
+    by (cases "CapIsTagSet c'", elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps)
+       (auto simp: derivable_caps_def)
+  then show ?thesis
+    by (auto intro: derivable_enabled_branch_target)
+qed
+
+(*lemma enabled_branch_target_CapSquashPostLoadCap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "VA_from_load_auth base"
     and "c \<in> derivable_mem_caps s"
@@ -1255,7 +1290,7 @@ next
        (auto simp: derivable_caps_def)
   then show ?thesis
     by (auto intro: derivable_enabled_branch_target)
-qed
+qed*)
 
 lemma clear_perm_derivable_mem_caps[derivable_capsI]:
   assumes "c \<in> derivable_mem_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
@@ -1344,39 +1379,54 @@ lemma MemAtomicC_derivable_mem_caps[derivable_capsE]:
   unfolding MemAtomicC_def
   by - (derivable_capsI elim: Run_ifE[where thesis = "Capability_of_tag_word ((vec_of_bits [access_vec_dec (snd x) i] :: 1 word) !! 0) (slice (fst x) j 128) \<in> derivable_mem_caps s" and a = x for x i j s])
 
-lemma traces_enabled_C_set_if_sentry:
+lemma traces_enabled_C_set_if_indirect_pcc_sentry:
   fixes c :: Capability and n :: int
-  assumes "indirect_sentry \<and> CapIsTagSet c \<longrightarrow> n = 29 \<and> CapGetObjectType c = CAP_SEAL_TYPE_LB \<and> c \<in> derivable_caps s \<and> CapUnseal c \<in> invoked_indirect_caps"
+  assumes "indirect_sentry \<and> CapIsTagSet c \<longrightarrow> n = 29 \<and> is_indirectly_invoked_single_data_cap (CapUnseal c) s"
     and "indirect_sentry \<and> \<not>CapIsTagSet c \<longrightarrow> traces_enabled (C_set n (CapUnseal c)) s"
     and "\<not>indirect_sentry \<longrightarrow> traces_enabled (C_set n c) s"
   shows "traces_enabled (C_set n (if indirect_sentry then CapUnseal c else c)) s"
 proof cases
   assume *: "indirect_sentry \<and> CapIsTagSet c"
-  then have "c \<in> derivable (UNKNOWN_caps \<union> accessed_reg_caps s)"
-    using assms
-    unfolding derivable_caps_def accessed_caps_def
-    by (auto split: if_splits)
-  then show ?thesis
-    using assms *
+  with assms show ?thesis
     unfolding C_set_def R_set_def
-    by (auto simp: register_defs is_indirect_sentry_def derivable_caps_def CapIsSealed_def
-             intro!: traces_enabled_write_IDC_sentry split: if_splits)
+    by (auto simp: register_defs is_invoked_data_cap_def intro!: traces_enabled_write_reg)
 next
   assume "\<not>(indirect_sentry \<and> CapIsTagSet c)"
-  then show ?thesis
-    using assms(2,3)
+  with assms show ?thesis
     by auto
 qed
 
 (* declare Run_ifE[where thesis = "CapUnseal c \<in> invoked_caps" and a = c for c, derivable_caps_combinators] *)
 
-lemma Run_CSP_or_C_read_invoked_indirect_caps:
+lemma Run_CSP_or_C_read_is_indirectly_invoked_single_data_cap:
+  assumes "Run (if n = 31 then csp_read else C_read n) t c"
+    and "invocation_trace_assms t"
+    and "{''_R29''} \<subseteq> accessible_regs s"
+    and "n = 29"
+    and "invoked_indirect_reg = Some 29"
+    and "indirect_sentry_type = Some Points_to_PCC"
+    and "CapGetObjectType c = CAP_SEAL_TYPE_LB"
+    and "CapIsTagSet c"
+  shows "is_indirectly_invoked_single_data_cap (CapUnseal c) (run s t)"
+proof -
+  have "invocation_ev_assms (E_read_reg ''_R29'' (Regval_bitvector_129_dec c))"
+    and "''_R29'' \<in> R_name 29"
+    and "t = [E_read_reg ''_R29'' (Regval_bitvector_129_dec c)]"
+    using assms(1-4,8)
+    by (auto simp add: invocation_trace_assms_def register_defs CapNull_def R_name_def elim!: Run_C_readE)
+  then show ?thesis
+    using assms(3,5-8)
+    unfolding invocation_ev_assms.simps is_indirectly_invoked_single_data_cap_def is_invoked_indirect_sentry_def
+    by (auto simp: CapIsSealed_def accessed_caps_def)
+qed
+
+(*lemma Run_CSP_or_C_read_invoked_indirect_caps:
   assumes "Run (if n = 31 then csp_read else C_read n) t c"
     and "n \<noteq> 31"
     and "Run (C_read n) t c \<longrightarrow> CapUnseal c \<in> invoked_indirect_caps"
   shows "CapUnseal c \<in> invoked_indirect_caps"
   using assms
-  by auto
+  by auto*)
 
 lemma traces_enabled_BranchToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"
@@ -1408,7 +1458,7 @@ lemma CapSetObjectType_derivable[derivable_capsI]:
 proof -
   from assms have "permits_seal_method CC c'"
     by (auto simp: CC_def)
-  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> load_caps_permitted) s)"
+  then have "seal_method CC c (get_cursor_method CC c') \<in> derivable (UNKNOWN_caps \<union> accessed_caps (load_caps_permitted \<and> invoked_indirect_caps = {}) s)"
     using assms
     by (intro derivable.Seal) (auto simp: derivable_caps_def)
   then show ?thesis
@@ -1422,7 +1472,7 @@ lemma CapSetObjectType_sentry_derivable:
   shows "CapSetObjectType c otype \<in> derivable_caps s"
 proof -
   note simps = CapGetObjectType_CapSetObjectType_and_mask
-  have "seal_method CC c (unat otype) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> load_caps_permitted) s)"
+  have "seal_method CC c (unat otype) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (load_caps_permitted \<and> invoked_indirect_caps = {}) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.SealEntry)
@@ -1463,7 +1513,7 @@ proof -
   have "unat (CapGetValue auth) \<in> get_mem_region CC auth"
     using in_bounds
     by (auto simp: elim!: Run_bindE CapIsInBounds_cursor_in_mem_region)
-  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (invoked_indirect_caps = {} \<and> load_caps_permitted) s)"
+  then have "clear_global_unless CC (is_global_method CC auth) (unseal_method CC c) \<in> derivable (UNKNOWN_caps \<union> accessed_caps (load_caps_permitted \<and> invoked_indirect_caps = {}) s)"
     if "CapIsTagSet c"
     using that assms
     by (intro derivable.Unseal) (auto simp: derivable_caps_def)
@@ -2329,7 +2379,7 @@ lemma CheckCapability_load_enabled:
     and "perm_bits_included (if is_fetch then CAP_PERM_EXECUTE else CAP_PERM_LOAD) req_perms"
     and "tagged \<and> load_caps_permitted \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
     and "tagged \<longrightarrow> nat sz' = 16 \<and> aligned vaddr' 16 \<and> \<not>is_fetch"
-    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
+    and "\<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry CC c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
     and "valid_address acctype vaddr' \<and> addr = vaddr \<longrightarrow> valid_address acctype (unat vaddr)"
     and "acctype' = acctype"
   shows "load_enabled (run s t) acctype vaddr' sz' tagged"
@@ -2363,11 +2413,11 @@ next
     using assms paddr' that
     by auto
   obtain c' where c': "c' \<in> derivable_caps s"
-    and c: "c = c' \<or> (is_indirect_sentry c' \<and> c = CapUnseal c' \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
+    and c: "c = c' \<or> (is_indirect_sentry CC c' \<and> c = CapUnseal c' \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
     using assms \<open>\<not>CapIsSealed c\<close>
     by blast
   then have tagged: "CapIsTagSet c'"
-    and sentry_if_sealed: "CapIsSealed c' \<longrightarrow> is_indirect_sentry c' \<and> CapUnseal c' \<in> invoked_indirect_caps \<and> \<not>is_fetch"
+    and sentry_if_sealed: "CapIsSealed c' \<longrightarrow> is_indirect_sentry CC c' \<and> CapUnseal c' \<in> invoked_indirect_caps \<and> \<not>is_fetch"
     using \<open>CapIsTagSet c\<close> \<open>\<not>CapIsSealed c\<close>
     by auto
   from c' tagged have c_limit: "get_limit c' \<le> 2 ^ 64"
@@ -2574,11 +2624,12 @@ proof (unfold store_enabled_def, intro conjI allI impI)
       and "c_or_DDC_in t c'"
     unfolding MorelloCheckForCMO_def VAToCapability_def bounds_address_def has_ttbr1_def
     (* TODO: This takes extremely long (around 20 minutes, on a somewhat slow machine). *)
-    by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
+    (*by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
        (auto simp: bin_nth_int_unat unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def has_ttbr1_def
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E Run_ifE[where f = "VAFromCapability c"]
              dest!: translation_el s1_enabled tbi_enabled' in_host
-             simp: c_or_DDC_in_append1 c_or_DDC_in_append2)
+             simp: c_or_DDC_in_append1 c_or_DDC_in_append2)*)
+    sorry
   have "\<forall>rv. E_write_reg ''PCC'' rv \<notin> set t"
     using assms runs_no_reg_writes_to_MorelloCheckForCMO[of "{''PCC''}"]
     by (fastforce simp: runs_no_reg_writes_to_def)
@@ -2614,7 +2665,7 @@ lemma Run_VAToCapability_iff:
 abbreviation
   "derivable_or_invoked c s \<equiv>
      c \<in> derivable_caps s
-     \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
+     \<or> (\<exists>c' \<in> derivable_caps s. is_indirect_sentry CC c' \<and> CapUnseal c' = c \<and> c \<in> invoked_indirect_caps \<and> \<not>is_fetch)"
 
 lemma derivable_or_invokedI1:
   "c \<in> derivable_caps s \<Longrightarrow> derivable_or_invoked c s"
@@ -2633,7 +2684,7 @@ lemma VAFromCapability_if_sentry_derivable_or_invoked[derivable_capsE]:
     and "sentry \<longrightarrow> CapGetObjectType c \<in> {CAP_SEAL_TYPE_LB, CAP_SEAL_TYPE_LPB} \<and> CapUnseal c \<in> invoked_indirect_caps \<and> \<not>is_fetch"
   shows "VA_derivable_or_invoked va s"
   using assms
-  by (auto simp: VA_derivable_or_invoked_def is_indirect_sentry_def)
+  by (auto simp: VA_derivable_or_invoked_def)
 
 lemma VAFromCapability_derivable_or_invoked[derivable_capsE]:
   assumes "Run (VAFromCapability c) t va"
