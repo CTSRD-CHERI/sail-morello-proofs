@@ -501,20 +501,20 @@
     },
     "execute_BLR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["is_indirect_branch"],
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
         "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
       },
       "traces_enabled_mem": {
-        "extra_assms": ["is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled CSP_or_C_read_unseal_invoked_indirect_caps[where sentry_type = Points_to_PCC] simp: get_indirect_sentry_type_Some_iffs)"
       }
     },
     "decode_BLR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["is_indirect_branch"]
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
       },
       "traces_enabled_mem": {
-        "extra_assms": ["is_indirect_branch"]
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
       }
     },
     "execute_BRS_C_C_C": {
@@ -524,56 +524,56 @@
     },
     "execute_BR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["is_indirect_branch"],
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
         "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
       },
       "traces_enabled_mem": {
-        "extra_assms": ["is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled CSP_or_C_read_unseal_invoked_indirect_caps[where sentry_type = Points_to_PCC] simp: get_indirect_sentry_type_Some_iffs)"
       }
     },
     "decode_BR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["is_indirect_branch"]
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
       },
       "traces_enabled_mem": {
-        "extra_assms": ["is_indirect_branch"]
+        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
       }
     },
     "execute_LDPBLR_C_C_C": {
       "traces_enabled": {
-        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
         "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] traces_enabled_C_set_mem_cap[where n = 29] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
       },
       "traces_enabled_mem": {
-        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+        "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled CSP_or_C_read_unseal_invoked_indirect_caps[where sentry_type = Points_to_Pair] simp: get_indirect_sentry_type_Some_iffs)"
       }
     },
     "decode_LDPBLR_C_C_C": {
       "traces_enabled": {
-        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_Pair"]
       },
       "traces_enabled_mem": {
-        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_Pair"]
       }
     },
     "execute_LDPBR_C_C_C": {
       "traces_enabled": {
-        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
+        "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
         "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
       },
       "traces_enabled_mem": {
-        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"],
-        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled)"
+        "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
+        "proof": "(traces_enabledI assms: assms elim: VADeref_load_enabled CSP_or_C_read_unseal_invoked_indirect_caps[where sentry_type = Points_to_Pair] simp: get_indirect_sentry_type_Some_iffs)"
       }
     },
     "decode_LDPBR_C_C_C": {
       "traces_enabled": {
-        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_Pair"]
       },
       "traces_enabled_mem": {
-        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "is_indirect_branch"]
+        "extra_assms": ["uint Ct \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_Pair"]
       }
     },
     "execute_RETS_C_C_C": {

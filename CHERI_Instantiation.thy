@@ -6185,8 +6185,8 @@ lemma invocation_instr_exp_assms_write_ThisInstrAbstract_iff:
 
 lemma Run_C_readE:
   assumes "Run (C_read n) t c"
-  obtains r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
-  | "t = []" and "c = CapNull ()"
+  obtains (Reg) r where "t = [E_read_reg r (Regval_bitvector_129_dec c)]" and "r \<in> R_name n"
+  | (Null) "t = []" and "c = CapNull ()" and "n = 31"
   using assms
   unfolding C_read_def R_read_def
   by (auto simp: R_name_def register_defs elim!: Run_read_regE Run_ifE)
@@ -6230,76 +6230,58 @@ lemma CapGetObjectType_get_indirect_sentry_type[unfolded special_otype_defs, sim
   "CapGetObjectType c = CAP_SEAL_TYPE_LPB \<Longrightarrow> get_indirect_sentry_type c = Some Points_to_Pair"
   by (auto simp: get_indirect_sentry_type_def)
 
-lemma C_read_unseal_invoked_indirect_caps:
+lemma indirect_sentry_type_cases:
+  obtains "sentry_type = None" | "sentry_type = Some Points_to_PCC" | "sentry_type = Some Points_to_Pair"
+proof (cases sentry_type)
+  case (Some x)
+  then show ?thesis using that by (cases x; auto)
+qed auto
+
+lemma C_read_unseal_invoked_indirect_caps_cases:
   assumes "Run (C_read n) t c" and "invocation_trace_assms t"
     and "invoked_indirect_reg = Some n"
     and "indirect_sentry_type = Some sentry_type"
-    and "invoked_indirect_caps \<noteq> {}"
-    and "CapIsTagSet c"
-  obtains "CapUnseal c \<in> invoked_indirect_caps"
-    and "get_indirect_sentry_type c = Some sentry_type"
-proof -
-  obtain r where "invocation_ev_assms (E_read_reg r (Regval_bitvector_129_dec c))" and "r \<in> R_name n"
-    using assms(1,2,6)
-    by (elim Run_C_readE) (auto simp: CapNull_def invocation_trace_assms_def)
-  with assms(3,4,5,6) that show ?thesis
-    by (auto split: if_splits)
+  obtains (Invocation) "CapUnseal c \<in> invoked_indirect_caps" and "CapIsTagSet c" and "get_indirect_sentry_type c = Some sentry_type"
+  | (NoInvocation) "invoked_indirect_caps = {}" and "\<not>CapIsTagSet c \<or> get_indirect_sentry_type c \<noteq> Some sentry_type"
+  | (Null) "n = 31" and "c = 0"
+proof (use assms(1) in \<open>cases rule: Run_C_readE\<close>)
+  case (Reg r)
+  then show ?thesis
+    using assms that
+    unfolding invocation_trace_assms_def
+    by (cases "get_indirect_sentry_type c" rule: indirect_sentry_type_cases)
+       (auto simp: CapIsSealed_def get_indirect_sentry_type_Some_iffs split: if_splits)
+next
+  case Null
+  then show ?thesis
+    by (auto intro: that(3) simp: CapNull_def)
 qed
 
-(*lemma C_read_unseal_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (C_read n) t c" and "invocation_trace_assms t"
-    and "invoked_indirect_reg = Some n"
-    and "CapIsTagSet c"
-    and "\<exists>sentry_type. indirect_sentry_type = Some sentry_type \<and> get_indirect_sentry_type c = Some sentry_type"
-  shows "CapUnseal c \<in> invoked_indirect_caps"
-proof -
-  obtain r where "invocation_ev_assms (E_read_reg r (Regval_bitvector_129_dec c))" and "r \<in> R_name n"
-    using assms(1,2,4)
-    by (elim Run_C_readE) (auto simp: CapNull_def invocation_trace_assms_def)
-  with assms(3-) show ?thesis
-    by (auto simp: CapIsSealed_def get_indirect_sentry_type_def split: if_splits)
-qed*)
-
-lemma CSP_read_invoked_indirect_caps:
+lemma CSP_read_invoked_indirect_caps_cases:
   assumes "Run (CSP_read u) t c" and "invocation_trace_assms t"
     and "invoked_indirect_reg = Some 31"
     and "indirect_sentry_type = Some sentry_type"
-    and "invoked_indirect_caps \<noteq> {}"
-    and "CapIsTagSet c"
-  obtains "CapUnseal c \<in> invoked_indirect_caps"
-    and "get_indirect_sentry_type c = Some sentry_type"
+  obtains "CapUnseal c \<in> invoked_indirect_caps" and "CapIsTagSet c" and "get_indirect_sentry_type c = Some sentry_type"
+  | "invoked_indirect_caps = {}" and "\<not>CapIsTagSet c \<or> get_indirect_sentry_type c \<noteq> Some sentry_type"
 proof -
   obtain r where "invocation_ev_assms (E_read_reg r (Regval_bitvector_129_dec c))" and "r \<in> R_name 31"
     using assms(1,2)
     by (elim Run_CSP_readE) (auto simp: invocation_trace_assms_def)
   with assms(3-) that show ?thesis
     unfolding invocation_ev_assms.simps
-    by (auto split: if_splits)
+    by (cases "get_indirect_sentry_type c" rule: indirect_sentry_type_cases)
+       (auto simp: CapIsSealed_def get_indirect_sentry_type_Some_iffs split: if_splits)
 qed
 
-(*lemma CSP_read_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (CSP_read u) t c" and "invocation_trace_assms t"
-    and "invoked_indirect_reg = Some 31"
-    and "CapIsTagSet c"
-    and "\<exists>sentry_type. indirect_sentry_type = Some sentry_type \<and> get_indirect_sentry_type c = Some sentry_type"
-  shows "CapUnseal c \<in> invoked_indirect_caps"
-proof -
-  obtain r where "invocation_ev_assms (E_read_reg r (Regval_bitvector_129_dec c))" and "r \<in> R_name 31"
-    using assms(1,2)
-    by (elim Run_CSP_readE) (auto simp: invocation_trace_assms_def)
-  with assms(3-) show ?thesis
-    unfolding invocation_ev_assms.simps
-    by (auto simp: CapIsSealed_def get_indirect_sentry_type_def split: if_splits)
-qed*)
-
-(*lemma CSP_or_C_read_unseal_invoked_indirect_caps[derivable_capsE]:
-  assumes "Run (if n = 31 then CheckSPAlignment () \<then> CSP_read () else C_read n) t c" and "invocation_trace_assms t"
+lemma CSP_or_C_read_unseal_invoked_indirect_caps:
+  assumes "Run (if n = 31 then CheckSPAlignment u \<then> CSP_read u' else C_read n) t c" and "invocation_trace_assms t"
     and "invoked_indirect_reg = Some n"
+    and "indirect_sentry_type = Some sentry_type"
     and "CapIsTagSet c"
-    and "\<exists>sentry_type. indirect_sentry_type = Some sentry_type \<and> get_indirect_sentry_type c = Some sentry_type"
+    and "get_indirect_sentry_type c = Some sentry_type"
   shows "CapUnseal c \<in> invoked_indirect_caps"
   using assms
-  by (auto elim!: derivable_capsE Run_bindE split: if_splits)*)
+  by (auto elim!: C_read_unseal_invoked_indirect_caps_cases CSP_read_invoked_indirect_caps_cases Run_bindE split: if_splits)
 
 declare Run_ifE[where thesis = "CapUnseal c \<in> invoked_indirect_caps" and a = c for c, derivable_caps_combinators]
 declare Run_bindE[where thesis = "CapUnseal c \<in> invoked_indirect_caps" and a = c for c, derivable_caps_combinators]
@@ -6456,13 +6438,6 @@ qed auto*)
 (* *** Move *** *)
 
 (* *** Merge *** *)
-
-lemma indirect_sentry_type_cases:
-  obtains "sentry_type = None" | "sentry_type = Some Points_to_PCC" | "sentry_type = Some Points_to_Pair"
-proof (cases sentry_type)
-  case (Some x)
-  then show ?thesis using that by (cases x; auto)
-qed auto
 
 (*lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap_sentry:
   assumes "mem_cap_vaddr_loaded_in_trace_if_tagged vaddr c t"
