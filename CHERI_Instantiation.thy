@@ -1746,8 +1746,8 @@ definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightar
      {c. \<exists>rk vaddr paddr sz bytes tag sentry c'.
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> trace_invokes_indirect_sentries t \<and>
-            set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>
-            (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = (unat (CapGetValue sentry + 16))) \<and>
+            \<comment> \<open>TODO: Do we need this: set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>\<close>
+            (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)) \<and>
             translate_address vaddr Load = Some paddr \<and>
             E_read_memt rk paddr sz (bytes, tag) \<in> set t \<and>
             cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
@@ -1968,11 +1968,13 @@ lemma
   unfolding bin_nth_int_eq_mod_div
   by (auto dest: even_two_times_div_two)
 
-lemma bounds_address_offset:
+lemma bounds_address_orig_offset_aux:
   assumes "valid_address acctype addr"
     and "offset < 2 ^ 52"
     and "bounds_address acctype addr + offset < 2 ^ 64"
-  shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
+  shows "bin_nth (int (addr + offset)) 55 = bin_nth (int addr) 55" (is ?bin_nth)
+    and "(addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset" (is ?addr_mod)
+    (* and "addr mod 2 ^ 56 + offset < 2 ^ 56" (is ?addr_lt) *)
 proof -
   have "bin_nth (int addr) 55 = bin_nth (int (addr + offset)) 55
         \<and> (addr + offset) mod 2 ^ 56 = addr mod 2 ^ 56 + offset"
@@ -2017,10 +2019,34 @@ proof -
     ultimately show ?thesis
       by auto
   qed
-  then show ?thesis
-    using tbi_enabled_cong[of addr "addr + offset" acctype]
-    unfolding bounds_address_def
+  then show ?bin_nth and ?addr_mod
     by auto
+qed
+
+lemma bounds_address_offset:
+  assumes "valid_address acctype addr"
+    and "offset < 2 ^ 52"
+    and "bounds_address acctype addr + offset < 2 ^ 64"
+  shows "bounds_address acctype (addr + offset) = bounds_address acctype addr + offset"
+  using bounds_address_orig_offset_aux[OF assms] tbi_enabled_cong[of addr "addr + offset" acctype]
+  by (auto simp: bounds_address_def)
+
+lemma bounds_address_orig_address_no_overflow:
+  assumes "valid_address acctype addr"
+    and "offset < 2 ^ 52"
+    and "bounds_address acctype addr + offset < 2 ^ 64"
+    and "addr < 2 ^ 64"
+  shows "addr + offset < 2 ^ 64"
+proof -
+  have "addr + offset = addr div 2 ^ 56 * 2 ^ 56 + addr mod 2 ^ 56 + offset"
+    by auto
+  also have "\<dots> \<le> 255 * 2 ^ 56 + addr mod 2 ^ 56 + offset"
+    using assms
+    by (intro add_right_mono) auto
+  also have "\<dots> < 2 ^ 64"
+    using bounds_address_orig_offset_aux[OF assms(1-3)]
+    by auto
+  finally show ?thesis .
 qed
 
 end
@@ -6027,7 +6053,7 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
          (\<forall>sentry c vaddr.
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> invoked_indirect_caps \<and>
-            set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>
+            \<comment> \<open>TODO: Do we need this: set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>\<close>
             translate_address vaddr = Some paddr \<and>
             cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c
             \<longrightarrow>
@@ -6141,12 +6167,8 @@ proof (unfold invocation_trace_assms_def, intro ballI)
     defer
     defer
     apply fastforce
-    apply fastforce
-    apply fastforce
-    apply fastforce
              apply fastforce
-    using assms(7)
-    apply fastforce*)
+    subgoal using assms(7) by (fastforce split: indirect_sentry_type.splits)*)
     sorry
 qed
 
@@ -6461,7 +6483,7 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap:
     and "invocation_trace_assms t"
     and "CapIsTagSet c" (*and "\<not>CapIsSealed c"*)
     and "sentry \<in> invoked_indirect_caps"
-    and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry"
+    (* and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry" *)
     and "indirect_sentry_type \<noteq> None"
     and "indirect_sentry_type = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)"
   shows "mem_branch_caps c \<subseteq> invoked_code_caps"
@@ -6476,9 +6498,9 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap:
   apply (auto simp: invocation_trace_assms_def mem_branch_caps_def CapIsSealed_def
            elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE
            dest!: invocation_trace_assmsD[OF assms(2)] split: indirect_sentry_type.splits)
-  apply fastforce
-                      apply fastforce
-                      apply (((erule allE[where x = sentry], erule allE[where x = c]) | (erule allE[where x = sentry], erule allE[where x = vaddr])); auto simp: mem_branch_caps_def CapIsSealed_def)+
+  (*apply fastforce
+                      apply fastforce*)
+  apply (((erule allE[where x = sentry], erule allE[where x = c]) | (erule allE[where x = sentry], erule allE[where x = vaddr])); auto simp: mem_branch_caps_def CapIsSealed_def)+
   done
 
 lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap:
@@ -6486,7 +6508,7 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap:
     and "invocation_trace_assms t"
     and "CapIsTagSet c"
     and "sentry \<in> invoked_indirect_caps"
-    and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry"
+    (* and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry" *)
     and "indirect_sentry_type = Some Points_to_Pair"
     and "vaddr = unat (CapGetValue sentry)"
   shows "mem_data_caps c \<subseteq> invoked_data_caps"
