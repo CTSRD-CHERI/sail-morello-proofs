@@ -909,7 +909,7 @@ lemma get_indirect_sentry_type_Some_cases:
   using assms
   by (auto simp: get_indirect_sentry_type_def split: if_splits)
 
-lemma get_indirect_sentry_type_Some_iffs:
+lemma get_indirect_sentry_type_Some_iffs[simp]:
   "get_indirect_sentry_type c = Some Points_to_PCC \<longleftrightarrow> CapIsSealed c \<and> CapGetObjectType c = CAP_SEAL_TYPE_LB"
   "get_indirect_sentry_type c = Some Points_to_Pair \<longleftrightarrow> CapIsSealed c \<and> CapGetObjectType c = CAP_SEAL_TYPE_LPB"
   by (auto simp: get_indirect_sentry_type_def CapIsSealed_def)
@@ -1764,7 +1764,7 @@ definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightar
                  translate_address (unat (CapGetValue sentry + offset)) Load = Some addr \<and>
                  E_read_memt rk addr sz (bytes, tag) \<in> set t \<and>
                  cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
-                 c \<in> mem_data_caps c'}
+                 c \<in> mem_branch_caps c'}
       | None \<Rightarrow> {})"*)
 
 definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightarrow> Capability set" where
@@ -6673,6 +6673,13 @@ lemma trace_assms_unknown_trace_assms[intro, simp]:
 
 lemmas inv_unknown_trace_assms[simp, derivable_capsE, accessible_regsE] =
   inv_trace_assms_trace_assms[THEN trace_assms_unknown_trace_assms]
+
+lemma inv_trace_assms_appendE[derivable_caps_combinators]:
+  assumes "t = t1 @ t2"
+    and "t = t1 @ t2 \<longrightarrow> inv_trace_assms s t"
+  shows "inv_trace_assms s t1" and "inv_trace_assms (run s t1) t2"
+  using assms
+  by auto
 
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 

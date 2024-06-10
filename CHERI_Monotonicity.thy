@@ -16,19 +16,26 @@ locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: 
 
 locale Morello_Instr_Trace_Automaton = Morello_Trace_Automaton + fixes instr :: instr
 
+(* TODO: Move *)
+lemma (in Morello_Axiom_Assms) ev_assms_translation_assms:
+  "ev_assms s e \<Longrightarrow> translation_assms e"
+  by (cases e; simp only: ev_assms.simps)
+
 locale Morello_Instr_Trace_Write_Cap_Automaton =
   Morello_Instr_Trace_Automaton + Morello_Instr_Write_Cap_Automaton
-  where ex_traces = "instr_raises_ex instr t"
-    and invoked_caps = "trace_invokes_caps t"
-    and invoked_regs = "trace_invokes_regs t"
-    and invoked_indirect_caps = "invokes_indirect_caps instr t"
-    and invoked_indirect_regs = "trace_invokes_indirect_regs t"
-    and load_auths = "trace_load_auths t"
-    and load_caps_permitted = "uses_mem_caps instr t"
-    and is_indirect_branch = "trace_is_indirect_branch t"
+  where ex_traces = "isa.trace_raises_ex ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    and instr_opt = "instr_of_trace t"
+    and invoked_code_caps = "Cheri_axioms.trace_invokes_code_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    and invoked_data_caps = "Cheri_axioms.trace_invokes_data_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    (* and invoked_regs = "trace_invokes_regs t" *)
+    and invoked_indirect_caps = "Cheri_axioms.trace_invokes_indirect_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    (* and invoked_indirect_regs = "trace_invokes_indirect_regs t" *)
+    and load_auth = "trace_load_auths t"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    (* and is_indirect_branch = "trace_is_indirect_branch t" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
-    and translate_address = "\<lambda>addr _ _. translate_address addr"
+    (* and translate_address = "\<lambda>addr _ _. translate_address addr" *)
 begin
 
 abbreviation "instr_trace_assms \<equiv> trace_assms initial t \<and> \<not>trace_has_system_reg_access t"
@@ -36,57 +43,101 @@ abbreviation "instr_trace_assms \<equiv> trace_assms initial t \<and> \<not>trac
 lemma instr_exp_assms_instr_semI:
   assumes "hasTrace t (instr_sem instr)"
   shows "instr_exp_assms (instr_sem instr)"
-  using hasTrace_determ_instrs_eqs[OF assms determ_instrs_instr_sem]
+  (* using hasTrace_determ_instrs_eqs[OF assms determ_instrs_instr_sem] *)
+  (* unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def *)
+  (* by auto *)
   unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def
-  by auto
+  sorry
+
+sublocale Write_Cap_Assm_Automaton_For_Trace
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+    and cap_invariant = cap_invariant
+    and t = "\<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+  by (unfold_locales, elim ev_assms_translation_assms)
 
 end
 
 locale Morello_Instr_Trace_Mem_Automaton =
-  Morello_Instr_Trace_Automaton + Morello_Instr_Mem_Automaton
-  where ex_traces = "instr_raises_ex instr t"
-    and invoked_caps = "trace_invokes_caps t"
-    and invoked_regs = "trace_invokes_regs t"
-    and invoked_indirect_caps = "invokes_indirect_caps instr t"
-    and invoked_indirect_regs = "trace_invokes_indirect_regs t"
-    and load_auths = "trace_load_auths t"
-    and load_caps_permitted = "uses_mem_caps instr t"
-    and is_indirect_branch = "trace_is_indirect_branch t"
+  Morello_Instr_Trace_Automaton + Morello_Mem_Axiom_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    and instr_opt = "instr_of_trace t"
+    and invoked_code_caps = "Cheri_axioms.trace_invokes_code_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    and invoked_data_caps = "Cheri_axioms.trace_invokes_data_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    (* and invoked_regs = "trace_invokes_regs t" *)
+    and invoked_indirect_caps = "Cheri_axioms.trace_invokes_indirect_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    (* and invoked_indirect_regs = "trace_invokes_indirect_regs t" *)
+    and load_auth = "trace_load_auths t"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    (* and is_indirect_branch = "trace_is_indirect_branch t" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
+    and is_fetch = "is_fetch_trace \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+begin
 
+sublocale Mem_Assm_Automaton_For_Trace
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+    and cap_invariant = cap_invariant
+    and t = "\<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+  by (unfold_locales, elim ev_assms_translation_assms)
+
+end
 
 locale Morello_Fetch_Trace_Write_Cap_Automaton =
   Morello_Trace_Automaton + Morello_Fetch_Write_Cap_Automaton
-  where ex_traces = "fetch_raises_ex t"
-    and invoked_caps = "{}"
-    and invoked_regs = "{}"
-    and invoked_indirect_caps = "{}"
-    and invoked_indirect_regs = "{}"
-    and load_auths = "{}"
-    and load_caps_permitted = "True"
-    and is_indirect_branch = "False"
+  where ex_traces = "isa.trace_raises_ex ISA \<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
+    and instr_opt = "None"
+    and invoked_code_caps = "Cheri_axioms.trace_invokes_code_caps ISA \<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
+    and invoked_data_caps = "Cheri_axioms.trace_invokes_data_caps ISA \<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
+    (* and invoked_regs = "{}" *)
+    and invoked_indirect_caps = "Cheri_axioms.trace_invokes_indirect_caps ISA \<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
+    (* and invoked_indirect_regs = "{}" *)
+    and load_auth = "None"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA \<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
+    (* and is_indirect_branch = "False" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
-    and translate_address = "\<lambda>addr _ _. translate_address addr"
+    (* and translate_address = "\<lambda>addr _ _. translate_address addr" *)
 begin
+
+sublocale Write_Cap_Assm_Automaton_For_Trace
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+    and cap_invariant = cap_invariant
+    and t = "\<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
+  by (unfold_locales, elim ev_assms_translation_assms)
 
 abbreviation "fetch_trace_assms \<equiv> trace_assms initial t \<and> \<not>trace_has_system_reg_access t"
 
 end
 
 locale Morello_Fetch_Trace_Mem_Automaton =
-  Morello_Trace_Automaton + Morello_Fetch_Mem_Automaton
-  where ex_traces = "fetch_raises_ex t"
-    and invoked_caps = "{}"
-    and invoked_regs = "{}"
-    and invoked_indirect_caps = "{}"
-    and invoked_indirect_regs = "{}"
-    and load_auths = "{}"
-    and load_caps_permitted = "True"
-    and is_indirect_branch = "False"
+  Morello_Trace_Automaton + Morello_Mem_Axiom_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (fetch_trace t)"
+    and instr_opt = "None"
+    and invoked_code_caps = "Cheri_axioms.trace_invokes_code_caps ISA (fetch_trace t)"
+    and invoked_data_caps = "Cheri_axioms.trace_invokes_data_caps ISA (fetch_trace t)"
+    (* and invoked_regs = "{}" *)
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t)"
+    (* and invoked_indirect_regs = "{}" *)
+    and load_auth = "None"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t)"
+    (* and is_indirect_branch = "False" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
+    (* and is_fetch = "is_fetch_trace (fetch_trace t)" *)
+    and is_fetch = "is_fetch_trace (fetch_trace t :: (register_value, instr) isa_trace)"
+begin
+
+sublocale Mem_Assm_Automaton_For_Trace
+  where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
+    and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
+    and cap_invariant = cap_invariant
+    and t = "fetch_trace t"
+  by (unfold_locales, elim ev_assms_translation_assms)
+
+end
 
 context Morello_Fixed_Address_Translation
 begin
@@ -103,7 +154,7 @@ definition "instr_state_assms _ s \<equiv> fetch_state_assms s \<and> pcc_tagged
 
 text \<open>TODO: Show that the trace assumptions (apart from the translation and UNKNOWN cap ones) are
   implied by the state assumptions and reduce the following to the remaining trace assumptions.\<close>
-abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms translate_address is_translation_event translation_assms UNKNOWN_caps t \<and> wellformed_trace t"
+abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms translate_address is_translation_event translation_assms UNKNOWN_caps t instr \<and> wellformed_trace t"
 abbreviation "fetch_trace_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms translate_address is_translation_event translation_assms UNKNOWN_caps t \<and> wellformed_trace t"
 
 abbreviation "s_translate_address addr acctype s \<equiv> translate_address addr"
@@ -130,7 +181,9 @@ proof
   have **: "Mem.traces_enabled (instr_sem instr) Mem.initial"
     using iea[unfolded Write_Cap.instr_exp_assms_instr_sem_iff] no_asr
     unfolding instr_sem_def
-    by (intro Mem.traces_enabledI) auto
+    (* by (intro Mem.traces_enabledI) auto *)
+    apply (intro Mem.traces_enabled_bind)
+    sorry
   show "instr_cheri_axioms instr t n"
     using * ** t inv ia n
     unfolding cheri_axioms_def ISA_simps

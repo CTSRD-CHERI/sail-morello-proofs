@@ -501,8 +501,8 @@
     },
     "execute_BLR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+        "extra_assms": ["n \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_PCC"],
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_indirect_pcc_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap MemC_read_is_invoked_mem_code_cap[where sentry_type = Points_to_PCC] VACheckAddress_is_invoked_indirect_sentry_for_addr CSP_or_C_read_unseal_is_invoked_indirect_sentry[where sentry_type = Points_to_PCC] Run_CSP_or_C_read_is_indirectly_invoked_single_data_cap)"
       },
       "traces_enabled_mem": {
         "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
@@ -511,7 +511,7 @@
     },
     "decode_BLR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
+        "extra_assms": ["uint Cn \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_PCC"]
       },
       "traces_enabled_mem": {
         "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
@@ -524,8 +524,8 @@
     },
     "execute_BR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
-        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap Run_CSP_or_C_read_invoked_indirect_caps)"
+        "extra_assms": ["n \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_PCC"],
+        "proof": "(traces_enabledI assms: assms intro: traces_enabled_C_set_if_indirect_pcc_sentry elim: enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap MemC_read_is_invoked_mem_code_cap[where sentry_type = Points_to_PCC] VACheckAddress_is_invoked_indirect_sentry_for_addr CSP_or_C_read_unseal_is_invoked_indirect_sentry[where sentry_type = Points_to_PCC] Run_CSP_or_C_read_is_indirectly_invoked_single_data_cap)"
       },
       "traces_enabled_mem": {
         "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"],
@@ -534,7 +534,7 @@
     },
     "decode_BR_CI_C": {
       "traces_enabled": {
-        "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
+        "extra_assms": ["uint Cn \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_PCC"]
       },
       "traces_enabled_mem": {
         "extra_assms": ["indirect_sentry_type = Some Points_to_PCC"]
@@ -542,8 +542,8 @@
     },
     "execute_LDPBLR_C_C_C": {
       "traces_enabled": {
-        "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
-        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap[where n = t__arg] traces_enabled_C_set_mem_cap[where n = 29] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
+        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_Pair"],
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_squashed_mem_data_cap[where n = t__arg] traces_enabled_C_set_squashed_mem_data_cap[where n = 29] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap MemC_read_is_invoked_mem_code_cap[where sentry_type = Points_to_Pair] MemC_read_is_indirectly_invoked_mem_pair_data_cap VACheckAddress_is_invoked_indirect_sentry_for_addr CSP_or_C_read_unseal_is_invoked_indirect_sentry[where sentry_type = Points_to_Pair] Run_VAddress_eq_CapGetValue)"
       },
       "traces_enabled_mem": {
         "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
@@ -560,8 +560,8 @@
     },
     "execute_LDPBR_C_C_C": {
       "traces_enabled": {
-        "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],
-        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_mem_cap enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap)"
+        "extra_assms": ["t__arg \\<noteq> 29 \\<longrightarrow> \\<not>invokes_indirect_caps", "indirect_sentry_type = Some Points_to_Pair"],
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_squashed_mem_data_cap[where n = t__arg] traces_enabled_C_set_squashed_mem_data_cap[where n = 29] enabled_branch_target_CapUnseal_mem_cap enabled_branch_target_CapSquashPostLoadCap MemC_read_is_invoked_mem_code_cap[where sentry_type = Points_to_Pair] MemC_read_is_indirectly_invoked_mem_pair_data_cap VACheckAddress_is_invoked_indirect_sentry_for_addr CSP_or_C_read_unseal_is_invoked_indirect_sentry[where sentry_type = Points_to_Pair] Run_VAddress_eq_CapGetValue)"
       },
       "traces_enabled_mem": {
         "extra_assms": ["indirect_sentry_type = Some Points_to_Pair"],

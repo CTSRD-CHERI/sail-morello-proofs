@@ -160,6 +160,86 @@ lemma is_indirect_sentry_simps[simp]:
 
 end
 
+lemma Run_VAToCapability_iff:
+  "Run (VAToCapability va) t c \<longleftrightarrow> VAIsCapability va \<and> c = VirtualAddress_base va \<and> t = []"
+  unfolding VAToCapability_def
+  by auto
+
+context Morello_Fixed_Address_Translation
+begin
+
+lemma AArch64_MemSingle_read_translate_address_Some:
+  assumes "Run (AArch64_MemSingle_read vaddr sz acctype wasaligned) t a"
+    and "translation_assms_trace t"
+  shows "\<exists>paddr. translate_address (unat vaddr) = Some paddr"
+  using assms
+  unfolding AArch64_MemSingle_read_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else)
+
+lemma AArch64_MemSingle_set_translate_address_Some:
+  assumes "Run (AArch64_MemSingle_set vaddr sz acctype wasaligned data) t a"
+    and "translation_assms_trace t"
+  shows "\<exists>paddr. translate_address (unat vaddr) = Some paddr"
+  using assms
+  unfolding AArch64_MemSingle_set_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else)
+
+lemma AArch64_MemSingle_read_valid_address:
+  assumes "Run (AArch64_MemSingle_read vaddr sz acctype wasaligned) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using AArch64_MemSingle_read_translate_address_Some[OF assms]
+  by (auto intro: translate_address_valid)
+
+lemma AArch64_TaggedMemSingle_valid_address:
+  assumes "Run (AArch64_TaggedMemSingle vaddr sz acctype wasaligned) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding AArch64_TaggedMemSingle_def bind_assoc
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else translate_address_valid)
+
+lemma MemC_read_valid_address:
+  assumes "Run (MemC_read vaddr acctype) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding MemC_read_def
+  by (auto elim!: Run_bindE Run_ifE AArch64_TaggedMemSingle_valid_address)
+
+lemma Mem_read0_valid_address:
+  assumes "Run (Mem_read0 vaddr sz acctype) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding Mem_read0_def
+  by (fastforce elim!: Run_bindE Run_ifE intro: AArch64_MemSingle_read_valid_address)
+
+lemma Mem_read0_plus_0_valid_address:
+  assumes "Run (Mem_read0 (add_vec_int vaddr 0) sz acctype) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding Mem_read0_def
+  by (fastforce elim!: Run_bindE Run_ifE intro: AArch64_MemSingle_read_valid_address)
+
+lemma Mem_set0_valid_address:
+  assumes "Run (Mem_set0 vaddr sz acctype data) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  unfolding Mem_set0_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE dest: AArch64_MemSingle_set_translate_address_Some intro: translate_address_valid)
+
+lemma Mem_set0_plus_0_valid_address:
+  assumes "Run (Mem_set0 (add_vec_int vaddr 0) sz acctype data) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat vaddr)"
+  using assms
+  by (auto intro: Mem_set0_valid_address)
+
+lemma AArch64_CapabilityTag_valid_address:
+  assumes "Run (AArch64_CapabilityTag addr acctype) t a" and "translation_assms_trace t"
+  shows "valid_address acctype (unat addr)"
+  using assms
+  unfolding AArch64_CapabilityTag_def
+  by (auto elim!: Run_bindE simp: exp_fails_if_then_else intro: translate_address_valid)
+
+end
+
 (*definition "determ_instrs_of_exp m \<equiv>
   (\<forall>t. hasTrace t m \<longrightarrow> instrs_of_exp m = set_option (instr_of_trace t))"
 
@@ -265,6 +345,14 @@ lemma (in Cap_Axiom_Assm_Automaton) derivable_caps_invariant:
   shows "cap_invariant c"
   using assms
   by (auto simp: accessed_caps_invariant_def derivable_caps_def intro: derivable_cap_invariant)
+
+lemma (in Cap_Axiom_Assm_Automaton) accessed_caps_invariant:
+  assumes "c \<in> accessed_caps use_mem_caps s"
+    and "accessed_caps_invariant s"
+    and "is_tagged_method CC c"
+  shows "cap_invariant c"
+  using assms
+  by (auto simp: accessed_caps_invariant_def)
 
 context Morello_Axiom_Automaton
 begin
@@ -439,7 +527,7 @@ lemma accessed_reg_caps_run_imp[derivable_caps_runI]:
   using accessed_reg_caps_run_mono[of s t]
   by auto
 
-lemma is_invoked_run_mono:
+lemma is_invoked_run_mono[derivable_caps_runI]:
   "is_invoked_pair_code_cap c s \<Longrightarrow> is_invoked_pair_code_cap c (run s t)"
   "is_invoked_pair_data_cap c s \<Longrightarrow> is_invoked_pair_data_cap c (run s t)"
   "is_invoked_direct_sentry c s \<Longrightarrow> is_invoked_direct_sentry c (run s t)"
@@ -507,9 +595,9 @@ lemma CSP_read_accessed_caps_cases:
   obtains "\<forall>s. c \<in> accessed_caps (load_caps_permitted \<and> \<not>invokes_indirect_caps) (run s t)" | "\<not>CapIsTagSet c"
   by (use assms in \<open>cases rule: CSP_read_accessed_reg_caps_cases\<close>) (auto simp: accessed_caps_def)
 
-lemma C_read_direct_sentry_enabled_branch_target:
-  assumes "invoked_code_reg = Some n"
-    and "Run (C_read n) t c" and "invocation_trace_assms t"
+lemma C_read_direct_sentry_enabled_branch_target[derivable_capsE]:
+  assumes "Run (C_read n) t c" and "invocation_trace_assms t"
+    and "invoked_code_reg = Some n"
     and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB"
     and "n = 29 \<longrightarrow> {''_R29''} \<subseteq> accessible_regs s"
   shows "enabled_branch_target (CapUnseal c) (run s t)"
@@ -791,10 +879,21 @@ definition
 (*   is_invoked_indirect_sentry sentry type s \<and> (case offset of Some n \<Rightarrow> addr = CapGetValue sentry + of_nat n \<and> unat (CapGetValue sentry) + n < 2 ^ 64 | None \<Rightarrow> True) \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry"*)
 (*   is_invoked_indirect_sentry sentry type s \<and> (case offset of Some n \<Rightarrow> addr = CapGetValue sentry + of_nat n \<and> aligned (unat (CapGetValue sentry)) 16 \<and> aligned n 16 | None \<Rightarrow> True) \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry" *)
 
-lemma
-  assumes "invoked_indirect_reg = Some n"
-  shows "is_invoked_indirect_sentry sentry type (run s t)"
-  oops
+lemma is_indirectly_invoked_mem_code_cap_run_imp[derivable_caps_runI]:
+  "is_indirectly_invoked_mem_code_cap sentry type c s \<Longrightarrow> is_indirectly_invoked_mem_code_cap sentry type c (run s t)"
+  unfolding is_indirectly_invoked_mem_code_cap_def
+  by (blast intro: is_invoked_run_mono)
+
+lemma all_indirect_code_cap_offset_Pair_Some_I[derivable_capsI]:
+  "P 16 \<Longrightarrow> \<forall>n. indirect_code_cap_offset Points_to_Pair = Some n \<longrightarrow> P n"
+  by auto
+
+lemma Run_VAddress_eq_CapGetValue:
+  assumes "Run (VAddress va) t a"
+    and "VirtualAddress_vatype va = VA_Capability"
+  shows "a = CapGetValue (VirtualAddress_base va)"
+  using assms
+  by (auto simp: VAddress_def VAIsBits64_def elim!: Run_bindE)
 
 (* TODO: Move *)
 lemma CapIsRangeInBounds_in_get_mem_region:
@@ -891,13 +990,11 @@ lemma in_host':
   using assms in_host[of acctype t ih]
   by auto
 
-thm VACheckAddress_def[no_vars]
-lemma
-  assumes "Run (VACheckAddress base addr sz requested_perms acctype) t a"
-    and "nat sz \<le> 2^64"
-  shows "set (address_range (unat addr) (nat sz)) \<subseteq> get_mem_region CC (VirtualAddress_base base)"
-  thm VACheckAddress_def CheckCapability_def
-  oops
+lemmas Run_valid_addressE[derivable_capsE] =
+  AArch64_MemSingle_read_valid_address AArch64_TaggedMemSingle_valid_address
+  MemC_read_valid_address Mem_read0_valid_address Mem_read0_plus_0_valid_address
+  Mem_set0_valid_address Mem_set0_plus_0_valid_address
+  AArch64_CapabilityTag_valid_address
 
 lemma CheckCapability_bounds_address:
   assumes t: "Run (CheckCapability c vaddr sz req_perms acctype) t addr" "inv_trace_assms s t"
@@ -1001,6 +1098,58 @@ proof -
              elim!: get_indirect_sentry_type_Some_cases split: option.splits)
 qed
 
+lemma CSP_or_C_read_unseal_is_invoked_indirect_sentry:
+  assumes "Run (if n = 31 then CheckSPAlignment u \<then> CSP_read u' else C_read n) t c" and "invocation_trace_assms t"
+    and "invoked_indirect_reg = Some n"
+    and "indirect_sentry_type = Some sentry_type"
+    and "invokes_indirect_caps"
+    and "n = 29 \<longrightarrow> {''_R29''} \<subseteq> accessible_regs s"
+    and "CapIsTagSet c \<and> get_indirect_sentry_type c = Some sentry_type \<longrightarrow> c' = CapUnseal c"
+  shows "is_invoked_indirect_sentry c' sentry_type (run s t)"
+proof -
+  have "c \<in> accessed_reg_caps (run s t)" if "CapIsTagSet c"
+    using that assms
+    by (auto elim!: Run_bindE C_read_accessed_reg_caps_cases CSP_read_accessed_reg_caps_cases split: if_splits)
+  then show ?thesis
+    using assms
+    by (cases sentry_type)
+       (auto elim!: Run_bindE C_read_unseal_invoked_indirect_caps_cases CSP_read_invoked_indirect_caps_cases
+             simp: is_invoked_indirect_sentry_def accessed_caps_def get_indirect_sentry_type_Some_iffs split: if_splits)
+qed
+
+lemma VACheckAddress_is_invoked_indirect_sentry_for_addr:
+  assumes "Run (VACheckAddress base addr sz requested_perms acctype) t u" "inv_trace_assms s t"
+    and sz: "sz > 0" "sz < 2^52"
+    and "\<forall>n. offset = Some n \<longrightarrow> valid_address acctype (unat addr) \<and> addr = CapGetValue (VirtualAddress_base base) \<and> addr' = addr + of_nat n \<and> n < nat sz"
+    and "VirtualAddress_vatype base = VA_Capability"
+    and "CapIsTagSet (VirtualAddress_base base) \<longrightarrow> is_invoked_indirect_sentry (VirtualAddress_base base) type s"
+  shows "is_invoked_indirect_sentry_for_addr (VirtualAddress_base base) type addr' offset (run s t)"
+proof -
+  have tagged: "CapIsTagSet (VirtualAddress_base base)"
+    using assms(1,6)
+    unfolding VACheckAddress_def VAIsBits64_def VAToCapability_def CheckCapability_def
+    by (auto simp: VACheckAddress_def VAIsBits64_def elim!: Run_bindE)
+  then have "is_invoked_indirect_sentry (VirtualAddress_base base) type s"
+    using assms(7)
+    by auto
+  then have inv: "cap_invariant (VirtualAddress_base base)"
+    using assms(2) tagged
+    by (auto simp: is_invoked_indirect_sentry_def inv_trace_assms_def
+             elim!: accessed_caps_invariant[THEN unseal_cap_invariant, THEN leq_cap_invariant])
+  show ?thesis
+  proof (cases offset)
+    case None
+    then show ?thesis
+      using assms tagged
+      by (auto simp: is_invoked_indirect_sentry_for_addr_def VAIsTaggedCap_def intro: is_invoked_run_mono)
+  next
+    case (Some n)
+    then show ?thesis
+      using assms VACheckAddress_no_overflow[OF assms(1-4), where offset = n] tagged inv
+      by (auto simp: is_invoked_indirect_sentry_for_addr_def VAIsTaggedCap_def intro: is_invoked_run_mono)
+  qed
+qed
+
   (* using assms CSP_or_C_read_unseal_invoked_indirect_caps[OF assms(1,2,3,6)] *)
   (*by (auto simp: is_invoked_indirect_sentry_for_addr_def is_invoked_indirect_sentry_def
                  CapNull_def CapIsSealed_def get_mem_region_CapUnseal_eq CapUnseal_get_bounds_helpers_eq
@@ -1044,10 +1193,11 @@ lemma MemC_read_is_indirectly_invoked_mem_pair_data_cap:
     and "invocation_trace_assms t"
     and "indirect_sentry_type = Some Points_to_Pair"
     and "CapIsTagSet c"
-    and "is_invoked_indirect_sentry_for_addr sentry Points_to_Pair addr (Some 0) s"
+    and "valid_address acctype (unat addr) \<longrightarrow> is_invoked_indirect_sentry_for_addr sentry Points_to_Pair addr (Some 0) s"
   shows "is_indirectly_invoked_mem_pair_data_cap sentry c (run s t)"
 proof -
   from assms have sentry: "is_invoked_indirect_sentry sentry Points_to_Pair s \<and> addr = CapGetValue sentry" \<comment> \<open> \<and> set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry\<close>
+    using MemC_read_valid_address[OF assms(1,2)]
     by (auto simp: is_invoked_indirect_sentry_for_addr_def)
   moreover have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
     using assms
@@ -1282,6 +1432,18 @@ lemma is_invoked_mem_code_cap_is_invoked_code_cap:
   unfolding is_invoked_code_cap_def is_invoked_mem_code_cap_def
   by (auto split: if_splits)
 
+lemma is_invoked_direct_mem_sentry_run_imp[derivable_caps_runI]:
+  "is_invoked_direct_mem_sentry c s \<Longrightarrow> is_invoked_direct_mem_sentry c (run s t)"
+  using accessed_mem_caps_run_mono[of s t]
+  unfolding is_invoked_direct_mem_sentry_def
+  by blast
+
+lemma is_invoked_mem_code_cap_run_imp[derivable_caps_runI]:
+  "is_invoked_mem_code_cap sentry type c s \<Longrightarrow> is_invoked_mem_code_cap sentry type c (run s t)"
+  unfolding is_invoked_mem_code_cap_def
+  using is_indirectly_invoked_mem_code_cap_run_imp is_invoked_direct_mem_sentry_run_imp
+  by (auto split: if_splits)
+
 lemma enabled_branch_target_CapUnseal_mem_cap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "VA_from_load_auth base"
@@ -1314,10 +1476,13 @@ lemma MemC_read_is_invoked_mem_code_cap:
     and "invocation_trace_assms t"
     and "indirect_sentry_type = Some sentry_type"
     and "CapIsTagSet c"
-    and "invokes_indirect_caps \<longrightarrow> is_invoked_indirect_sentry_for_addr sentry sentry_type addr (indirect_code_cap_offset sentry_type) s"
+    and "invokes_indirect_caps \<and> valid_address acctype (unat addr) \<longrightarrow> is_invoked_indirect_sentry_for_addr sentry sentry_type addr (indirect_code_cap_offset sentry_type) s"
     and "\<not>invokes_indirect_caps \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB"
   shows "is_invoked_mem_code_cap sentry indirect_sentry_type c (run s t)"
 proof -
+  have valid: "valid_address acctype (unat addr)"
+    using assms
+    by (elim MemC_read_valid_address)
   have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
     using assms
     by (elim MemC_read_mem_cap_vaddr_loaded_in_trace_if_tagged) auto
@@ -1329,7 +1494,7 @@ proof -
     then have sentry: "is_invoked_indirect_sentry sentry sentry_type s"
       and addr: "\<forall>n. indirect_code_cap_offset sentry_type = Some n \<longrightarrow> addr = CapGetValue sentry + of_nat n \<and> unat addr = unat (CapGetValue sentry) + n"
       (* and bounds: "set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry" *)
-      using assms
+      using assms valid
       by (cases sentry_type; auto simp: is_invoked_indirect_sentry_for_addr_def)+
     moreover have "mem_branch_caps c \<subseteq> invoked_code_caps"
       using assms(1-5) sentry addr (*bounds*)
@@ -1416,28 +1581,30 @@ lemma enabled_branch_target_CapSquashPostLoadCap:
     and "VA_from_load_auth base"
     and "c \<in> derivable_mem_caps s"
     and "(CapIsTagSet c \<and> \<not>CapIsSealed c \<and> invokes_indirect_caps) \<longrightarrow> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
-  shows "enabled_branch_target c' s"
+  shows "enabled_branch_target c' (run s t)"
 proof (cases "invokes_indirect_caps \<and> CapIsTagSet c'")
   case True
   then have *: "invokes_indirect_caps" "load_caps_permitted"
     using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
     by auto
   note leqI = branch_caps_leq leq_cap_trans[OF branch_caps_leq clear_perm_leq_cap]
-  thm Run_CapSquashPostLoadCap_use_mem_caps
-  thm is_invoked_mem_code_cap_is_invoked_code_cap[of "VirtualAddress_base base" indirect_sentry_type c s, OF _ \<open>load_caps_permitted\<close>]
-  show ?thesis
+  have "enabled_branch_target c' s"
     using assms True
     by (cases rule: CapSquashPostLoadCap_cases)
        (auto simp: enabled_branch_target_def mem_branch_caps_def enabled_pcc_def CapIsSealed_def branch_caps_GetObjectType_eq
              dest: is_invoked_mem_code_cap_is_invoked_code_cap[OF _ \<open>load_caps_permitted\<close>])
+  then show ?thesis
+    by (intro enabled_branch_target_run_imp)
 next
   case False
   then have "c' \<in> derivable_caps s"
     using assms
     by (cases "CapIsTagSet c'", elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps)
        (auto simp: derivable_caps_def)
-  then show ?thesis
+  then have "enabled_branch_target c' s"
     by (auto intro: derivable_enabled_branch_target)
+  then show ?thesis
+    by (intro enabled_branch_target_run_imp)
 qed
 
 (*lemma enabled_branch_target_CapSquashPostLoadCap:
@@ -2241,75 +2408,11 @@ proof -
     by (elim store_enabled_access_enabled) auto
 qed
 
-lemma AArch64_MemSingle_read_translate_address_Some:
-  assumes "Run (AArch64_MemSingle_read vaddr sz acctype wasaligned) t a"
-    and "translation_assms_trace t"
-  shows "\<exists>paddr. translate_address (unat vaddr) = Some paddr"
-  using assms
-  unfolding AArch64_MemSingle_read_def
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else)
-
-lemma AArch64_MemSingle_set_translate_address_Some:
-  assumes "Run (AArch64_MemSingle_set vaddr sz acctype wasaligned data) t a"
-    and "translation_assms_trace t"
-  shows "\<exists>paddr. translate_address (unat vaddr) = Some paddr"
-  using assms
-  unfolding AArch64_MemSingle_set_def
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else)
-
-lemma AArch64_MemSingle_read_valid_address[derivable_capsE]:
-  assumes "Run (AArch64_MemSingle_read vaddr sz acctype wasaligned) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using AArch64_MemSingle_read_translate_address_Some[OF assms]
-  by (auto intro: translate_address_valid)
-
-lemma AArch64_TaggedMemSingle_valid_address[derivable_capsE]:
-  assumes "Run (AArch64_TaggedMemSingle vaddr sz acctype wasaligned) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using assms
-  unfolding AArch64_TaggedMemSingle_def bind_assoc
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else translate_address_valid)
-
-lemma MemC_read_valid_address[derivable_capsE]:
-  assumes "Run (MemC_read vaddr acctype) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using assms
-  unfolding MemC_read_def
-  by (auto elim!: Run_bindE Run_ifE derivable_capsE)
-
-lemma Mem_read0_valid_address[derivable_capsE]:
-  assumes "Run (Mem_read0 vaddr sz acctype) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using assms
-  unfolding Mem_read0_def
-  by (fastforce elim!: Run_bindE Run_ifE intro: AArch64_MemSingle_read_valid_address)
-
-lemma Mem_read0_plus_0_valid_address[derivable_capsE]:
-  assumes "Run (Mem_read0 (add_vec_int vaddr 0) sz acctype) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using assms
-  unfolding Mem_read0_def
-  by (fastforce elim!: Run_bindE Run_ifE intro: AArch64_MemSingle_read_valid_address)
-
-lemma Mem_set0_valid_address[derivable_capsE]:
-  assumes "Run (Mem_set0 vaddr sz acctype data) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using assms
-  unfolding Mem_set0_def
-  by (auto elim!: Run_bindE Run_letE Run_ifE dest: AArch64_MemSingle_set_translate_address_Some intro: translate_address_valid)
-
-lemma Mem_set0_plus_0_valid_address[derivable_capsE]:
-  assumes "Run (Mem_set0 (add_vec_int vaddr 0) sz acctype data) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat vaddr)"
-  using assms
-  by (auto intro: Mem_set0_valid_address)
-
-lemma AArch64_CapabilityTag_valid_address[derivable_capsE]:
-  assumes "Run (AArch64_CapabilityTag addr acctype) t a" and "translation_assms_trace t"
-  shows "valid_address acctype (unat addr)"
-  using assms
-  unfolding AArch64_CapabilityTag_def
-  by (auto elim!: Run_bindE simp: exp_fails_if_then_else intro: translate_address_valid)
+lemmas Run_valid_addressE[derivable_capsE] =
+  AArch64_MemSingle_read_valid_address AArch64_TaggedMemSingle_valid_address
+  MemC_read_valid_address Mem_read0_valid_address Mem_read0_plus_0_valid_address
+  Mem_set0_valid_address Mem_set0_plus_0_valid_address
+  AArch64_CapabilityTag_valid_address
 
 text \<open>The VirtualAddress type in the ASL\<close>
 
@@ -2824,11 +2927,6 @@ lemmas load_enabled_combinators[derivable_caps_combinators] =
   Run_ifE[where thesis = "load_enabled (run s t) acctype addr sz tagged" and t = t for s acctype addr sz tagged t]
   Run_letE[where thesis = "load_enabled (run s t) acctype addr sz tagged" and t = t for s acctype addr sz tagged t]
   Run_case_prodE[where thesis = "load_enabled (run s t) acctype addr sz tagged" and t = t for s acctype addr sz tagged t]
-
-lemma Run_VAToCapability_iff:
-  "Run (VAToCapability va) t c \<longleftrightarrow> VAIsCapability va \<and> c = VirtualAddress_base va \<and> t = []"
-  unfolding VAToCapability_def
-  by auto
 
 abbreviation
   "derivable_or_invoked c s \<equiv>
