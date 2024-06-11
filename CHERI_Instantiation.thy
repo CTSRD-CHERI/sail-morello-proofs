@@ -6609,6 +6609,10 @@ fun ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> register
     (unknown_ev_assms (E_choose descr rv) \<and> translation_assms (E_choose descr rv))"
 | "ev_assms s e = translation_assms e"
 
+lemma ev_assms_translation_assms:
+  "ev_assms s e \<Longrightarrow> translation_assms e"
+  by (cases e; simp only: ev_assms.simps)
+
 end
 
 locale Morello_Axiom_Automaton =
@@ -6706,10 +6710,51 @@ lemma instr_exp_assms_traces_enabled_letE:
 lemma DecodeA64_ignore_pc: "DecodeA64 pc opcode = DecodeA64 0 opcode"
   by (unfold DecodeA64_def, rule refl)
 
+lemma trace_raises_isa_exception_instr_sem_iff:
+  "trace_raises_isa_exception t (instr_sem instr) \<longleftrightarrow> trace_raises_ex (instr_trace instr t)"
+  by (auto simp: trace_raises_ex_def trace_raises_isa_exception_def elim: is_isa_exception.elims)
+
+lemma trace_raises_isa_exception_instr_fetch_iff:
+  "trace_raises_isa_exception t instr_fetch \<longleftrightarrow> trace_raises_ex (fetch_trace t)"
+  by (auto simp: trace_raises_ex_def trace_raises_isa_exception_def elim: is_isa_exception.elims)
+
 end
 
-locale Morello_Instr_Axiom_Automaton = Morello_Axiom_Automaton where is_fetch = False
-locale Morello_Fetch_Axiom_Automaton = Morello_Axiom_Automaton where is_fetch = True
+locale Morello_Instr_Axiom_Automaton = Morello_Axiom_Automaton +
+  assumes is_fetch_False: "\<not>is_fetch"
+begin
+
+declare is_fetch_False[intro, derivable_capsI]
+
+lemma minus_if_is_fetch_False_accessible_regs[accessible_regsI]:
+  assumes "Rs - (if a then xs else ys) \<union> Rs' \<subseteq> accessible_regs s"
+  shows "Rs - (if a \<and> \<not>is_fetch then xs else ys) \<union> Rs' \<subseteq> accessible_regs s"
+  by (use assms in \<open>auto simp: is_fetch_False\<close>)
+
+lemma minus_if_is_fetch_True_accessible_regs[accessible_regsI]:
+  assumes "Rs - (if a then xs else ys) \<union> Rs' \<subseteq> accessible_regs s"
+  shows "Rs - (if a \<or> is_fetch then xs else ys) \<union> Rs' \<subseteq> accessible_regs s"
+  by (use assms in \<open>auto simp: is_fetch_False\<close>)
+
+lemma is_fetch_impI[derivable_capsI]:
+  "is_fetch \<longrightarrow> P"
+  by (auto simp: is_fetch_False)
+
+lemma is_fetchE[elim, derivable_capsE]:
+  "is_fetch \<Longrightarrow> P"
+  by (auto simp: is_fetch_False)
+
+end
+
+locale Morello_Fetch_Axiom_Automaton = Morello_Axiom_Automaton +
+  assumes is_fetch_True: "is_fetch"
+begin
+
+lemma not_is_fetchE[elim, derivable_capsE]:
+  "\<not>is_fetch \<Longrightarrow> P"
+  by (auto simp: is_fetch_True)
+
+end
 
 locale Morello_Write_Cap_Automaton = Morello_Fixed_Address_Translation +
   fixes ex_traces :: bool
@@ -6847,10 +6892,10 @@ lemma BranchAddr_not_sealed:
 
 end
 
-locale Morello_Instr_Write_Cap_Automaton = Morello_Write_Cap_Automaton where is_fetch = False
-locale Morello_Fetch_Write_Cap_Automaton = Morello_Write_Cap_Automaton where is_fetch = True
-sublocale Morello_Instr_Write_Cap_Automaton \<subseteq> Morello_Instr_Axiom_Automaton where enabled = enabled ..
-sublocale Morello_Fetch_Write_Cap_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton where enabled = enabled ..
+locale Morello_Instr_Write_Cap_Automaton = Morello_Write_Cap_Automaton + Morello_Instr_Axiom_Automaton where enabled = enabled
+locale Morello_Fetch_Write_Cap_Automaton = Morello_Write_Cap_Automaton + Morello_Fetch_Axiom_Automaton where enabled = enabled
+(* sublocale Morello_Instr_Write_Cap_Automaton \<subseteq> Morello_Instr_Axiom_Automaton where enabled = enabled .. *)
+(* sublocale Morello_Fetch_Write_Cap_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton where enabled = enabled .. *)
 
 (* Assume stubbed out address translation for now *)
 locale Morello_Mem_Axiom_Automaton =
@@ -6918,13 +6963,173 @@ declare inv_trace_assms_trace_assms[THEN translation_assms_traceI, simp]
 
 end
 
-locale Morello_Instr_Mem_Automaton = Morello_Mem_Axiom_Automaton where is_fetch = False
-locale Morello_Fetch_Mem_Automaton = Morello_Mem_Axiom_Automaton where is_fetch = True
-sublocale Morello_Instr_Mem_Automaton \<subseteq> Morello_Instr_Axiom_Automaton
-  where enabled = enabled ..
+locale Morello_Instr_Mem_Automaton = Morello_Mem_Axiom_Automaton + Morello_Instr_Axiom_Automaton where enabled = enabled
+locale Morello_Fetch_Mem_Automaton = Morello_Mem_Axiom_Automaton + Morello_Fetch_Axiom_Automaton where enabled = enabled
+(*sublocale Morello_Instr_Mem_Automaton \<subseteq> Morello_Instr_Axiom_Automaton
+  where enabled = enabled ..*)
   (* where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled .. *)
-sublocale Morello_Fetch_Mem_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton
+(* sublocale Morello_Fetch_Mem_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton *)
   (* where translate_address = "\<lambda>addr _ _. translate_address addr" and enabled = enabled .. *)
-  where enabled = enabled ..
+  (* where enabled = enabled .. *)
+
+locale Morello_Trace_Axiom_Automaton = Morello_Fixed_Address_Translation +
+  Morello_Axiom_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA t"
+    and instr_opt = "instr_of_trace (trace t)"
+    and invoked_code_caps = "trace_invokes_code_caps ISA t"
+    and invoked_data_caps = "trace_invokes_data_caps ISA t"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA t"
+    and load_auth = "trace_load_auths (trace t)"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA t"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace t)"
+    and is_in_c64 = "trace_is_in_c64 (trace t)"
+    and is_fetch = "is_fetch_trace t"
+  for t :: "(register_value, instr) isa_trace"
+
+locale Morello_Trace_Write_Cap_Automaton = Morello_Fixed_Address_Translation +
+  Morello_Write_Cap_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA t"
+    and instr_opt = "instr_of_trace (trace t)"
+    and invoked_code_caps = "trace_invokes_code_caps ISA t"
+    and invoked_data_caps = "trace_invokes_data_caps ISA t"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA t"
+    and load_auth = "trace_load_auths (trace t)"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA t"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace t)"
+    and is_in_c64 = "trace_is_in_c64 (trace t)"
+    and is_fetch = "is_fetch_trace t"
+  for t :: "(register_value, instr) isa_trace"
+
+sublocale Morello_Trace_Write_Cap_Automaton \<subseteq> Morello_Trace_Axiom_Automaton where t = t and enabled = enabled ..
+
+locale Morello_Trace_Mem_Automaton = Morello_Fixed_Address_Translation +
+  Morello_Mem_Axiom_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA t"
+    and instr_opt = "instr_of_trace (trace t)"
+    and invoked_code_caps = "trace_invokes_code_caps ISA t"
+    and invoked_data_caps = "trace_invokes_data_caps ISA t"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA t"
+    and load_auth = "trace_load_auths (trace t)"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA t"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace t)"
+    and is_in_c64 = "trace_is_in_c64 (trace t)"
+    and is_fetch = "is_fetch_trace t"
+  for t :: "(register_value, instr) isa_trace"
+
+sublocale Morello_Trace_Mem_Automaton \<subseteq> Morello_Trace_Axiom_Automaton where t = t and enabled = enabled ..
+
+locale Morello_Instr_Trace_Axiom_Automaton =
+  Morello_Trace_Axiom_Automaton where t = "instr_trace instr t"
+  for t :: "register_value trace" and instr :: instr
+
+sublocale Morello_Instr_Trace_Axiom_Automaton \<subseteq> Morello_Instr_Axiom_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (instr_trace instr t)"
+    and instr_opt = "instr_of_trace (trace (instr_trace instr t))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (instr_trace instr t)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
+    and load_auth = "trace_load_auths (trace (instr_trace instr t))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
+    and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
+    and is_fetch = "is_fetch_trace (instr_trace instr t)"
+  by standard (auto simp: is_fetch_trace_def)
+
+locale Morello_Fetch_Trace_Axiom_Automaton =
+  Morello_Trace_Axiom_Automaton where t = "fetch_trace t :: (register_value, instr) isa_trace"
+  for t :: "register_value trace"
+
+sublocale Morello_Fetch_Trace_Axiom_Automaton \<subseteq> Morello_Fetch_Axiom_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and instr_opt = "instr_of_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and load_auth = "trace_load_auths (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and is_in_c64 = "trace_is_in_c64 (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and is_fetch = "is_fetch_trace (fetch_trace t :: (register_value, instr) isa_trace)"
+  by standard (auto simp: is_fetch_trace_def)
+
+locale Morello_Instr_Trace_Write_Cap_Automaton =
+  Morello_Trace_Write_Cap_Automaton where t = "instr_trace instr t"
+  for t :: "register_value trace" and instr :: instr
+
+sublocale Morello_Instr_Trace_Write_Cap_Automaton \<subseteq> Morello_Instr_Trace_Axiom_Automaton
+  where t = t and instr = instr and enabled = enabled ..
+
+sublocale Morello_Instr_Trace_Write_Cap_Automaton \<subseteq> Morello_Instr_Write_Cap_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (instr_trace instr t)"
+    and instr_opt = "instr_of_trace (trace (instr_trace instr t))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (instr_trace instr t)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
+    and load_auth = "trace_load_auths (trace (instr_trace instr t))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
+    and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
+    and is_fetch = "is_fetch_trace (instr_trace instr t)"
+  ..
+
+locale Morello_Instr_Trace_Mem_Automaton =
+  Morello_Trace_Mem_Automaton where t = "instr_trace instr t"
+  for t :: "register_value trace" and instr :: instr
+
+sublocale Morello_Instr_Trace_Mem_Automaton \<subseteq> Morello_Instr_Trace_Axiom_Automaton
+  where t = t and instr = instr and enabled = enabled ..
+
+sublocale Morello_Instr_Trace_Mem_Automaton \<subseteq> Morello_Instr_Mem_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (instr_trace instr t)"
+    and instr_opt = "instr_of_trace (trace (instr_trace instr t))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (instr_trace instr t)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
+    and load_auth = "trace_load_auths (trace (instr_trace instr t))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
+    and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
+    and is_fetch = "is_fetch_trace (instr_trace instr t)"
+  ..
+
+locale Morello_Fetch_Trace_Write_Cap_Automaton =
+  Morello_Trace_Write_Cap_Automaton where t = "fetch_trace t :: (register_value, instr) isa_trace"
+  for t :: "register_value trace"
+
+sublocale Morello_Fetch_Trace_Write_Cap_Automaton \<subseteq> Morello_Fetch_Trace_Axiom_Automaton
+  where t = t and enabled = enabled ..
+
+sublocale Morello_Fetch_Trace_Write_Cap_Automaton \<subseteq> Morello_Fetch_Write_Cap_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and instr_opt = "instr_of_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and load_auth = "trace_load_auths (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and is_in_c64 = "trace_is_in_c64 (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and is_fetch = "is_fetch_trace (fetch_trace t :: (register_value, instr) isa_trace)"
+  ..
+
+locale Morello_Fetch_Trace_Mem_Automaton =
+  Morello_Trace_Mem_Automaton where t = "fetch_trace t :: (register_value, instr) isa_trace"
+  for t :: "register_value trace"
+
+sublocale Morello_Fetch_Trace_Mem_Automaton \<subseteq> Morello_Fetch_Trace_Axiom_Automaton
+  where t = t and enabled = enabled ..
+
+sublocale Morello_Fetch_Trace_Mem_Automaton \<subseteq> Morello_Fetch_Mem_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and instr_opt = "instr_of_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and load_auth = "trace_load_auths (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and is_in_c64 = "trace_is_in_c64 (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and is_fetch = "is_fetch_trace (fetch_trace t :: (register_value, instr) isa_trace)"
+  ..
 
 end

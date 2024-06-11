@@ -3252,7 +3252,7 @@ lemma traces_enabled_Mem_read_Fetch[traces_enabledI]:
   assumes "\<And>v. paccess_enabled s Fetch (unat (FullAddress_address (AddressDescriptor_paddress desc))) (nat sz) v B0"
   shows "traces_enabled (Mem_read desc sz accdesc) s"
   unfolding Mem_read_def bind_assoc
-  by (traces_enabledI intro: traces_enabled_read_mem assms: assms)
+  by (traces_enabledI intro: traces_enabled_read_mem is_fetch_True assms: assms)
 
 lemma load_enabled_paccess_enabled_Fetch[intro]:
   assumes "load_enabled s acctype vaddr sz tagged"
@@ -3262,7 +3262,7 @@ lemma load_enabled_paccess_enabled_Fetch[intro]:
   shows "paccess_enabled s Fetch paddr sz' data tag"
   using assms
   unfolding load_enabled_def
-  by (cases tagged) auto
+  by (cases tagged) (auto simp: is_fetch_True)
 
 end
 

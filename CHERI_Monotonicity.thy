@@ -12,14 +12,9 @@ theory CHERI_Monotonicity
     "Sail-T-CHERI.Properties"
 begin
 
-locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: "register_value trace"
+(*locale Morello_Trace_Automaton = Morello_Fixed_Address_Translation + fixes t :: "register_value trace"
 
 locale Morello_Instr_Trace_Automaton = Morello_Trace_Automaton + fixes instr :: instr
-
-(* TODO: Move *)
-lemma (in Morello_Axiom_Assms) ev_assms_translation_assms:
-  "ev_assms s e \<Longrightarrow> translation_assms e"
-  by (cases e; simp only: ev_assms.simps)
 
 locale Morello_Instr_Trace_Write_Cap_Automaton =
   Morello_Instr_Trace_Automaton + Morello_Instr_Write_Cap_Automaton
@@ -35,19 +30,46 @@ locale Morello_Instr_Trace_Write_Cap_Automaton =
     (* and is_indirect_branch = "trace_is_indirect_branch t" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
-    (* and translate_address = "\<lambda>addr _ _. translate_address addr" *)
+    (* and translate_address = "\<lambda>addr _ _. translate_address addr" *)*)
+context Morello_Instr_Trace_Write_Cap_Automaton
 begin
 
 abbreviation "instr_trace_assms \<equiv> trace_assms initial t \<and> \<not>trace_has_system_reg_access t"
 
+lemma ThisInstrAbstract_ref_simps:
+  "regval_of ThisInstrAbstract_ref instr_ast = Regval_instr_ast instr_ast"
+  "name ThisInstrAbstract_ref = ''__ThisInstrAbstract''"
+  by (auto simp: register_defs)
+
+lemma write_reg_Traces_cases:
+  assumes "(write_reg r v, t, m) \<in> Traces"
+  obtains (Run) "t = [E_write_reg (name r) (regval_of r v)]" and "m = Done ()"
+  | (Nil) "t = []" and "m = Write_reg (name r) (regval_of r v) (Done ())"
+  using assms
+  by (auto simp: write_reg_def elim!: Write_reg_TracesE)
+
+lemma determ_instr_exp_instr_of_trace_eq:
+  assumes "determ_instr_exp m"
+    and "hasTrace t m"
+  shows "instr_of_exp m = instr_of_trace t"
+  using assms
+  by (elim hasTrace_cases)
+     (auto simp: determ_instr_exp_def no_reg_writes_to_instr_of_trace no_reg_writes_to_instr_of_exp ThisInstrAbstract_ref_simps
+           elim!: Run_bindE bind_Traces_cases Run_write_regE write_reg_Traces_cases)
+
+lemma instr_invokes_indirect_caps_Nil_without_invoked_reg:
+  assumes "trace_invokes_indirect_cap_from_reg t = None"
+  shows "instr_invokes_indirect_caps instr t = {}"
+  using assms
+  by (auto simp: instr_invokes_indirect_caps_def)
+
 lemma instr_exp_assms_instr_semI:
   assumes "hasTrace t (instr_sem instr)"
   shows "instr_exp_assms (instr_sem instr)"
-  (* using hasTrace_determ_instrs_eqs[OF assms determ_instrs_instr_sem] *)
-  (* unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def *)
-  (* by auto *)
+  using determ_instr_exp_instr_of_trace_eq[OF determ_instrs_instr_sem assms]
   unfolding instr_exp_assms_def invocation_instr_exp_assms_def load_instr_exp_assms_def
-  sorry
+  by (auto simp: exp_invokes_indirect_cap_from_reg_def instr_invokes_indirect_caps_Nil_without_invoked_reg
+                 trace_invokes_indirect_cap_from_reg_def exp_load_auth_def trace_load_auths_def)
 
 sublocale Write_Cap_Assm_Automaton_For_Trace
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
@@ -58,7 +80,7 @@ sublocale Write_Cap_Assm_Automaton_For_Trace
 
 end
 
-locale Morello_Instr_Trace_Mem_Automaton =
+(*locale Morello_Instr_Trace_Mem_Automaton =
   Morello_Instr_Trace_Automaton + Morello_Mem_Axiom_Automaton
   where ex_traces = "isa.trace_raises_ex ISA \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
     and instr_opt = "instr_of_trace t"
@@ -72,7 +94,8 @@ locale Morello_Instr_Trace_Mem_Automaton =
     (* and is_indirect_branch = "trace_is_indirect_branch t" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
-    and is_fetch = "is_fetch_trace \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
+    and is_fetch = "is_fetch_trace \<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"*)
+context Morello_Instr_Trace_Mem_Automaton
 begin
 
 sublocale Mem_Assm_Automaton_For_Trace
@@ -84,7 +107,7 @@ sublocale Mem_Assm_Automaton_For_Trace
 
 end
 
-locale Morello_Fetch_Trace_Write_Cap_Automaton =
+(*locale Morello_Fetch_Trace_Write_Cap_Automaton =
   Morello_Trace_Automaton + Morello_Fetch_Write_Cap_Automaton
   where ex_traces = "isa.trace_raises_ex ISA \<lparr>trace = t, trace_kind = Fetch_Trace\<rparr>"
     and instr_opt = "None"
@@ -98,7 +121,8 @@ locale Morello_Fetch_Trace_Write_Cap_Automaton =
     (* and is_indirect_branch = "False" *)
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
-    (* and translate_address = "\<lambda>addr _ _. translate_address addr" *)
+    (* and translate_address = "\<lambda>addr _ _. translate_address addr" *)*)
+context Morello_Fetch_Trace_Write_Cap_Automaton
 begin
 
 sublocale Write_Cap_Assm_Automaton_For_Trace
@@ -112,7 +136,7 @@ abbreviation "fetch_trace_assms \<equiv> trace_assms initial t \<and> \<not>trac
 
 end
 
-locale Morello_Fetch_Trace_Mem_Automaton =
+(*locale Morello_Fetch_Trace_Mem_Automaton =
   Morello_Trace_Automaton + Morello_Mem_Axiom_Automaton
   where ex_traces = "isa.trace_raises_ex ISA (fetch_trace t)"
     and instr_opt = "None"
@@ -127,7 +151,8 @@ locale Morello_Fetch_Trace_Mem_Automaton =
     and no_system_reg_access = "\<not>trace_has_system_reg_access t"
     and is_in_c64 = "trace_is_in_c64 t"
     (* and is_fetch = "is_fetch_trace (fetch_trace t)" *)
-    and is_fetch = "is_fetch_trace (fetch_trace t :: (register_value, instr) isa_trace)"
+    and is_fetch = "is_fetch_trace (fetch_trace t :: (register_value, instr) isa_trace)"*)
+context Morello_Fetch_Trace_Mem_Automaton
 begin
 
 sublocale Mem_Assm_Automaton_For_Trace
@@ -181,15 +206,15 @@ proof
   have **: "Mem.traces_enabled (instr_sem instr) Mem.initial"
     using iea[unfolded Write_Cap.instr_exp_assms_instr_sem_iff] no_asr
     unfolding instr_sem_def
-    (* by (intro Mem.traces_enabledI) auto *)
-    apply (intro Mem.traces_enabled_bind)
-    sorry
+    by (intro Mem.traces_enabledI) auto
   show "instr_cheri_axioms instr t n"
     using * ** t inv ia n
-    unfolding cheri_axioms_def ISA_simps
-    by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
+    unfolding cheri_axioms_def (*ISA_simps*)
+    (*by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
        (auto simp: instr_raises_ex_def Write_Cap.trace_raises_isa_exception_def
-             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)
+             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)*)
+    apply (intro conjI; (elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms; auto simp: Write_Cap.trace_raises_isa_exception_instr_sem_iff intro: Write_Cap.holds_along_trace_take)?)
+    sorry
 next
   fix t :: "register_value trace" and n :: nat
   interpret Write_Cap: Morello_Fetch_Trace_Write_Cap_Automaton where t = t
@@ -211,10 +236,12 @@ next
     by (intro Mem.traces_enabledI Mem.accessible_regs_no_writes_run_subset) auto
   show "fetch_cheri_axioms t n"
     using * ** t inv ia n
-    unfolding cheri_axioms_def ISA_simps
-    by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
+    unfolding cheri_axioms_def (*ISA_simps*)
+    (*by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
        (auto simp: fetch_raises_ex_def Write_Cap.trace_raises_isa_exception_def
-             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)
+             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)*)
+    apply (intro conjI; (elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms; auto simp: Write_Cap.trace_raises_isa_exception_instr_fetch_iff intro: Write_Cap.holds_along_trace_take)?)
+    sorry
 qed auto
 
 abbreviation "unknown_caps_of_trace t \<equiv> {c. E_choose ''UNKNOWN_Capability'' (Regval_bitvector_129_dec c) \<in> set t}"
