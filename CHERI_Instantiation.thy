@@ -6063,7 +6063,6 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
                  else if vaddr = unat (CapGetValue sentry + 16) then mem_branch_caps c \<subseteq> invoked_code_caps
                  else True
              | Points_to_PCC \<Rightarrow> mem_branch_caps c \<subseteq> invoked_code_caps))
-         \<comment> \<open>TODO: Invoked direct sentries if invoked_indirect_caps = {}\<close>
      | None \<Rightarrow> True) \<and>
     (is_indirect_branch \<and> invoked_indirect_caps = {} \<and> use_mem_caps \<longrightarrow>
        (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<and> is_sentry c \<longrightarrow>
