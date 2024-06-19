@@ -165,7 +165,7 @@ lemma Run_VAToCapability_iff:
   unfolding VAToCapability_def
   by auto
 
-context Morello_Fixed_Address_Translation
+context Morello_ISA
 begin
 
 lemma AArch64_MemSingle_read_translate_address_Some:
@@ -692,22 +692,23 @@ proof -
 qed
 
 lemma BranchAddr_enabled_pcc[derivable_capsE]:
-  assumes "Run (BranchAddr c el) t c'" and "enabled_branch_target c s"
+  assumes "Run (BranchAddr c el) t c'"
+    and "translation_assms_trace t"
+    and "translation_el AccType_IFETCH = el"
+    and "enabled_branch_target c s"
   shows "enabled_pcc c' s"
 proof cases
   assume "CapIsTagSet c'"
-  then have "c' \<in> branch_caps c" and "\<not>CapIsSealed c" and "CapIsTagSet c"
-    using BranchAddr_in_branch_caps[OF assms(1)]
-    using BranchAddr_not_sealed[OF assms(1)]
-    by auto
   then show ?thesis
-    using assms(2)
-    by (auto simp: enabled_branch_target_def)
+    using assms
+    by (auto simp: enabled_branch_target_def elim!: BranchAddr_branch_caps_tagged_unsealed)
 next
   assume "\<not>CapIsTagSet c'"
   then show ?thesis
     by (auto simp: enabled_pcc_def derivable_caps_def)
 qed
+
+declare read_reg_PSTATE_translation_el[derivable_capsE]
 
 lemma CVBAR_read_in_read_from_KCC:
   assumes "Run (CVBAR_read el) t c"
@@ -973,10 +974,6 @@ lemma unat_zext_subrange_64_55:
   unfolding zext_subrange_64_55_ucast_ucast
   by (auto simp: unat_def uint_and_mask nat_mod_distrib)
 
-lemma bin_nth_int_unat:
-  "bin_nth (int (unat w)) n = w !! n"
-  by (auto simp: unat_def word_test_bit_def)
-
 lemma tbi_enabled':
   assumes "Run (AddrTop addr (translation_el acctype)) t atop" and "translation_assms_trace t"
   shows "(atop = 63 \<and> \<not>tbi_enabled acctype (unat addr)) \<or> (atop = 55 \<and> tbi_enabled acctype (unat addr))"
@@ -1029,8 +1026,8 @@ proof -
     apply (auto elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E dest!: translation_el s1_enabled tbi_enabled' in_host)
     subgoal by (auto elim!: Run_bindE split: if_splits)
     subgoal by (auto elim!: Run_bindE split: if_splits)
-    subgoal by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55 elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E dest!: translation_el s1_enabled tbi_enabled' in_host split: if_splits)
-    subgoal by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55 elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E dest!: translation_el s1_enabled tbi_enabled' in_host split: if_splits)
+    subgoal by (auto simp: unat_sext_subrange_64_55 unat_zext_subrange_64_55 elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E dest!: translation_el s1_enabled tbi_enabled' in_host split: if_splits)
+    subgoal by (auto simp: unat_sext_subrange_64_55 unat_zext_subrange_64_55 elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E dest!: translation_el s1_enabled tbi_enabled' in_host split: if_splits)
     done
   with sz show ?bounds
     by (auto dest!: CapIsRangeInBounds_in_get_mem_region)
@@ -1458,7 +1455,7 @@ proof (intro enabled_branch_targetI impI ballI, elim conjE)
     using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
     by auto
   from c'' have unsealed: "\<not>CapIsSealed c''"
-    by (auto simp: branch_caps_def CapIsSealed_def normalise_cursor_flags_def)
+    by (auto simp: branch_caps_def CapIsSealed_def normalise_cursor_flags_def split: if_splits)
   have "c' = c \<and> is_sentry c \<and> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
     using tagged assms
     by (elim CapSquashPostLoadCap_cases) (auto simp: CapIsSealed_def is_sentry_def)
@@ -1774,14 +1771,14 @@ qed
 lemma traces_enabled_BranchToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"
   shows "traces_enabled (BranchToCapability c branch_type) s"
-  unfolding BranchToCapability_def
+  unfolding BranchToCapability_def bind_assoc
   by (traces_enabledI assms: assms intro: traces_enabled_PCC_set non_cap_expI[THEN non_cap_exp_traces_enabledI] simp: BranchTaken_ref_def PSTATE_ref_def PC_ref_def)
 
 lemma enabled_branch_target_set_0th[derivable_capsI]:
   assumes "enabled_branch_target c s"
   shows "enabled_branch_target (update_vec_dec c 0 (Morello.Bit 0)) s"
-  using assms
-  by (auto simp: enabled_branch_target_def branch_caps_def CapGetValue_def nth_ucast test_bit_set_gen)
+  using assms tbi_enabled_cong[of "unat (c AND mask 64)" "unat (set_bit c 0 False AND mask 64)" AccType_IFETCH]
+  by (auto simp: enabled_branch_target_def branch_caps_def CapGetValue_def nth_ucast test_bit_set_gen word_ao_nth split: if_splits)
 
 lemma traces_enabled_BranchXToCapability[traces_enabledI]:
   assumes "enabled_branch_target c s"
@@ -2677,7 +2674,7 @@ next
       and "CapIsTagSet c" and"\<not>CapIsSealed c"
       and "cap_permits req_perms c"
     unfolding CheckCapability_def bounds_address_def has_ttbr1_def \<open>acctype' = acctype\<close>
-    by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55
+    by (auto simp: unat_sext_subrange_64_55 unat_zext_subrange_64_55
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E
              split: if_splits dest!: translation_el s1_enabled tbi_enabled' in_host)
   have aligned: "nat sz' = 16 \<and> aligned paddr' 16 \<and> \<not>is_fetch" if "tagged"
@@ -2773,7 +2770,7 @@ next
       and tagged: "CapIsTagSet c" and not_sealed: "\<not>CapIsSealed c"
       and "cap_permits req_perms c"
     unfolding CheckCapability_def bounds_address_def has_ttbr1_def \<open>acctype' = acctype\<close>
-    by (auto simp: bin_nth_int_unat unat_sext_subrange_64_55 unat_zext_subrange_64_55
+    by (auto simp: unat_sext_subrange_64_55 unat_zext_subrange_64_55
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E
              split: if_splits dest!: translation_el s1_enabled tbi_enabled' in_host)
   have aligned: "nat sz' = 16 \<and> aligned paddr' 16" if "tag"
@@ -2895,12 +2892,11 @@ proof (unfold store_enabled_def, intro conjI allI impI)
       and "c_or_DDC_in t c'"
     unfolding MorelloCheckForCMO_def VAToCapability_def bounds_address_def has_ttbr1_def
     (* TODO: This takes extremely long (around 20 minutes, on a somewhat slow machine). *)
-    (*by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
-       (auto simp: bin_nth_int_unat unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def has_ttbr1_def
+    by (cases "s1_enabled acctype", cases "has_ttbr1 acctype \<and> addr !! 55")
+       (auto simp: unat_zext_subrange_64_55 unat_sext_subrange_64_55 VAIsCapability_def has_ttbr1_def
              elim!: Run_bindE Run_and_boolM_E Run_or_boolM_E Run_ifE[where f = "VAFromCapability c"]
              dest!: translation_el s1_enabled tbi_enabled' in_host
-             simp: c_or_DDC_in_append1 c_or_DDC_in_append2)*)
-    sorry
+             simp: c_or_DDC_in_append1 c_or_DDC_in_append2)
   have "\<forall>rv. E_write_reg ''PCC'' rv \<notin> set t"
     using assms runs_no_reg_writes_to_MorelloCheckForCMO[of "{''PCC''}"]
     by (fastforce simp: runs_no_reg_writes_to_def)
