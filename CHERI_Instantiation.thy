@@ -567,6 +567,11 @@ lemma CapSetFlags_128th_iff[simp]:
   "CapSetFlags c flags !! 128 = c !! 128"
   by (auto simp: CapSetFlags_def update_subrange_vec_dec_test_bit)
 
+lemma CapSetFlags_CapWithTagClear_commute[simp]:
+  "CapSetFlags (CapWithTagClear c) flags = CapWithTagClear (CapSetFlags c flags)"
+  by (intro word_eqI)
+     (auto simp: CapSetFlags_def CapWithTagClear_def test_bit_set_gen update_subrange_vec_dec_test_bit)
+
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
   by (auto simp: CapIsSealed_def CapUnseal_def CapGetObjectType_CapSetObjectType_and_mask)
@@ -622,6 +627,18 @@ lemma CapAdd__1_CapIsSealed_iff[simp]:
   using assms
   by (auto simp: CapAdd__1_def)
 
+lemma CapAdd_CapIsSealed_imp:
+  assumes "Run (CapAdd c incr) t c'" and "\<not>CapIsSealed c"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  by auto
+
+lemma CapAdd__1_CapIsSealed_imp:
+  assumes "Run (CapAdd__1 c incr) t c'" and "\<not>CapIsSealed c"
+  shows "\<not>CapIsSealed c'"
+  using assms
+  by auto
+
 lemma Run_CapAdd_tag_imp:
   assumes "Run (CapAdd c offset) t c'"
     and "c' !! 128"
@@ -671,6 +688,10 @@ lemma CapGetObjectType_set_bit_0_eq[simp]:
 lemma CapIsSealed_set_bit_0_iff[simp]:
   "CapIsSealed (set_bit c 0 b) = CapIsSealed c"
   by (auto simp: CapIsSealed_def)
+
+lemma CapGetValue_set_bit_commute:
+  "CapGetValue (set_bit c n b) = set_bit (CapGetValue c) n b"
+  by (rule word_eqI) (auto simp: CapGetValue_def test_bit_set_gen nth_ucast)
 
 (*lemma no_Run_EndOfInstruction[simp]:
   "Run (EndOfInstruction u) t a \<longleftrightarrow> False"
@@ -2050,6 +2071,20 @@ proof -
 qed
 
 end
+
+lemma CapSetFlags_mask_56_normalise_cursor_flags:
+  "CapSetFlags c (CapGetValue c AND mask 56) = normalise_cursor_flags c False"
+  unfolding CapSetFlags_def normalise_cursor_flags_def
+  by (intro word_eqI)
+     (auto simp: update_subrange_vec_dec_test_bit nth_slice word_ao_nth)
+
+lemma CapSetFlags_SignExtend_normalise_cursor_flags:
+  assumes "CapGetValue c !! 55"
+  shows "CapSetFlags c (SignExtend1 64 (ucast (CapGetValue c) :: 56 word)) = normalise_cursor_flags c True"
+  using assms
+  unfolding CapSetFlags_def normalise_cursor_flags_def SignExtend1_def sign_extend_def
+  by (intro word_eqI)
+     (auto simp: update_subrange_vec_dec_test_bit nth_slice nth_scast nth_ucast)
 
 locale Morello_Fixed_Address_Translation =
   Morello_Bounds_Address_Calculation + Wellformed_Traces wellformed_ev is_isa_exception
@@ -6614,6 +6649,42 @@ lemma ev_assms_translation_assms:
 
 end
 
+lemma BranchAddr_not_sealed:
+  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
+  shows "\<not>CapIsSealed c" and "CapIsTagSet c"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE split: if_splits)
+
+lemma branch_caps_128th_iff:
+  assumes "c' \<in> branch_caps c"
+  shows "c' !! 128 \<longleftrightarrow> c !! 128"
+  using assms
+  by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen split: if_splits)
+
+lemma leq_cap_CapWithTagClear[simp, intro]:
+  "leq_cap CC (CapWithTagClear c) c'"
+  by (auto simp: leq_cap_def)
+
+lemma BranchAddr_in_branch_caps:
+  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
+  shows "c' \<in> branch_caps c"
+  using assms
+  unfolding BranchAddr_def branch_caps_def
+  by (cases "CapIsSealed c")
+     (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E
+           simp: CapSetFlags_mask_56_normalise_cursor_flags CapSetFlags_SignExtend_normalise_cursor_flags)
+
+lemma BranchAddr_branch_caps_tagged_unsealed:
+  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
+  obtains "c' \<in> branch_caps c" and "CapIsTagSet c" and "\<not>CapIsSealed c"
+  sorry
+
+lemma branch_caps_set_bit_0_subset:
+  assumes "\<not>CapIsSealed c"
+  shows "branch_caps (set_bit c 0 False) \<subseteq> branch_caps c"
+  by (use assms in \<open>auto simp: branch_caps_def normalise_cursor_flags_def CapGetValue_set_bit_commute test_bit_set_gen\<close>)
+
 locale Morello_Axiom_Automaton =
   Morello_Axiom_Assms +
   Cap_Axiom_Assm_Automaton where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps
@@ -6717,6 +6788,49 @@ lemma trace_raises_isa_exception_instr_fetch_iff:
   "trace_raises_isa_exception t instr_fetch \<longleftrightarrow> trace_raises_ex (fetch_trace t)"
   by (auto simp: trace_raises_ex_def trace_raises_isa_exception_def elim: is_isa_exception.elims)
 
+lemma leq_cap_CapSetFlags:
+  assumes "\<not>CapIsSealed c"
+  shows "leq_cap CC (CapSetFlags c flags) c"
+  using assms leq_perms_cap_permits_imp[of "CapSetFlags c flags" c]
+  by (auto simp: leq_cap_def CapGetPermissions_eq_leq_perms intro: leq_bounds_CapSetFlags)
+
+lemma branch_caps_leq:
+  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "leq_cap CC c' c"
+proof cases
+  assume "CapIsTagSet c"
+  then show ?thesis
+    using assms
+    unfolding branch_caps_def normalise_cursor_flags_def
+    by (auto intro: leq_cap_set_0th leq_cap_CapSetFlags leq_cap_CapSetFlags[THEN leq_cap_trans])
+next
+  assume "\<not>CapIsTagSet c"
+  then have "\<not>CapIsTagSet c'"
+    using assms
+    by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen split: if_splits)
+  then show ?thesis
+    by (auto simp: leq_cap_def)
+qed
+
+lemma BranchAddr_leq_cap:
+  assumes "Run (BranchAddr c el) t c'"
+  shows "leq_cap CC c' c"
+  using assms
+  unfolding BranchAddr_def
+  by (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E intro: leq_cap_CapSetFlags)
+
+lemma branch_caps_derivable:
+  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c" and "c \<in> derivable C"
+  shows "c' \<in> derivable C"
+  using branch_caps_leq[OF assms(1,2)] assms(3)
+  by (auto intro: derivable.Restrict)
+
+lemma branch_caps_derivable_caps:
+  assumes "c' \<in> branch_caps c" and "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  shows "c' \<in> derivable_caps s"
+  using assms(2) branch_caps_derivable[OF assms(1,3)] branch_caps_128th_iff[OF assms(1)]
+  by (auto simp: derivable_caps_def)
+
 end
 
 locale Morello_Instr_Axiom_Automaton = Morello_Axiom_Automaton +
@@ -6789,105 +6903,8 @@ sublocale Write_Cap_Assm_Automaton
 
 sublocale Morello_Axiom_Automaton where enabled = enabled ..
 
-lemma branch_caps_leq:
-  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "leq_cap CC c' c"
-proof cases
-  assume "CapIsTagSet c"
-  then show ?thesis
-    using assms
-    unfolding branch_caps_def normalise_cursor_flags_def
-    by (auto intro: leq_cap_set_0th leq_cap_CapSetFlags leq_cap_CapSetFlags[THEN leq_cap_trans])
-next
-  assume "\<not>CapIsTagSet c"
-  then have "\<not>CapIsTagSet c'"
-    using assms
-    by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen split: if_splits)
-  then show ?thesis
-    by (auto simp: leq_cap_def)
-qed
-
-lemma branch_caps_derivable:
-  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c" and "c \<in> derivable C"
-  shows "c' \<in> derivable C"
-  using branch_caps_leq[OF assms(1,2)] assms(3)
-  by (auto intro: derivable.Restrict)
-
-lemma branch_caps_128th_iff:
-  assumes "c' \<in> branch_caps c"
-  shows "c' !! 128 \<longleftrightarrow> c !! 128"
-  using assms
-  by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen split: if_splits)
-
-lemma branch_caps_derivable_caps:
-  assumes "c' \<in> branch_caps c" and "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
-  shows "c' \<in> derivable_caps s"
-  using assms(2) branch_caps_derivable[OF assms(1,3)] branch_caps_128th_iff[OF assms(1)]
-  by (auto simp: derivable_caps_def)
-
-lemma CapSetFlags_mask_56_normalise_cursor_flags:
-  "CapSetFlags c (CapGetValue c AND mask 56) = normalise_cursor_flags c False"
-  unfolding CapSetFlags_def normalise_cursor_flags_def
-  by (intro word_eqI)
-     (auto simp: update_subrange_vec_dec_test_bit nth_slice word_ao_nth)
-
-lemma CapSetFlags_SignExtend_normalise_cursor_flags:
-  assumes "CapGetValue c !! 55"
-  shows "CapSetFlags c (SignExtend1 64 (ucast (CapGetValue c) :: 56 word)) = normalise_cursor_flags c True"
-  using assms
-  unfolding CapSetFlags_def normalise_cursor_flags_def SignExtend1_def sign_extend_def
-  by (intro word_eqI)
-     (auto simp: update_subrange_vec_dec_test_bit nth_slice nth_scast nth_ucast)
-
-lemma leq_cap_CapWithTagClear[simp, intro]:
-  "leq_cap CC (CapWithTagClear c) c'"
-  by (auto simp: leq_cap_def)
-
-lemma leq_cap_CapSetFlags:
-  assumes "\<not>CapIsSealed c"
-  shows "leq_cap CC (CapSetFlags c flags) c"
-  using assms leq_perms_cap_permits_imp[of "CapSetFlags c flags" c]
-  by (auto simp: leq_cap_def CapGetPermissions_eq_leq_perms intro: leq_bounds_CapSetFlags)
-
-lemma CapSetFlags_CapWithTagClear_commute[simp]:
-  "CapSetFlags (CapWithTagClear c) flags = CapWithTagClear (CapSetFlags c flags)"
-  by (intro word_eqI)
-     (auto simp: CapSetFlags_def CapWithTagClear_def test_bit_set_gen update_subrange_vec_dec_test_bit)
-
-lemma BranchAddr_leq_cap:
-  assumes "Run (BranchAddr c el) t c'"
-  shows "leq_cap CC c' c"
-  using assms
-  unfolding BranchAddr_def
-  by (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E intro: leq_cap_CapSetFlags)
-
-lemma BranchAddr_in_branch_caps:
-  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
-  shows "c' \<in> branch_caps c"
-  using assms
-  unfolding BranchAddr_def branch_caps_def
-  by (cases "CapIsSealed c")
-     (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E
-           simp: CapSetFlags_mask_56_normalise_cursor_flags CapSetFlags_SignExtend_normalise_cursor_flags)
-
-lemma CapAdd_CapIsSealed_imp[derivable_capsE]:
-  assumes "Run (CapAdd c incr) t c'" and "\<not>CapIsSealed c"
-  shows "\<not>CapIsSealed c'"
-  using assms
-  by auto
-
-lemma CapAdd__1_CapIsSealed_imp[derivable_capsE]:
-  assumes "Run (CapAdd__1 c incr) t c'" and "\<not>CapIsSealed c"
-  shows "\<not>CapIsSealed c'"
-  using assms
-  by auto
-
-lemma BranchAddr_not_sealed:
-  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
-  shows "\<not>CapIsSealed c" and "CapIsTagSet c"
-  using assms
-  unfolding BranchAddr_def
-  by (auto elim!: Run_bindE Run_letE split: if_splits)
+declare CapAdd_CapIsSealed_imp[derivable_capsE]
+declare CapAdd__1_CapIsSealed_imp[derivable_capsE]
 
 end
 

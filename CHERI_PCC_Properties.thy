@@ -56,7 +56,13 @@ proof (unfold idc_write_axiom_def, intro allI impI)
     by (elim allE[where x = i] allE[where x = c] allE[where x = idc]) (auto simp: disjnt_iff)
 qed
 
-locale Morello_IDC_Write_Automaton = Morello_Axiom_Automaton
+fun wellformed_reg_read where
+  "wellformed_reg_read (E_read_reg r v) =
+     (\<exists>valid_rv set_rv get_rv. map_of registers r = Some (valid_rv, set_rv, get_rv) \<and> valid_rv v)"
+| "wellformed_reg_read _ = True"
+
+locale Morello_IDC_Write_Automaton = Morello_Axiom_Automaton +
+  assumes wellformed_reg_reads: "\<And>e. wellformed_ev e \<Longrightarrow> wellformed_reg_read e"
 begin
 
 definition "pcc_regvals_of_trace t \<equiv> {v. \<exists>e \<in> set t. e = E_write_reg ''PCC'' v}"
@@ -93,6 +99,8 @@ definition idc_write_axiom_from where
     else (\<forall>cd. E_read_reg ''_R29'' (Regval_bitvector_129_dec cd) \<in> set t \<and> cd \<in> invoked_data_caps \<longrightarrow>
            (\<exists>cc. pcc_regvals_of_trace t = {Regval_bitvector_129_dec cc} \<and> CapIsTagSet cc \<and> cc \<in> invoked_code_caps)))"*)
 
+(* abbreviation "idc_write_axiom_from_assms s t \<equiv> invocation_trace_assms t \<and> wellformed_trace t \<longrightarrow> idc_write_axiom_from s t" *)
+
 (*lemma member_written_regs_run_iff:
   "r \<in> written_regs (run s t) \<longleftrightarrow> r \<in> written_regs s \<or> (\<exists>c. E_write_reg r (Regval_bitvector_129_dec c) \<in> set t \<and> CapIsTagSet c)"
   by (induction t arbitrary: s) auto
@@ -117,7 +125,9 @@ lemma idc_write_axiom_from_Nil[intro, simp]:
   "idc_write_axiom_from {} []"
   by (auto simp: idc_write_axiom_from_def)
 
-sublocale Stateful_Full_Trace_Property where pred = idc_write_axiom_from and update_state = add_pcc_regvals_of_trace
+sublocale IDC_Property: Stateful_Full_Trace_Property
+  where pred = idc_write_axiom_from and ev_assms = "\<lambda>e. invocation_ev_assms e \<and> wellformed_ev e"
+    and update_state = add_pcc_regvals_of_trace
   by standard (auto simp: idc_write_axiom_from_def)
 
 lemma fold_un_map_eq_Un:
@@ -159,16 +169,17 @@ lemma idc_write_axiom_from_idc_write_axiom':
   done
 
 lemma (in Stateful_Full_Trace_Property) hasTrace_traces_satisfy_pred_fromE:
-  assumes "hasTrace t m" and "traces_satisfy_pred_from s m"
+  assumes "hasTrace t m" and "trace_assms t" and "traces_satisfy_pred_from s m"
   shows "pred s t"
   using assms
   by (auto simp: traces_satisfy_pred_from_def hasTrace_iff_Traces_final)
 
 lemma no_reg_writes_to_R29_traces_satisfy_pred_from:
   assumes "no_reg_writes_to Rs m" and "{''_R29''} \<subseteq> Rs" and "s = {}"
-  shows "traces_satisfy_pred_from s m"
+  shows "IDC_Property.traces_satisfy_pred_from s m"
   using assms
-  by (auto simp: traces_satisfy_pred_from_def no_reg_writes_to_def idc_write_axiom_from_def hasTrace_iff_Traces_final)
+  unfolding IDC_Property.traces_satisfy_pred_from_def
+  by (auto simp: no_reg_writes_to_def idc_write_axiom_from_def hasTrace_iff_Traces_final)
 
 lemma no_reg_writes_to_PCC_no_pcc_regvals_of_trace:
   assumes "no_reg_writes_to Rs m" and "{''PCC''} \<subseteq> Rs"
@@ -185,10 +196,10 @@ lemma runs_no_reg_writes_to_PCC_no_pcc_regvals_of_trace:
 lemma no_reg_writes_to_traces_satisfy_pred_from_bind_left:
   assumes "no_reg_writes_to {''_R29''} m"
     and "runs_no_reg_writes_to {''PCC''} m"
-    and "\<And>t a. Run m t a \<Longrightarrow> traces_satisfy_pred_from {} (f a)"
-  shows "traces_satisfy_pred_from {} (bind m f)"
+    and "\<And>t a. Run m t a \<Longrightarrow> IDC_Property.trace_assms t \<Longrightarrow> IDC_Property.traces_satisfy_pred_from {} (f a)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (bind m f)"
   using assms
-  by (intro traces_satisfy_pred_from_bind no_reg_writes_to_R29_traces_satisfy_pred_from[OF assms(1)])
+  by (intro IDC_Property.traces_satisfy_pred_from_bind no_reg_writes_to_R29_traces_satisfy_pred_from[OF assms(1)])
      (auto simp: runs_no_reg_writes_to_PCC_no_pcc_regvals_of_trace)
 
 lemma idc_write_axiom_append_no_reg_writes_right:
@@ -199,19 +210,22 @@ lemma idc_write_axiom_append_no_reg_writes_right:
   by (auto simp: idc_write_axiom_from_def pcc_regvals_of_trace_def)
 
 lemma no_reg_writes_to_traces_satisfy_pred_from_bind_right:
-  assumes "traces_satisfy_pred_from {} m"
-    and "\<And>t a. Run m t a \<Longrightarrow> no_reg_writes_to {''PCC'', ''_R29''} (f a)"
-  shows "traces_satisfy_pred_from {} (bind m f)"
+  assumes "IDC_Property.traces_satisfy_pred_from {} m"
+    and "\<And>t a. Run m t a \<Longrightarrow> IDC_Property.trace_assms t \<Longrightarrow> no_reg_writes_to {''PCC'', ''_R29''} (f a)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (bind m f)"
   using assms
-  by (auto simp: traces_satisfy_pred_from_def idc_write_axiom_append_no_reg_writes_right no_reg_writes_to_def hasTrace_iff_Traces_final
-           elim!: bind_Traces_cases)
+  by (fastforce simp: IDC_Property.traces_satisfy_pred_from_def idc_write_axiom_append_no_reg_writes_right no_reg_writes_to_def hasTrace_iff_Traces_final final_bind_iff
+                elim!: bind_Traces_cases)
 
 definition
   "trace_writes_invoked_code_cap s t \<equiv>
      (\<exists>cc. s \<union> pcc_regvals_of_trace t = {Regval_bitvector_129_dec cc} \<and> (CapIsTagSet cc \<longrightarrow> cc \<in> invoked_code_caps))"
 
+(* abbreviation "trace_writes_invoked_code_cap_assms s t \<equiv> invocation_trace_assms t \<and> wellformed_trace t \<longrightarrow> trace_writes_invoked_code_cap s t" *)
+
 sublocale PCC_Writes: Stateful_Full_Trace_Property
-  where pred = trace_writes_invoked_code_cap and update_state = add_pcc_regvals_of_trace
+  where pred = trace_writes_invoked_code_cap and ev_assms = "\<lambda>e. invocation_ev_assms e \<and> wellformed_ev e"
+    and update_state = add_pcc_regvals_of_trace
   by standard (auto simp: trace_writes_invoked_code_cap_def)
 
 (* TODO: Move *)
@@ -294,15 +308,15 @@ lemma hasException_R_set[simp]:
 lemma traces_satisfy_pred_from_bind_C_set:
   assumes "n = 29 \<and> c \<in> invoked_data_caps \<longrightarrow> PCC_Writes.traces_satisfy_pred_from {} m"
     and "no_reg_writes_to {''_R29''} m"
-  shows "traces_satisfy_pred_from {} (bind (C_set n c) (\<lambda>_. m))"
+  shows "IDC_Property.traces_satisfy_pred_from {} (bind (C_set n c) (\<lambda>_. m))"
   using assms
-  using hasTrace_traces_satisfy_pred_fromE[OF _ no_reg_writes_to_R29_traces_satisfy_pred_from[OF assms(2)]]
-  unfolding traces_satisfy_pred_from_def PCC_Writes.traces_satisfy_pred_from_def C_set_def assert_exp_def
-  by (auto simp: idc_write_axiom_from_Cons_write_reg_if dest: hasFailure_R_set_Nil
+  using IDC_Property.hasTrace_traces_satisfy_pred_fromE[OF _ _ no_reg_writes_to_R29_traces_satisfy_pred_from[OF assms(2)], where s = "{}"]
+  unfolding IDC_Property.traces_satisfy_pred_from_def PCC_Writes.traces_satisfy_pred_from_def C_set_def assert_exp_def
+  by (auto simp: idc_write_axiom_from_Cons_write_reg_if invocation_trace_assms_def dest: hasFailure_R_set_Nil
            elim!: hasTrace_bind_cases R_set_Traces_cases split: if_splits)
 
 (* TODO: Use definition from Wellformed_Traces *)
-definition exp_succeeds where "exp_succeeds m \<equiv> \<not>(\<exists>t. hasFailure t m \<or> hasException t m)"
+(* definition exp_succeeds where "exp_succeeds m \<equiv> \<not>(\<exists>t. hasFailure t m \<or> hasException t m)" *)
 (* definition exp_succeeds where "exp_succeeds m \<equiv> (\<forall>t. wellformed_trace t \<longrightarrow> \<not>hasFailure t m \<and> \<not>hasException t m)" *)
 
 (*lemma exp_succeeds_no_failure_or_exception:
@@ -341,25 +355,80 @@ proof -
     by (auto simp: hasException_iff_Traces_Exception intro: Traces_bindI elim!: bind_Traces_cases; fastforce)
 qed
 
+lemma bind_eq_Fail_iff:
+  "bind m f = Fail msg \<longleftrightarrow> m = Fail msg \<or> (\<exists>a. m = Done a \<and> f a = Fail msg)"
+  by (cases m) auto
+
+lemma bind_eq_Exception_iff:
+  "bind m f = Exception e \<longleftrightarrow> m = Exception e \<or> (\<exists>a. m = Done a \<and> f a = Exception e)"
+  by (cases m) auto
+
 lemma exp_succeeds_bind_iff:
-  "exp_succeeds (bind m f) \<longleftrightarrow> exp_succeeds m \<and> (\<forall>t a. Run m t a \<longrightarrow> exp_succeeds (f a))"
-  by (auto simp: exp_succeeds_def hasFailure_bind_iff hasException_bind_iff)
+  "exp_succeeds (bind m f) \<longleftrightarrow> exp_succeeds m \<and> (\<forall>t a. Run m t a \<and> wellformed_trace t \<longrightarrow> exp_succeeds (f a))"
+  (* by (auto simp: exp_ends_with_def hasFailure_bind_iff hasException_bind_iff) *)
+  using Traces_bindI[where m = m and f = f] Traces_bind_leftI[where f = f]
+  apply (auto simp: exp_ends_with_def runTrace_iff_Traces bind_eq_Fail_iff bind_eq_Exception_iff elim!: bind_Traces_cases final_cases)
+           apply fastforce
+          apply fastforce
+         apply (drule Traces_bindI[where m = m and f = f], fastforce, fastforce)
+        apply (drule Traces_bindI[where m = m and f = f], fastforce, fastforce)
+       apply fastforce
+      apply fastforce
+     apply fastforce
+    apply fastforce
+   apply fastforce
+  apply fastforce
+  done
+
+lemmas exp_succeeds_bindI[intro] = exp_succeeds_bind_iff[THEN iffD2]
 
 lemma exp_succeeds_return[intro, simp]:
-  "exp_succeeds (return a)"
-  by (auto simp: exp_succeeds_def hasException_iff_Traces_Exception hasFailure_iff_Traces_Fail)
+  "exp_ends_with (return a) P \<longleftrightarrow> P (Done a)"
+  by (auto simp: exp_ends_with_def runTrace_iff_Traces)
 
 lemma exp_succeeds_assert_exp[simp]:
-  "exp_succeeds (assert_exp e msg) \<longleftrightarrow> e"
-  by (auto simp: assert_exp_def exp_succeeds_def hasException_iff_Traces_Exception hasFailure_iff_Traces_Fail)
+  "exp_ends_with (assert_exp e msg) P \<longleftrightarrow> (if e then P (Done ()) else P (Fail msg))"
+  by (auto simp: assert_exp_def exp_ends_with_def runTrace_iff_Traces)
 
-lemma
-  "exp_succeeds (read_reg r)"
-  apply (auto simp: read_reg_def exp_succeeds_def hasException_iff_Traces_Exception hasFailure_iff_Traces_Fail)
-  (* TODO: well-formedness *)
-  oops
+lemma exp_succeeds_and_boolM[intro]:
+  assumes "exp_succeeds m1" and "exp_succeeds m2"
+  shows "exp_succeeds (and_boolM m1 m2)"
+  by (use assms in \<open>auto simp: and_boolM_def exp_succeeds_bind_iff\<close>)
 
-lemma exp_succeeds_UsingAArch32:
+lemma exp_succeeds_or_boolM[intro]:
+  assumes "exp_succeeds m1" and "exp_succeeds m2"
+  shows "exp_succeeds (or_boolM m1 m2)"
+  by (use assms in \<open>auto simp: or_boolM_def exp_succeeds_bind_iff\<close>)
+
+lemma exp_succeeds_write_reg[simp]:
+  "exp_succeeds (write_reg r v)"
+  by (auto simp: write_reg_def exp_ends_with_def runTrace_iff_Traces elim!: Write_reg_TracesE)
+  (*"exp_ends_with (write_reg r v :: unit M) P \<longleftrightarrow> P (Done ())"*)
+  (* apply (auto simp: write_reg_def exp_ends_with_def runTrace_iff_Traces elim!: Write_reg_TracesE allE[where x = "[E_write_reg (name r) (regval_of r v)]"] allE[where x = "Done () :: unit M"]) *)
+
+abbreviation "wellformed_reg r \<equiv> (map_of registers (name r) = Some (register_ops_of r))"
+
+lemma wellformed_regs:
+  "wellformed_reg PCC_ref"
+  "wellformed_reg PSTATE_ref"
+  "wellformed_reg SCR_EL3_ref"
+  "wellformed_reg TCR_EL1_ref"
+  "wellformed_reg TCR_EL2_ref"
+  "wellformed_reg TCR_EL3_ref"
+  "wellformed_reg HCR_EL2_ref"
+  "wellformed_reg EDSCR_ref"
+  by (auto simp: register_defs)
+
+lemma exp_succeeds_read_reg:
+  assumes "map_of registers (name r) = Some (register_ops_of r)"
+  shows "exp_succeeds (read_reg r)"
+  using assms
+  by (auto simp: read_reg_def exp_ends_with_def runTrace_iff_Traces register_ops_of_def
+           elim!: Read_reg_TracesE final_cases split: option.splits dest!: wellformed_reg_reads (*map_of_SomeD*))
+
+lemmas exp_succeeds_read_regs[intro, simp] = wellformed_regs[THEN exp_succeeds_read_reg]
+
+lemma exp_succeeds_UsingAArch32[intro, simp]:
   "exp_succeeds (UsingAArch32 u)"
   unfolding UsingAArch32_def Let_def
   apply (auto simp: exp_succeeds_bind_iff HaveAnyAArch32_def HighestELUsingAArch32_def)
@@ -368,8 +437,8 @@ lemma exp_succeeds_UsingAArch32:
 
 lemma exp_succeeds_choose_convert_default:
   "exp_succeeds (choose_convert_default of_rv d msg)"
-  unfolding choose_convert_default_def return_def exp_succeeds_def
-  by (auto simp: hasException_iff_Traces_Exception hasFailure_iff_Traces_Fail elim: Traces_cases)
+  unfolding choose_convert_default_def exp_ends_with_def runTrace_iff_Traces
+  by (auto elim: Traces_cases final_cases)
 
 lemma exp_succeeds_undefined_bool[intro, simp]:
   "exp_succeeds (undefined_bool RV u)"
@@ -386,38 +455,72 @@ lemma exp_succeeds_undefined_bitvector[intro, simp]:
   unfolding undefined_bitvector_def choose_bitvector_def choose_bools_def genlistM_def choose_bool_def
   by (auto simp: exp_succeeds_bind_iff intro!: exp_succeeds_foreachM exp_succeeds_choose_convert_default)
 
-lemma
+lemma exp_succeeds_IsSecureBelowEL3[intro, simp]:
+  "exp_succeeds (IsSecureBelowEL3 u)"
+  unfolding IsSecureBelowEL3_def SCR_GEN_read_def
+  by auto
+
+lemma exp_succeeds_ELUsingAArch32[intro, simp]:
   "exp_succeeds (ELUsingAArch32 el)"
   unfolding ELUsingAArch32_def ELStateUsingAArch32_def ELStateUsingAArch32K_def
-  oops
+  by (auto simp: exp_succeeds_bind_iff)
 
-lemma
+lemma exp_succeeds_ELIsInHost[intro, simp]:
+  "exp_succeeds (ELIsInHost el)"
+  by (auto simp: ELIsInHost_def exp_succeeds_bind_iff intro!: exp_succeeds_and_boolM exp_succeeds_or_boolM)
+
+lemma exp_succeeds_IsInHost[intro, simp]:
+  "exp_succeeds (IsInHost u)"
+  by (auto simp: IsInHost_def)
+
+lemma exp_succeeds_AddrTop[intro, simp]:
   "exp_succeeds (AddrTop c el)"
   unfolding AddrTop_def
-  apply (auto simp: exp_succeeds_bind_iff EL0_def EL1_def EL2_def EL3_def)
-  oops
+  by (auto simp: exp_succeeds_bind_iff S1TranslationRegime_def EL0_def EL1_def EL2_def EL3_def)
 
-lemma
+lemma exp_succeeds_BranchAddr[intro, simp]:
   "exp_succeeds (BranchAddr c el)"
   unfolding BranchAddr_def Let_def
-  apply (auto simp: exp_succeeds_bind_iff intro: exp_succeeds_UsingAArch32 dest!: AddrTop_63_or_55)
-  oops
+  by (auto simp: exp_succeeds_bind_iff intro: exp_succeeds_UsingAArch32 dest!: AddrTop_63_or_55
+           intro!: exp_succeeds_and_boolM exp_succeeds_or_boolM)
+
+lemma exp_succeeds_AArch64_BranchAddr[intro, simp]:
+  "exp_succeeds (AArch64_BranchAddr addr)"
+  by (auto simp: AArch64_BranchAddr_def exp_succeeds_bind_iff intro!: exp_succeeds_and_boolM exp_succeeds_or_boolM)
+
+lemma exp_succeeds_Halted[intro, simp]:
+  "exp_succeeds (Halted u)"
+  by (auto simp: Halted_def exp_succeeds_bind_iff)
+
+lemma exp_succeeds_IsInRestricted[intro, simp]:
+  "exp_succeeds (IsInRestricted u)"
+  by (auto simp: IsInRestricted_def PCC_read_def exp_succeeds_bind_iff)
+
+lemma hasFailure_iff_runTrace:
+  "hasFailure t m \<longleftrightarrow> (\<exists>msg. runTrace t m = Some (Fail msg))"
+  by (auto simp: hasFailure_def split: option.splits monad.splits)
+
+lemma hasException_iff_runTrace:
+  "hasException t m \<longleftrightarrow> (\<exists>e. runTrace t m = Some (Exception e))"
+  by (auto simp: hasException_def split: option.splits monad.splits)
 
 lemma PCC_Writes_traces_satisfy_pred_from_bind_right:
-  assumes "\<And>t a. Run m t a \<Longrightarrow> PCC_Writes.traces_satisfy_pred_from {} (f a)"
+  assumes "\<And>t a. Run m t a \<Longrightarrow> PCC_Writes.trace_assms t \<Longrightarrow> PCC_Writes.traces_satisfy_pred_from {} (f a)"
     and "no_reg_writes_to {''PCC''} m"
     and "exp_succeeds m"
   shows "PCC_Writes.traces_satisfy_pred_from {} (bind m f)"
   using assms no_reg_writes_to_PCC_no_pcc_regvals_of_trace[OF assms(2)]
-  unfolding PCC_Writes.traces_satisfy_pred_from_def trace_writes_invoked_code_cap_def
-  by (auto elim!: hasTrace_bind_cases simp: exp_succeeds_def)
+  unfolding PCC_Writes.traces_satisfy_pred_from_def
+  unfolding trace_writes_invoked_code_cap_def
+  by (fastforce elim!: hasTrace_bind_cases simp: exp_ends_with_def hasFailure_iff_runTrace hasException_iff_runTrace)
 
 lemma PCC_Writes_traces_satisfy_pred_from_bind_left:
   assumes "PCC_Writes.traces_satisfy_pred_from {} m"
     and "\<And>a. no_reg_writes_to {''PCC''} (f a)"
   shows "PCC_Writes.traces_satisfy_pred_from {} (bind m f)"
   using assms no_reg_writes_to_PCC_no_pcc_regvals_of_trace[OF assms(2)]
-  unfolding PCC_Writes.traces_satisfy_pred_from_def trace_writes_invoked_code_cap_def
+  unfolding PCC_Writes.traces_satisfy_pred_from_def
+  unfolding trace_writes_invoked_code_cap_def
   by (auto simp: hasTrace_iff_Traces_final hasFailure_iff_Traces_Fail hasException_iff_Traces_Exception final_bind_iff
            elim!: bind_Traces_cases;
       fastforce)
@@ -426,28 +529,12 @@ lemma PCC_Writes_write_reg_PCC:
   assumes "CapIsTagSet c \<longrightarrow> c \<in> invoked_code_caps"
   shows "PCC_Writes.traces_satisfy_pred_from {} (write_reg PCC_ref c)"
   using assms
-  unfolding PCC_Writes.traces_satisfy_pred_from_def trace_writes_invoked_code_cap_def pcc_regvals_of_trace_def
-  by (auto simp: builtin_primitive_exps_hasTrace_iffs register_defs)
+  unfolding PCC_Writes.traces_satisfy_pred_from_def
+  unfolding trace_writes_invoked_code_cap_def pcc_regvals_of_trace_def
+  by (auto simp: write_reg_def hasTrace_iff_Traces_final register_defs elim!: Write_reg_TracesE)
 
-thm PCC_Writes_write_reg_PCC[THEN PCC_Writes.traces_satisfy_pred_from_bind]
 lemmas PCC_Writes_bind_write_reg_PCC =
   PCC_Writes_write_reg_PCC[THEN PCC_Writes_traces_satisfy_pred_from_bind_left]
-
-(* TODO: Move *)
-lemma BranchAddr_in_branch_caps:
-  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
-  shows "c' \<in> branch_caps c"
-  using assms
-  unfolding BranchAddr_def branch_caps_def
-  (*by (cases "CapIsSealed c")
-     (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E
-           simp: CapSetFlags_mask_56_normalise_cursor_flags CapSetFlags_SignExtend_normalise_cursor_flags)*)
-  sorry
-
-lemma BranchAddr_branch_caps_tagged_unsealed:
-  assumes "Run (BranchAddr c el) t c'" and "CapIsTagSet c'"
-  obtains "c' \<in> branch_caps c" and "CapIsTagSet c" and "\<not>CapIsSealed c"
-  sorry
 
 lemma PCC_Write_BranchToCapability:
   assumes "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> branch_caps c \<subseteq> invoked_code_caps"
@@ -457,16 +544,9 @@ lemma PCC_Write_BranchToCapability:
   subgoal
     apply (use assms in \<open>auto elim!: BranchAddr_branch_caps_tagged_unsealed\<close>)
     done
-  sorry
-
-lemma CapGetValue_set_bit_commute:
-  "CapGetValue (set_bit c n b) = set_bit (CapGetValue c) n b"
-  by (rule word_eqI) (auto simp: CapGetValue_def test_bit_set_gen nth_ucast)
-
-lemma branch_caps_set_bit_0_subset:
-  assumes "\<not>CapIsSealed c"
-  shows "branch_caps (set_bit c 0 False) \<subseteq> branch_caps c"
-  by (use assms in \<open>auto simp: branch_caps_def normalise_cursor_flags_def CapGetValue_set_bit_commute test_bit_set_gen\<close>)
+  by (no_reg_writes_toI
+      | intro exp_succeeds_write_reg exp_succeeds_read_regs exp_succeeds_bindI conjI allI impI
+      | (auto)[])+
 
 lemma PCC_Write_BranchXToCapability:
   assumes "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> branch_caps c \<subseteq> invoked_code_caps"
@@ -475,12 +555,12 @@ lemma PCC_Write_BranchXToCapability:
   apply (intro PCC_Writes_traces_satisfy_pred_from_bind_right PCC_Write_BranchToCapability)
   subgoal
     by (use assms branch_caps_set_bit_0_subset[of c] in \<open>auto simp: test_bit_set_gen\<close>)
-  sorry
+  by (no_reg_writes_toI | intro exp_succeeds_write_reg exp_succeeds_read_regs exp_succeeds_bindI conjI allI impI)+
 
 (* lemmas traces_satisfy_pred_from_bind_if_split = if_split[where P = "\<lambda>m. traces_satisfy_pred_from s (bind m f)" for f s] *)
 
 lemma
-  shows "traces_satisfy_pred_from {} (execute_BR_CI_C branch_type n offset)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_BR_CI_C branch_type n offset)"
   unfolding execute_BR_CI_C_def Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" and c = "n = 29" for f] bind_assoc bind_return
   (* apply (intro traces_satisfy_pred_from_if no_reg_writes_to_traces_satisfy_pred_from_bind_left) *)
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
@@ -488,7 +568,7 @@ lemma
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
   (* apply (rule traces_satisfy_pred_from_bind_if_split[where Q = "n = 29", THEN iffD2], (rule conjI; rule impI)) *)
-  apply (rule traces_satisfy_pred_from_if)
+  apply (rule IDC_Property.traces_satisfy_pred_from_if)
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
@@ -497,12 +577,22 @@ lemma
   apply (rule traces_satisfy_pred_from_bind_C_set[where n = 29])
   subgoal
     apply (intro impI PCC_Writes_traces_satisfy_pred_from_bind_right PCC_Write_BranchXToCapability)
-    apply auto[]
-    sorry
+    subgoal
+      sorry
+     apply (no_reg_writes_toI)
+    apply auto
+    done
   apply (no_reg_writes_toI)
   apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)+
   apply (rule no_reg_writes_to_R29_traces_satisfy_pred_from[where Rs = "{''_R29''}"], no_reg_writes_toI, auto)
   done
+
+lemma Points_to_PCC_invoked_data_caps_eq_indirect_sentries:
+  assumes "trace_indirect_sentry_type t = Some Points_to_PCC"
+  shows "instr_invokes_data_caps instr t = trace_invokes_indirect_sentries t"
+  using assms
+  by (auto simp: trace_indirect_sentry_type_def instr_invokes_data_caps_def trace_indirectly_invokes_data_caps_def bind_eq_Some_conv
+           elim!: instr_indirect_sentry_type.elims)
 
 end
 
