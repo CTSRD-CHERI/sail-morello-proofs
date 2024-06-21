@@ -55,7 +55,7 @@ locale Stateful_Full_Trace_Property =
     and update_state_Nil: "\<And>s. update_state s [] = s"
 begin
 
-abbreviation "trace_assms t \<equiv> \<forall>e \<in> set t. ev_assms e"
+definition "trace_assms t \<equiv> \<forall>e \<in> set t. ev_assms e"
 
 definition traces_satisfy_pred_from :: "'state \<Rightarrow> ('regval, 'a, 'e) monad \<Rightarrow> bool"
   (* where "traces_satisfy_pred_from s m \<equiv> (\<forall>t m'. (m, t, m') \<in> Traces \<longrightarrow> pred s t)" *)
@@ -71,7 +71,7 @@ lemma traces_satisfy_pred_from_bind:
   shows "traces_satisfy_pred_from s (m \<bind> f)"
   using assms
   unfolding traces_satisfy_pred_from_def
-  by (fastforce elim!: bind_Traces_cases simp: hasTrace_iff_Traces_final final_bind_iff intro: pred_update_state_append)
+  by (fastforce elim!: bind_Traces_cases simp: hasTrace_iff_Traces_final final_bind_iff trace_assms_def intro: pred_update_state_append)
 
 lemma traces_satisfy_pred_from_bind_ignore_left:
   assumes "traces_satisfy_pred_from s m" and "\<And>s a. traces_satisfy_pred_from s (f a)"
@@ -81,13 +81,13 @@ lemma traces_satisfy_pred_from_bind_ignore_left:
 
 lemma traces_satisfy_pred_from_return_iff[traces_satisfy_pred_from_iff]:
   "traces_satisfy_pred_from s (return a) \<longleftrightarrow> pred s []"
-  by (auto simp: traces_satisfy_pred_from_def return_def hasTrace_iff_Traces_final final_def)
+  by (auto simp: traces_satisfy_pred_from_def return_def hasTrace_iff_Traces_final final_def trace_assms_def)
 
 lemmas traces_satisfy_pred_from_return = traces_satisfy_pred_from_return_iff[THEN iffD2]
 
 lemma traces_satisfy_pred_from_Fail_iff[traces_satisfy_pred_from_iff]:
   "traces_satisfy_pred_from s (Fail msg) \<longleftrightarrow> pred s []"
-  by (auto simp: traces_satisfy_pred_from_def hasTrace_iff_Traces_final final_def)
+  by (auto simp: traces_satisfy_pred_from_def hasTrace_iff_Traces_final final_def trace_assms_def)
 
 lemmas traces_satisfy_pred_from_Fail = traces_satisfy_pred_from_Fail_iff[THEN iffD2]
 
@@ -99,7 +99,7 @@ lemma Run_traces_satisfy_pred_fromE:
 
 lemma traces_satisfy_pred_from_throw_iff[traces_satisfy_pred_from_iff]:
   "traces_satisfy_pred_from s (throw e) \<longleftrightarrow> pred s []"
-  by (auto simp: traces_satisfy_pred_from_def throw_def hasTrace_iff_Traces_final final_def)
+  by (auto simp: traces_satisfy_pred_from_def throw_def hasTrace_iff_Traces_final final_def trace_assms_def)
 
 lemma traces_satisfy_pred_from_try_catch:
   assumes "traces_satisfy_pred_from s m"
@@ -107,7 +107,7 @@ lemma traces_satisfy_pred_from_try_catch:
   shows "traces_satisfy_pred_from s (try_catch m h)"
   using assms
   unfolding traces_satisfy_pred_from_def
-  by (fastforce simp: hasTrace_iff_Traces_final intro: pred_update_state_append
+  by (fastforce simp: hasTrace_iff_Traces_final trace_assms_def intro: pred_update_state_append
                 elim!: final_cases try_catch_Traces_cases try_catch.elims)
 
 lemma traces_satisfy_pred_from_early_return_iff[traces_satisfy_pred_from_iff]:
@@ -135,15 +135,15 @@ lemma traces_satisfy_pred_from_try_catchR:
   shows "traces_satisfy_pred_from s (try_catchR m h)"
   using assms
   unfolding traces_satisfy_pred_from_def try_catchR_def
-  by (fastforce elim!: try_catch_Traces_cases split: sum.splits simp: throw_def hasTrace_iff_Traces_final final_try_catch_iff intro: pred_update_state_append)
+  by (fastforce elim!: try_catch_Traces_cases split: sum.splits simp: throw_def hasTrace_iff_Traces_final final_try_catch_iff trace_assms_def intro: pred_update_state_append)
 
 lemma traces_satisfy_pred_from_maybe_fail_iff[traces_satisfy_pred_from_iff]:
   "traces_satisfy_pred_from s (maybe_fail msg x) \<longleftrightarrow> pred s []"
-  by (auto simp: traces_satisfy_pred_from_def maybe_fail_def return_def hasTrace_iff_Traces_final split: option.splits)
+  by (auto simp: traces_satisfy_pred_from_def maybe_fail_def return_def hasTrace_iff_Traces_final trace_assms_def split: option.splits)
 
 lemma traces_satisfy_pred_from_assert_exp_iff[traces_satisfy_pred_from_iff]:
   "traces_satisfy_pred_from s (assert_exp e msg) \<longleftrightarrow> pred s []"
-  by (auto simp: traces_satisfy_pred_from_def assert_exp_def hasTrace_iff_Traces_final)
+  by (auto simp: traces_satisfy_pred_from_def assert_exp_def hasTrace_iff_Traces_final trace_assms_def)
 
 (*lemma Read_reg_Traces_iff: "(Read_reg r k, t, m') \<in> Traces \<longleftrightarrow> (\<exists>v t'. t = E_read_reg r v # t' \<and> (k v, t', m') \<in> Traces) \<or> (t = [] \<and> m' = Read_reg r k)"
   by (auto elim: Traces_cases intro: Traces_ConsI)
@@ -334,7 +334,7 @@ proof -
         and t1: "Run (foreachM (take n xs) vars body) t1 vars''" "trace_assms t1"
         and t2: "Run (body (xs ! n) vars'') t2 vars'" "trace_assms t2"
         using n
-        by (auto simp: take_Suc_conv_app_nth foreachM_append elim!: Run_bindE)
+        by (auto simp: take_Suc_conv_app_nth foreachM_append trace_assms_def elim!: Run_bindE)
       then show "Inv (Suc n) vars' (update_state s t)"
         using Suc n body[of n vars'' t1]
         using Run_traces_satisfy_pred_fromE[OF t1, of s]

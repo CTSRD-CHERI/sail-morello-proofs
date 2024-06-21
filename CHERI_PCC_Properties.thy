@@ -126,7 +126,7 @@ lemma idc_write_axiom_from_Nil[intro, simp]:
   by (auto simp: idc_write_axiom_from_def)
 
 sublocale IDC_Property: Stateful_Full_Trace_Property
-  where pred = idc_write_axiom_from and ev_assms = "\<lambda>e. invocation_ev_assms e \<and> wellformed_ev e"
+  where pred = idc_write_axiom_from and ev_assms = "\<lambda>e. invocation_ev_assms e \<and> translation_assms e \<and> wellformed_ev e"
     and update_state = add_pcc_regvals_of_trace
   by standard (auto simp: idc_write_axiom_from_def)
 
@@ -214,7 +214,7 @@ lemma no_reg_writes_to_traces_satisfy_pred_from_bind_right:
     and "\<And>t a. Run m t a \<Longrightarrow> IDC_Property.trace_assms t \<Longrightarrow> no_reg_writes_to {''PCC'', ''_R29''} (f a)"
   shows "IDC_Property.traces_satisfy_pred_from {} (bind m f)"
   using assms
-  by (fastforce simp: IDC_Property.traces_satisfy_pred_from_def idc_write_axiom_append_no_reg_writes_right no_reg_writes_to_def hasTrace_iff_Traces_final final_bind_iff
+  by (fastforce simp: IDC_Property.traces_satisfy_pred_from_def idc_write_axiom_append_no_reg_writes_right no_reg_writes_to_def hasTrace_iff_Traces_final final_bind_iff IDC_Property.trace_assms_def
                 elim!: bind_Traces_cases)
 
 definition
@@ -224,7 +224,7 @@ definition
 (* abbreviation "trace_writes_invoked_code_cap_assms s t \<equiv> invocation_trace_assms t \<and> wellformed_trace t \<longrightarrow> trace_writes_invoked_code_cap s t" *)
 
 sublocale PCC_Writes: Stateful_Full_Trace_Property
-  where pred = trace_writes_invoked_code_cap and ev_assms = "\<lambda>e. invocation_ev_assms e \<and> wellformed_ev e"
+  where pred = trace_writes_invoked_code_cap and ev_assms = "\<lambda>e. invocation_ev_assms e \<and> translation_assms e \<and> wellformed_ev e"
     and update_state = add_pcc_regvals_of_trace
   by standard (auto simp: trace_writes_invoked_code_cap_def)
 
@@ -312,7 +312,7 @@ lemma traces_satisfy_pred_from_bind_C_set:
   using assms
   using IDC_Property.hasTrace_traces_satisfy_pred_fromE[OF _ _ no_reg_writes_to_R29_traces_satisfy_pred_from[OF assms(2)], where s = "{}"]
   unfolding IDC_Property.traces_satisfy_pred_from_def PCC_Writes.traces_satisfy_pred_from_def C_set_def assert_exp_def
-  by (auto simp: idc_write_axiom_from_Cons_write_reg_if invocation_trace_assms_def dest: hasFailure_R_set_Nil
+  by (auto simp: idc_write_axiom_from_Cons_write_reg_if invocation_trace_assms_def IDC_Property.trace_assms_def dest: hasFailure_R_set_Nil
            elim!: hasTrace_bind_cases R_set_Traces_cases split: if_splits)
 
 (* TODO: Use definition from Wellformed_Traces *)
@@ -406,17 +406,21 @@ lemma exp_succeeds_write_reg[simp]:
   (*"exp_ends_with (write_reg r v :: unit M) P \<longleftrightarrow> P (Done ())"*)
   (* apply (auto simp: write_reg_def exp_ends_with_def runTrace_iff_Traces elim!: Write_reg_TracesE allE[where x = "[E_write_reg (name r) (regval_of r v)]"] allE[where x = "Done () :: unit M"]) *)
 
-abbreviation "wellformed_reg r \<equiv> (map_of registers (name r) = Some (register_ops_of r))"
+abbreviation "known_reg r \<equiv> (map_of registers (name r) = Some (register_ops_of r))"
 
-lemma wellformed_regs:
-  "wellformed_reg PCC_ref"
-  "wellformed_reg PSTATE_ref"
-  "wellformed_reg SCR_EL3_ref"
-  "wellformed_reg TCR_EL1_ref"
-  "wellformed_reg TCR_EL2_ref"
-  "wellformed_reg TCR_EL3_ref"
-  "wellformed_reg HCR_EL2_ref"
-  "wellformed_reg EDSCR_ref"
+lemma known_regs:
+  "known_reg PCC_ref"
+  "known_reg PSTATE_ref"
+  "known_reg SCR_EL3_ref"
+  "known_reg TCR_EL1_ref"
+  "known_reg TCR_EL2_ref"
+  "known_reg TCR_EL3_ref"
+  "known_reg CCTLR_EL0_ref"
+  "known_reg CCTLR_EL1_ref"
+  "known_reg CCTLR_EL2_ref"
+  "known_reg CCTLR_EL3_ref"
+  "known_reg HCR_EL2_ref"
+  "known_reg EDSCR_ref"
   by (auto simp: register_defs)
 
 lemma exp_succeeds_read_reg:
@@ -426,7 +430,7 @@ lemma exp_succeeds_read_reg:
   by (auto simp: read_reg_def exp_ends_with_def runTrace_iff_Traces register_ops_of_def
            elim!: Read_reg_TracesE final_cases split: option.splits dest!: wellformed_reg_reads (*map_of_SomeD*))
 
-lemmas exp_succeeds_read_regs[intro, simp] = wellformed_regs[THEN exp_succeeds_read_reg]
+lemmas exp_succeeds_read_regs[intro, simp] = known_regs[THEN exp_succeeds_read_reg]
 
 lemma exp_succeeds_UsingAArch32[intro, simp]:
   "exp_succeeds (UsingAArch32 u)"
@@ -512,7 +516,7 @@ lemma PCC_Writes_traces_satisfy_pred_from_bind_right:
   using assms no_reg_writes_to_PCC_no_pcc_regvals_of_trace[OF assms(2)]
   unfolding PCC_Writes.traces_satisfy_pred_from_def
   unfolding trace_writes_invoked_code_cap_def
-  by (fastforce elim!: hasTrace_bind_cases simp: exp_ends_with_def hasFailure_iff_runTrace hasException_iff_runTrace)
+  by (fastforce elim!: hasTrace_bind_cases simp: exp_ends_with_def hasFailure_iff_runTrace hasException_iff_runTrace PCC_Writes.trace_assms_def)
 
 lemma PCC_Writes_traces_satisfy_pred_from_bind_left:
   assumes "PCC_Writes.traces_satisfy_pred_from {} m"
@@ -521,7 +525,7 @@ lemma PCC_Writes_traces_satisfy_pred_from_bind_left:
   using assms no_reg_writes_to_PCC_no_pcc_regvals_of_trace[OF assms(2)]
   unfolding PCC_Writes.traces_satisfy_pred_from_def
   unfolding trace_writes_invoked_code_cap_def
-  by (auto simp: hasTrace_iff_Traces_final hasFailure_iff_Traces_Fail hasException_iff_Traces_Exception final_bind_iff
+  by (auto simp: hasTrace_iff_Traces_final hasFailure_iff_Traces_Fail hasException_iff_Traces_Exception final_bind_iff PCC_Writes.trace_assms_def
            elim!: bind_Traces_cases;
       fastforce)
 
@@ -539,11 +543,10 @@ lemmas PCC_Writes_bind_write_reg_PCC =
 lemma PCC_Write_BranchToCapability:
   assumes "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> branch_caps c \<subseteq> invoked_code_caps"
   shows "PCC_Writes.traces_satisfy_pred_from {} (BranchToCapability c branch_type)"
-  unfolding BranchToCapability_def Let_def
+  unfolding BranchToCapability_def bind_assoc Let_def
   apply (intro PCC_Writes_bind_write_reg_PCC PCC_Writes_traces_satisfy_pred_from_bind_right exp_succeeds_UsingAArch32)
   subgoal
-    apply (use assms in \<open>auto elim!: BranchAddr_branch_caps_tagged_unsealed\<close>)
-    done
+    by (use assms in \<open>auto elim!: BranchAddr_branch_caps_tagged_unsealed read_reg_PSTATE_translation_el simp: PCC_Writes.trace_assms_def\<close>)
   by (no_reg_writes_toI
       | intro exp_succeeds_write_reg exp_succeeds_read_regs exp_succeeds_bindI conjI allI impI
       | (auto)[])+
@@ -557,35 +560,287 @@ lemma PCC_Write_BranchXToCapability:
     by (use assms branch_caps_set_bit_0_subset[of c] in \<open>auto simp: test_bit_set_gen\<close>)
   by (no_reg_writes_toI | intro exp_succeeds_write_reg exp_succeeds_read_regs exp_succeeds_bindI conjI allI impI)+
 
+lemma IDC_Property_BranchXToCapability:
+  "IDC_Property.traces_satisfy_pred_from {} (BranchXToCapability c branch_type)"
+  by (rule no_reg_writes_to_R29_traces_satisfy_pred_from[where Rs = "{''_R29''}"]) auto
+
 (* lemmas traces_satisfy_pred_from_bind_if_split = if_split[where P = "\<lambda>m. traces_satisfy_pred_from s (bind m f)" for f s] *)
 
-lemma
+lemmas branch_caps_if_sentry_invoked_code_caps = if_split[where P = "\<lambda>c. branch_caps c \<subseteq> invoked_code_caps", THEN iffD2]
+
+lemma branch_caps_unseal_if_tag_clear_invoked_code_caps:
+  assumes "CapIsTagSet (if b then CapWithTagClear c else c)"
+    and "branch_caps (CapUnseal c) \<subseteq> invoked_code_caps"
+  shows "branch_caps (CapUnseal (if b then CapWithTagClear c else c)) \<subseteq> invoked_code_caps"
+  by (use assms in auto)
+
+lemma branch_caps_if_tag_clear_invoked_code_caps:
+  assumes "CapIsTagSet (if b then CapWithTagClear c else c)"
+    and "branch_caps c \<subseteq> invoked_code_caps"
+  shows "branch_caps (if b then CapWithTagClear c else c) \<subseteq> invoked_code_caps"
+  by (use assms in auto)
+
+lemma sealed_branch_caps_singleton:
+  "CapIsSealed c \<Longrightarrow> branch_caps c = {c}"
+  by (auto simp: branch_caps_def)
+
+lemma CapSquashPostLoadCap_branch_caps_invoked_code_caps:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "CapIsTagSet c'"
+    and "CapGetObjectType c' \<noteq> CAP_SEAL_TYPE_RB \<or> \<not>CapIsSealed c'"
+    and "CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_code_caps"
+  shows "branch_caps c' \<subseteq> invoked_code_caps"
+  using assms sealed_branch_caps_singleton[of c]
+  by (elim CapSquashPostLoadCap_cases) (auto simp: mem_branch_caps_def CapIsSealed_def split: if_splits)
+
+lemma CapSquashPostLoadCap_branch_caps_unseal_invoked_code_caps:
+  assumes "Run (CapSquashPostLoadCap c base) t c'"
+    and "CapGetObjectType c' = CAP_SEAL_TYPE_RB"
+    and "CapIsTagSet c'"
+    and "CapIsTagSet c \<longrightarrow> mem_branch_caps c \<subseteq> invoked_code_caps"
+  shows "branch_caps (CapUnseal c') \<subseteq> invoked_code_caps"
+  using assms
+  by (elim CapSquashPostLoadCap_cases) (auto simp: mem_branch_caps_def CapIsSealed_def)
+
+lemma IDC_Property_trace_assmsE:
+  assumes "IDC_Property.trace_assms t"
+  shows "invocation_trace_assms t" and "translation_assms_trace t"
+  using assms
+  by (auto simp: invocation_trace_assms_def IDC_Property.trace_assms_def)
+
+lemma MemC_read_invoked_code_caps:
+  assumes "Run (MemC_read vaddr acctype) t c"
+    and "IDC_Property.trace_assms t"
+    and "is_indirect_branch"
+    and "CapIsTagSet c"
+    and "\<exists>sentry \<in> invoked_indirect_caps. indirect_sentry_type = Some Points_to_Pair \<longrightarrow> vaddr = CapGetValue sentry + 16"
+        (is "\<exists>sentry \<in> invoked_indirect_caps. ?P sentry")
+  shows "mem_branch_caps c \<subseteq> invoked_code_caps"
+proof -
+  from assms obtain sentry where "sentry \<in> invoked_indirect_caps" and "?P sentry"
+    by blast
+  then show ?thesis
+    using assms
+    by (elim MemC_read_mem_cap_vaddr_loaded_in_trace_if_tagged[THEN mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap, where sentry = sentry])
+       (auto simp: invocation_trace_assms_def IDC_Property.trace_assms_def)
+qed
+
+(*lemma CapGetObjectType_if_CapWithTagClear_eq:
+  "CapGetObjectType (if b then CapWithTagClear c else c) = CapGetObjectType c"
+  apply (intro word_eqI)
+  apply (auto simp: CapGetObjectType_def CapWithTagClear_def)
+  oops*)
+
+lemma CapIsTagSet_if_CapWithTagClear_iff[simp]:
+  "(if b then CapWithTagClear c else c) !! 128 \<longleftrightarrow> \<not>b \<and> CapIsTagSet c"
+  by auto
+
+(* TODO: Move out of Write_Cap context in CHERI_Lemmas *)
+lemma CapGetObjectType_CapWithTagClear_eq[simp]:
+  "CapGetObjectType (CapWithTagClear c) = CapGetObjectType c"
+  by (auto simp: CapGetObjectType_def CapWithTagClear_def slice_set_bit_above)
+
+lemma CapGetObjectType_if_CapWithTagClear_eq[simp]:
+  "CapGetObjectType (if clear then CapWithTagClear c else c) = CapGetObjectType c"
+  by auto
+
+lemma CapIsSealed_if_CapWithTagClear_iff[simp]:
+  "CapIsSealed (if b then CapWithTagClear c else c) \<longleftrightarrow> CapIsSealed c"
+  by (auto simp: CapIsSealed_def)
+
+named_theorems traces_satisfy_predI
+named_theorems traces_satisfy_predE
+
+method traces_satisfy_predI_step uses intro elim =
+  (rule intro traces_satisfy_predI allI impI conjI
+    | erule elim traces_satisfy_predE FalseE
+    | (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI intro: intro, no_reg_writes_toI)
+    | (rule PCC_Writes_traces_satisfy_pred_from_bind_right[rotated], no_reg_writes_toI intro: intro, solves \<open>simp add: exp_succeeds_bind_iff\<close>)
+    | rule IDC_Property.traces_satisfy_pred_from_if
+    | assumption
+    | no_reg_writes_toI intro: intro)
+
+method traces_satisfy_predI_with methods s uses intro elim =
+  (traces_satisfy_predI_step intro: intro elim: elim | solves s)+
+
+method traces_satisfy_predI uses intro elim assms =
+  (traces_satisfy_predI_with \<open>use assms in auto\<close> intro: intro elim: elim)
+
+declare PCC_Write_BranchXToCapability[traces_satisfy_predI]
+declare IDC_Property_BranchXToCapability[traces_satisfy_predI]
+lemmas branch_caps_invoked_code_capsI[traces_satisfy_predI] =
+  branch_caps_unseal_if_tag_clear_invoked_code_caps branch_caps_if_tag_clear_invoked_code_caps branch_caps_if_sentry_invoked_code_caps
+declare CapSquashPostLoadCap_branch_caps_unseal_invoked_code_caps[traces_satisfy_predE]
+declare CapSquashPostLoadCap_branch_caps_invoked_code_caps[traces_satisfy_predE]
+declare MemC_read_invoked_code_caps[traces_satisfy_predE]
+declare C_read_branch_caps_invoked_code_cap[traces_satisfy_predE]
+declare IDC_Property_trace_assmsE[traces_satisfy_predE]
+
+lemma IDC_Property_execute_BR_CI_C:
+  assumes "indirect_sentry_type = Some Points_to_PCC" and "invoked_indirect_caps = invoked_data_caps"
   shows "IDC_Property.traces_satisfy_pred_from {} (execute_BR_CI_C branch_type n offset)"
   unfolding execute_BR_CI_C_def Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" and c = "n = 29" for f] bind_assoc bind_return
-  (* apply (intro traces_satisfy_pred_from_if no_reg_writes_to_traces_satisfy_pred_from_bind_left) *)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  (* apply (rule traces_satisfy_pred_from_bind_if_split[where Q = "n = 29", THEN iffD2], (rule conjI; rule impI)) *)
-  apply (rule IDC_Property.traces_satisfy_pred_from_if)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)
-  apply (rule traces_satisfy_pred_from_bind_C_set[where n = 29])
-  subgoal
-    apply (intro impI PCC_Writes_traces_satisfy_pred_from_bind_right PCC_Write_BranchXToCapability)
-    subgoal
-      sorry
-     apply (no_reg_writes_toI)
-    apply auto
-    done
-  apply (no_reg_writes_toI)
-  apply (rule no_reg_writes_to_traces_satisfy_pred_from_bind_left, no_reg_writes_toI, no_reg_writes_toI)+
-  apply (rule no_reg_writes_to_R29_traces_satisfy_pred_from[where Rs = "{''_R29''}"], no_reg_writes_toI, auto)
-  done
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29])
+
+lemma IDC_Property_decode_BR_CI_C:
+  assumes "indirect_sentry_type = Some Points_to_PCC" and "invoked_indirect_caps = invoked_data_caps"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_BR_CI_C imm7 Cn)"
+  unfolding decode_BR_CI_C_def Let_def
+  by (intro IDC_Property_execute_BR_CI_C assms)
+
+lemma IDC_Property_execute_BRS_C_C_C:
+  assumes "invoked_code_reg = Some n"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_BRS_C_C_C branch_type m n)"
+  unfolding execute_BRS_C_C_C_def bind_assoc Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" for f] bind_return
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29])
+
+lemma IDC_Property_decode_BRS_C_C_C:
+  assumes "invoked_code_reg = Some (uint Cn)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_BRS_C_C_C Cm opc Cn)"
+  unfolding decode_BRS_C_C_C_def bind_assoc Let_def
+  by (intro IDC_Property_execute_BRS_C_C_C assms)
+
+lemma exp_succeeds_IsInC64[intro, simp]:
+  "exp_succeeds (IsInC64 u)"
+  by (auto simp: IsInC64_def)
+
+lemma exp_succeeds_PCC_read[intro, simp]:
+  "exp_succeeds (PCC_read u)"
+  by (auto simp: PCC_read_def)
+
+lemma exp_succeeds_CapIsRepresentableFast[intro, simp]:
+  "exp_succeeds (CapIsRepresentableFast c n)"
+  by (auto simp: CapIsRepresentableFast_def Let_def exp_succeeds_bind_iff)
+
+lemma exp_succeeds_CapAdd[intro, simp]:
+  "exp_succeeds (CapAdd c n)"
+  by (auto simp: CapAdd_def Let_def exp_succeeds_bind_iff)
+
+lemma exp_succeeds_CapAdd__1[intro, simp]:
+  "exp_succeeds (CapAdd__1 c n)"
+  by (auto simp: CapAdd__1_def Let_def)
+
+lemma exp_succeeds_CCTLR_read__1[intro, simp]:
+  "exp_succeeds (CCTLR_read__1 u)"
+  using EL_exhaust_disj[where el = "ProcState_EL ps" for ps]
+  by (auto simp: CCTLR_read__1_def CCTLR_read_def Let_def exp_succeeds_bind_iff EL0_def EL1_def EL2_def EL3_def)
+
+lemma exp_succeeds_R_set[intro, simp]:
+  "n \<in> {0..30} \<Longrightarrow> exp_succeeds (R_set n c)"
+  using exp_succeeds_write_reg[where v = c]
+  unfolding R_set_def Let_def
+  by (auto simp add: atLeastAtMost_int_if_insert simp del: atLeastAtMost_iff)
+
+abbreviation "unit_exp_succeeds m \<equiv> exp_ends_with m (\<lambda>m'. m' = Done ())"
+
+lemma exp_succeeds_C_set[intro, simp]:
+  "n \<in> {0..30} \<Longrightarrow> unit_exp_succeeds (C_set n c)"
+  by (use exp_succeeds_R_set in \<open>auto simp: C_set_def\<close>)
+
+lemma no_reg_writes_to_R29_C_set:
+  "n \<noteq> 29 \<Longrightarrow> no_reg_writes_to {''_R29''} (C_set n c)"
+  by (auto simp: C_set_def R_set_def register_defs)
+
+lemma IDC_Property_execute_BLRS_C_C_C:
+  assumes "invoked_code_reg = Some n"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_BLRS_C_C_C branch_type m n)"
+  unfolding execute_BLRS_C_C_C_def bind_assoc Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" for f] bind_return
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29] no_reg_writes_to_R29_C_set)
+
+lemma IDC_Property_decode_BLRS_C_C_C:
+  assumes "invoked_code_reg = Some (uint Cn)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_BLRS_C_C_C Cm opc Cn)"
+  unfolding decode_BLRS_C_C_C_def bind_assoc Let_def
+  by (intro IDC_Property_execute_BLRS_C_C_C assms)
+
+lemma IDC_Property_execute_RETS_C_C_C:
+  assumes "invoked_code_reg = Some n"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_RETS_C_C_C branch_type m n)"
+  unfolding execute_RETS_C_C_C_def bind_assoc Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" for f] bind_return
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29] no_reg_writes_to_R29_C_set)
+
+lemma IDC_Property_decode_RETS_C_C_C:
+  assumes "invoked_code_reg = Some (uint Cn)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_RETS_C_C_C Cm opc Cn)"
+  unfolding decode_RETS_C_C_C_def bind_assoc Let_def
+  by (intro IDC_Property_execute_RETS_C_C_C assms)
+
+lemma IDC_Property_execute_BLR_CI_C:
+  assumes "indirect_sentry_type = Some Points_to_PCC" and "invoked_indirect_caps = invoked_data_caps"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_BLR_CI_C branch_type n offset)"
+  unfolding execute_BLR_CI_C_def Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" and c = "n = 29" for f] bind_assoc bind_return
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29] no_reg_writes_to_R29_C_set)
+
+lemma IDC_Property_decode_BLR_CI_C:
+  assumes "indirect_sentry_type = Some Points_to_PCC" and "invoked_indirect_caps = invoked_data_caps"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_BLR_CI_C imm7 Cn)"
+  unfolding decode_BLR_CI_C_def Let_def
+  by (intro IDC_Property_execute_BLR_CI_C assms)
+
+lemma CSP_or_C_read_unseal_invoked_indirect_caps_cases:
+  assumes "Run (if n = 31 then seq (CheckSPAlignment u) (CSP_read u') else C_read n) t c"
+    and "invocation_trace_assms t"
+    and "invoked_indirect_reg = Some n"
+    and "indirect_sentry_type = Some sentry_type"
+  obtains (Invocation) "CapUnseal c \<in> invoked_indirect_caps" and "CapIsTagSet c" and "get_indirect_sentry_type c = Some sentry_type"
+  | (NoInvocation) "invoked_indirect_caps = {}" and "\<not>CapIsTagSet c \<or> get_indirect_sentry_type c \<noteq> Some sentry_type"
+  using assms
+  by (elim Run_ifE Run_bindE C_read_unseal_invoked_indirect_caps_cases[where sentry_type = sentry_type] CSP_read_invoked_indirect_caps_cases[where sentry_type = sentry_type])
+     auto
+
+declare CapUnseal_get_bounds_helpers_eq[simp]
+
+lemma CSP_or_C_read_exists_invoked_indirect_Points_to_Pair_cap:
+  assumes "Run (if n = 31 then seq (CheckSPAlignment u) (CSP_read u') else C_read n) t c"
+    and "invocation_trace_assms t"
+    and "invoked_indirect_reg = Some n"
+    and "indirect_sentry_type = Some Points_to_Pair"
+    and "invoked_indirect_caps \<noteq> {}"
+    and "CapGetValue c = addr"
+  shows "\<exists>sentry\<in>invoked_indirect_caps. indirect_sentry_type = Some Points_to_Pair \<longrightarrow>
+          add_vec_int addr CAPABILITY_DBYTES = CapGetValue sentry + 16"
+  using assms
+  by (elim CSP_or_C_read_unseal_invoked_indirect_caps_cases[where sentry_type = Points_to_Pair]; fastforce)
+
+lemma Run_VAddress_CapabilityE:
+  assumes "Run (VAddress va) t a"
+    and "VirtualAddress_vatype va = VA_Capability"
+  obtains "a = CapGetValue (VirtualAddress_base va)"
+  using assms
+  by (auto simp: VAddress_def VAIsBits64_def elim!: Run_bindE)
+
+lemma IDC_Property_execute_LDPBR_C_C_C:
+  assumes "indirect_sentry_type = Some Points_to_Pair" and "t = 29 \<longrightarrow> invoked_indirect_reg = Some n" and "invoked_indirect_caps = {} \<longrightarrow> invoked_data_caps = {}"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_LDPBR_C_C_C branch_type n t)"
+  unfolding execute_LDPBR_C_C_C_def Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" and c = "t = 29" for f] bind_assoc bind_return
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29] no_reg_writes_to_R29_C_set elim: CSP_or_C_read_exists_invoked_indirect_Points_to_Pair_cap Run_VAddress_CapabilityE)
+
+lemma IDC_Property_decode_LDPBR_C_C_C:
+  assumes "indirect_sentry_type = Some Points_to_Pair" and "uint Ct = 29 \<longrightarrow> invoked_indirect_reg = Some (uint Cn)" and "invoked_indirect_caps = {} \<longrightarrow> invoked_data_caps = {}"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_LDPBR_C_C_C opc Cn Ct)"
+  unfolding decode_LDPBR_C_C_C_def Let_def
+  by (intro IDC_Property_execute_LDPBR_C_C_C assms)
+
+lemma IDC_Property_execute_LDPBLR_C_C_C:
+  assumes "indirect_sentry_type = Some Points_to_Pair" and "t = 29 \<longrightarrow> invoked_indirect_reg = Some n" and "invoked_indirect_caps = {} \<longrightarrow> invoked_data_caps = {}"
+  shows "IDC_Property.traces_satisfy_pred_from {} (execute_LDPBLR_C_C_C branch_type n t)"
+  unfolding execute_LDPBLR_C_C_C_def Let_def if_distrib[where f = "\<lambda>m. Sail2_prompt_monad.bind m f" and c = "t = 29" for f] bind_assoc bind_return
+  by (traces_satisfy_predI assms: assms intro: traces_satisfy_pred_from_bind_C_set[where n = 29] no_reg_writes_to_R29_C_set elim: CSP_or_C_read_exists_invoked_indirect_Points_to_Pair_cap Run_VAddress_CapabilityE)
+
+lemma IDC_Property_decode_LDPBLR_C_C_C:
+  assumes "indirect_sentry_type = Some Points_to_Pair" and "uint Ct = 29 \<longrightarrow> invoked_indirect_reg = Some (uint Cn)" and "invoked_indirect_caps = {} \<longrightarrow> invoked_data_caps = {}"
+  shows "IDC_Property.traces_satisfy_pred_from {} (decode_LDPBLR_C_C_C opc Cn Ct)"
+  unfolding decode_LDPBLR_C_C_C_def Let_def
+  by (intro IDC_Property_execute_LDPBLR_C_C_C assms)
+
+lemmas IDC_Property_data_invocation_instrs =
+  IDC_Property_decode_BLR_CI_C
+  IDC_Property_decode_BR_CI_C
+  IDC_Property_decode_LDPBLR_C_C_C
+  IDC_Property_decode_LDPBR_C_C_C
+  IDC_Property_decode_BRS_C_C_C
+  IDC_Property_decode_BLRS_C_C_C
+  IDC_Property_decode_RETS_C_C_C
 
 lemma Points_to_PCC_invoked_data_caps_eq_indirect_sentries:
   assumes "trace_indirect_sentry_type t = Some Points_to_PCC"
@@ -593,6 +848,99 @@ lemma Points_to_PCC_invoked_data_caps_eq_indirect_sentries:
   using assms
   by (auto simp: trace_indirect_sentry_type_def instr_invokes_data_caps_def trace_indirectly_invokes_data_caps_def bind_eq_Some_conv
            elim!: instr_indirect_sentry_type.elims)
+
+lemma Points_to_Pair_no_invoked_data_caps_without_indirect_sentries:
+  assumes "trace_indirect_sentry_type t = Some Points_to_Pair"
+    and "trace_invokes_indirect_sentries t = {}"
+  shows "instr_invokes_data_caps instr t = {}"
+  using assms
+  by (auto simp: trace_indirect_sentry_type_def instr_invokes_data_caps_def trace_indirectly_invokes_data_caps_def bind_eq_Some_conv
+           elim!: instr_indirect_sentry_type.elims)
+
+(*lemma no_indirect_or_data_regs_no_invoked_data_caps:
+  assumes "trace_invokes_indirect_cap_from_reg t = None"
+    and "trace_invokes_data_cap_from_reg t = None"
+  shows "instr_invokes_data_caps instr t = {}"
+  using assms
+  by (auto simp: instr_invokes_data_caps_def trace_indirectly_invokes_data_caps_def split: option.splits indirect_sentry_type.splits)*)
+
+end
+
+(*lemma idc_write_axiom'_fetch_trace:
+  "idc_write_axiom' CC ISA initial_caps n (fetch_trace t)"
+  unfolding idc_write_axiom'_def is_invoked_data_cap_at_idx_def is_invoked_pair_data_cap_at_idx_def
+  unfolding is_indirectly_invoked_single_data_cap_at_idx_def is_indirectly_invoked_pair_data_cap_at_idx_def
+  by auto*)
+
+locale Morello_IDC_Write_Instr_Trace_Automaton = Morello_Instr_Trace_Axiom_Automaton +
+  assumes wellformed_reg_reads: "\<And>e. wellformed_ev e \<Longrightarrow> wellformed_reg_read e"
+begin
+
+sublocale Morello_IDC_Write_Automaton
+  where ex_traces = "isa.trace_raises_ex ISA (instr_trace instr t)"
+    and instr_opt = "instr_of_trace (trace (instr_trace instr t))"
+    and invoked_code_caps = "trace_invokes_code_caps ISA (instr_trace instr t)"
+    and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
+    and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
+    and load_auth = "trace_load_auths (trace (instr_trace instr t))"
+    and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
+    and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
+    and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
+    and is_fetch = "is_fetch_trace (instr_trace instr t)"
+  by standard (rule wellformed_reg_reads)
+
+lemma instr_exp_assms_IDC_Property_ifE:
+  assumes "instr_exp_assms (if c then m1 else m2)"
+    and "instr_exp_assms m1 \<Longrightarrow> IDC_Property.traces_satisfy_pred_from {} m1"
+    and "instr_exp_assms m2 \<Longrightarrow> IDC_Property.traces_satisfy_pred_from {} m2"
+  shows "IDC_Property.traces_satisfy_pred_from {} (if c then m1 else m2)"
+  using assms
+  by auto
+
+lemma instr_exp_assms_IDC_Property_letE:
+  assumes "instr_exp_assms (let x = y in f x)"
+    and "instr_exp_assms (f y) \<Longrightarrow> IDC_Property.traces_satisfy_pred_from {} (f y)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (let x = y in f x)"
+  using assms
+  by auto
+
+lemma IDC_Property_bind_write_ThisInstrAbstract:
+  assumes "instr_exp_assms (seq (write_reg ThisInstrAbstract_ref i) m)"
+    and "instr_of_trace (trace (instr_trace instr t)) = Some i \<Longrightarrow> IDC_Property.traces_satisfy_pred_from {} m"
+  shows "IDC_Property.traces_satisfy_pred_from {} (seq (write_reg ThisInstrAbstract_ref i) m)"
+  using assms
+  unfolding instr_exp_assms_def invocation_instr_exp_assms_write_ThisInstrAbstract_iff
+  by (intro no_reg_writes_to_traces_satisfy_pred_from_bind_left)
+     (auto simp: register_defs no_reg_writes_to_write_reg[THEN no_reg_writes_runs_no_reg_writes])
+
+lemma IDC_Property_without_data_invocation:
+  assumes "invoked_data_reg = None"
+    and "indirect_sentry_type = None"
+  shows "IDC_Property.traces_satisfy_pred_from {} m"
+  using assms
+  unfolding IDC_Property.traces_satisfy_pred_from_def idc_write_axiom_from_def
+  by (auto simp: instr_invokes_data_caps_def trace_invokes_data_cap_from_reg_def
+                 trace_indirectly_invokes_data_caps_def trace_indirect_sentry_type_def)
+
+lemma IDC_Property_no_ThisInstrAbstract:
+  assumes "instr_exp_assms m"
+    and "no_reg_writes_to {''__ThisInstrAbstract''} m"
+  shows "IDC_Property.traces_satisfy_pred_from {} m"
+  using assms(1) no_reg_writes_to_instr_of_exp[OF assms(2)]
+  unfolding instr_exp_assms_def invocation_instr_exp_assms_def
+  by (intro IDC_Property_without_data_invocation) auto
+
+lemma IDC_Property_DecodeA64:
+  assumes "instr_exp_assms (DecodeA64 pc opcode)"
+  shows "IDC_Property.traces_satisfy_pred_from {} (DecodeA64 pc opcode)"
+  using assms
+  by (unfold DecodeA64_def, elim instr_exp_assms_IDC_Property_ifE instr_exp_assms_IDC_Property_letE)
+     ((erule IDC_Property_bind_write_ThisInstrAbstract,
+       solves \<open>(rule IDC_Property_data_invocation_instrs, auto simp: Points_to_PCC_invoked_data_caps_eq_indirect_sentries Points_to_Pair_no_invoked_data_caps_without_indirect_sentries instr_invokes_indirect_caps_def)
+              | (rule IDC_Property_without_data_invocation, solves \<open>simp\<close>, solves \<open>simp\<close>)\<close>)
+      | (erule IDC_Property_no_ThisInstrAbstract, solves \<open>no_reg_writes_toI\<close>))+
+
+(* TODO: BranchTaken *)
 
 end
 
