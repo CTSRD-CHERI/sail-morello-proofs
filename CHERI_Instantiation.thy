@@ -19,6 +19,9 @@ adhoc_overloading bind Sail2_prompt_monad.bind
 
 section \<open>General lemmas\<close>
 
+abbreviation clear_lsb :: "'a::len word \<Rightarrow> 'a word" where
+  "clear_lsb c \<equiv> set_bit c 0 False"
+
 lemma pow2_power[simp]: "pow2 n = 2 ^ nat n"
   by (auto simp: pow2_def pow_def)
 
@@ -2000,44 +2003,51 @@ abbreviation "translation_control_regs \<equiv>
 definition branch_caps :: "Capability \<Rightarrow> Capability set" where
   "branch_caps c \<equiv>
      (if CapIsSealed c then
-        {c}
+        {}
       else
-        ({c, set_bit c 0 False} \<union>
+        ({c, clear_lsb c} \<union>
          (if tbi_enabled AccType_IFETCH (unat (CapGetValue c)) then
             {normalise_cursor_flags c (CapGetValue c !! 55), normalise_cursor_flags c False,
-             normalise_cursor_flags (set_bit c 0 False) (CapGetValue c !! 55),
-             normalise_cursor_flags (set_bit c 0 False) False}
+             normalise_cursor_flags (clear_lsb c) (CapGetValue c !! 55),
+             normalise_cursor_flags (clear_lsb c) False}
           else {})))"
 
 definition mem_branch_caps :: "Capability \<Rightarrow> Capability set" where
   "mem_branch_caps c \<equiv>
-     (if CapGetObjectType c = CAP_SEAL_TYPE_RB then {c} \<union> branch_caps (CapUnseal c)
-      else if CapIsSealed c then {c}
+     (if CapGetObjectType c = CAP_SEAL_TYPE_RB then branch_caps (CapUnseal c)
+      else if CapIsSealed c then {}
       else branch_caps c \<union> branch_caps (clear_perm mutable_perms c))"
 
 definition mem_data_caps :: "Capability \<Rightarrow> Capability set" where
   "mem_data_caps c \<equiv> (if CapIsSealed c then {c} else {c, clear_perm mutable_perms c})"
 
-definition trace_invokes_direct_mem_sentries :: "register_value trace \<Rightarrow> Capability set" where
-  "trace_invokes_direct_mem_sentries t \<equiv>
-     \<Union>{mem_branch_caps c | c. \<exists>e \<in> set t. \<exists>addr sz.
+definition original_direct_mem_sentries_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
+  "original_direct_mem_sentries_invoked_in_trace t \<equiv>
+     {c. \<exists>e \<in> set t. \<exists>addr sz.
          trace_is_indirect_branch t \<and>
          trace_invokes_indirect_sentries t = {} \<and>
          trace_has_cap_load_auth t \<and>
          reads_mem_cap CC e = Some (addr, sz, c) \<and>
          CapIsTagSet c \<and> is_sentry c}"
 
-definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightarrow> Capability set" where
-  "trace_indirectly_invokes_code_caps t \<equiv>
-     {c. \<exists>rk vaddr paddr sz bytes tag sentry c'.
+definition trace_invokes_direct_mem_sentries :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_direct_mem_sentries t \<equiv>
+     clear_lsb ` \<Union>(mem_branch_caps ` original_direct_mem_sentries_invoked_in_trace t)"
+
+definition original_code_caps_indirectly_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
+  "original_code_caps_indirectly_invoked_in_trace t \<equiv>
+     {c. \<exists>rk vaddr paddr sz bytes tag sentry.
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> trace_invokes_indirect_sentries t \<and>
             \<comment> \<open>TODO: Do we need this: set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>\<close>
             (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)) \<and>
             translate_address vaddr = Some paddr \<and>
             E_read_memt rk paddr sz (bytes, tag) \<in> set t \<and>
-            cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
-            c \<in> mem_branch_caps c'}"
+            cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c}"
+
+definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_indirectly_invokes_code_caps t \<equiv>
+     clear_lsb ` \<Union>(mem_branch_caps ` original_code_caps_indirectly_invoked_in_trace t)"
 
 (* TODO: Version of indirectly invoked code caps that pins down the memory address of the load exactly *)
 
@@ -2069,15 +2079,33 @@ definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightar
           trace_invokes_indirect_sentries t
       | None \<Rightarrow> {})"
 
+definition original_reg_code_caps_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
+  "original_reg_code_caps_invoked_in_trace t =
+     {c. \<exists>n r.
+          trace_invokes_code_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
+          E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
+          CapIsTagSet c \<and> CapIsSealed c}"
+
+definition trace_invokes_reg_code_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_reg_code_caps t \<equiv> clear_lsb ` \<Union>(branch_caps ` CapUnseal ` original_reg_code_caps_invoked_in_trace t)"
+
+definition original_code_caps_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
+  "original_code_caps_invoked_in_trace t =
+     original_reg_code_caps_invoked_in_trace t
+     \<union> original_code_caps_indirectly_invoked_in_trace t
+     \<union> original_direct_mem_sentries_invoked_in_trace t"
+
 definition instr_invokes_code_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "instr_invokes_code_caps instr t =
-     {c. \<exists>n r c'.
-          trace_invokes_code_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
-          E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
-          CapIsTagSet c' \<and> CapIsSealed c' \<and>
-          c \<in> branch_caps (CapUnseal c')}
+     trace_invokes_reg_code_caps t
      \<union> trace_indirectly_invokes_code_caps t
      \<union> trace_invokes_direct_mem_sentries t"
+
+lemma instr_invokes_code_caps_lsb_clear:
+  "\<forall>c \<in> instr_invokes_code_caps instr t. \<not>lsb c"
+  unfolding instr_invokes_code_caps_def trace_invokes_reg_code_caps_def
+    trace_indirectly_invokes_code_caps_def trace_invokes_direct_mem_sentries_def
+  by auto
 
 definition instr_invokes_data_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "instr_invokes_data_caps instr t =
