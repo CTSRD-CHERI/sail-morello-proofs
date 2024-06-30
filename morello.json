@@ -496,7 +496,7 @@
     },
     "execute_BLRS_C_C_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
+        "proof": "(traces_enabledI assms: assms elim: traces_enabled_C_set_29_branch_sealed_pair sealed_pair_enabled_branch_target)"
       }
     },
     "execute_BLR_CI_C": {
@@ -519,7 +519,7 @@
     },
     "execute_BRS_C_C_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
+        "proof": "(traces_enabledI assms: assms elim: sealed_pair_enabled_branch_target traces_enabled_C_set_29_branch_sealed_pair)"
       }
     },
     "execute_BR_CI_C": {
@@ -578,7 +578,7 @@
     },
     "execute_RETS_C_C_C": {
       "traces_enabled": {
-        "proof": "(traces_enabledI assms: assms intro: enabled_branch_target_CapUnseal_if_clear elim: branch_sealed_pair_enabled_pcc traces_enabled_C_set_29_branch_sealed_pair)"
+        "proof": "(traces_enabledI assms: assms elim: sealed_pair_enabled_branch_target traces_enabled_C_set_29_branch_sealed_pair)"
       }
     },
     "execute_SCBNDS_C_CI_C": {

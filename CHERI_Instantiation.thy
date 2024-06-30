@@ -554,9 +554,17 @@ lemma CapUnseal_128th_iff[simp]:
   "CapUnseal c !! 128 = c !! 128"
   by (auto simp: CapUnseal_def)
 
+lemma CapUnseal_lsb_iff[simp]:
+  "lsb (CapUnseal c) \<longleftrightarrow> lsb c"
+  by (auto simp: CapUnseal_def CapSetObjectType_def word_lsb_alt update_subrange_vec_dec_test_bit)
+
 lemma clear_perms_128th_iff[simp]:
   "CapClearPerms c perms !! 128 \<longleftrightarrow> c !! 128"
   by (auto simp: CapClearPerms_def update_subrange_vec_dec_test_bit)
+
+lemma lsb_CapClearPerms_iff[simp]:
+  "lsb (CapClearPerms c p) \<longleftrightarrow> lsb c"
+  by (auto simp: CapClearPerms_def word_lsb_alt update_subrange_vec_dec_test_bit)
 
 lemma CapGetObjectType_CapClearPerms[simp]:
   "CapGetObjectType (CapClearPerms c perms) = CapGetObjectType c"
@@ -574,6 +582,10 @@ lemma CapSetFlags_CapWithTagClear_commute[simp]:
   "CapSetFlags (CapWithTagClear c) flags = CapWithTagClear (CapSetFlags c flags)"
   by (intro word_eqI)
      (auto simp: CapSetFlags_def CapWithTagClear_def test_bit_set_gen update_subrange_vec_dec_test_bit)
+
+lemma CapSetFlags_lsb_iff[simp]:
+  "lsb (CapSetFlags c f) \<longleftrightarrow> lsb c"
+  by (auto simp: CapSetFlags_def update_subrange_vec_dec_test_bit word_lsb_alt)
 
 lemma CapUnseal_not_sealed[simp]:
   "\<not>CapIsSealed (CapUnseal c)"
@@ -604,6 +616,11 @@ lemma CapGetObjectType_set_bit_128_eq[simp]:
   "CapGetObjectType (set_bit c 128 tag) = CapGetObjectType c"
   unfolding CapGetObjectType_def CAP_OTYPE_LO_BIT_def
   by (intro word_eqI) (auto simp: word_ao_nth nth_slice test_bit_set_gen)
+
+lemma lsb_set_bit_0_iff[simp]:
+  fixes w :: "'a::len word"
+  shows "lsb (set_bit w 0 b) \<longleftrightarrow> b"
+  by (auto simp: word_lsb_alt test_bit_set)
 
 lemma CapGetObjectType_update_address[simp]:
   fixes addr :: "64 word"
@@ -6104,6 +6121,37 @@ lemma load_instr_exp_assms_write_ThisInstrAbstract_iff:
 
 end
 
+lemma bin_nth_int_unat[simp]:
+  "bin_nth (int (unat w)) n = w !! n"
+  unfolding test_bit_def' uint_nat
+  ..
+
+lemma CapSetFlags_clear_lsb_commute:
+  "CapSetFlags (clear_lsb c) f = clear_lsb (CapSetFlags c f)"
+  by (intro word_eqI) (auto simp: CapSetFlags_def update_subrange_vec_dec_test_bit test_bit_set_gen)
+
+lemma CapUnseal_clear_lsb_commute:
+  "CapUnseal (clear_lsb c) = clear_lsb (CapUnseal c)"
+  by (intro word_eqI) (auto simp: CapUnseal_def CapSetObjectType_def update_subrange_vec_dec_test_bit test_bit_set_gen)
+
+lemma CapClearPerms_clear_lsb_commute:
+  "CapClearPerms (clear_lsb c) p = clear_lsb (CapClearPerms c p)"
+  by (intro word_eqI) (auto simp: CapClearPerms_def update_subrange_vec_dec_test_bit test_bit_set_gen)
+
+context Morello_ISA
+begin
+
+lemma clear_lsb_image_branch_caps_eq:
+  "clear_lsb ` branch_caps c = branch_caps (clear_lsb c)"
+  using tbi_enabled_cong[of "unat (CapGetValue c)" "unat (clear_lsb (CapGetValue c))" AccType_IFETCH]
+  by (auto simp: branch_caps_def normalise_cursor_flags_def CapGetValue_set_bit_commute CapSetFlags_clear_lsb_commute test_bit_set_gen)
+
+lemma clear_lsb_image_mem_branch_caps_eq:
+  "clear_lsb ` mem_branch_caps c = mem_branch_caps (clear_lsb c)"
+  by (auto simp: mem_branch_caps_def clear_lsb_image_branch_caps_eq image_Un CapUnseal_clear_lsb_commute CapClearPerms_clear_lsb_commute)
+
+end
+
 locale Morello_Cap_Invocation_Assms = Morello_ISA +
   fixes enabled :: "(Capability, register_value) axiom_state \<Rightarrow> register_value event \<Rightarrow> bool"
     and use_mem_caps :: "bool"
@@ -6122,7 +6170,7 @@ abbreviation "is_indirect_branch \<equiv> indirect_sentry_type \<noteq> None"
 
 fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
   "invocation_ev_assms (E_read_reg r v) =
-    ((\<forall>n c. r \<in> R_name n \<and> invoked_code_reg = Some n \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (CapUnseal c) \<subseteq> invoked_code_caps) \<and>
+    ((\<forall>n c. r \<in> R_name n \<and> invoked_code_reg = Some n \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> branch_caps (clear_lsb (CapUnseal c)) \<subseteq> invoked_code_caps) \<and>
      (\<forall>n c. r \<in> R_name n \<and> invoked_data_reg = Some n \<and> c \<in> caps_of_regval v \<and> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> CapUnseal c \<in> invoked_data_caps) \<and>
      (\<forall>n c sentry_type. r \<in> R_name n \<and> invoked_indirect_reg = Some n \<and> c \<in> caps_of_regval v \<and> indirect_sentry_type = Some sentry_type
          \<longrightarrow> (if CapIsTagSet c \<and> CapIsSealed c \<and> get_indirect_sentry_type c = Some sentry_type
@@ -6141,13 +6189,13 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
             (case sentry_type of
                Points_to_Pair \<Rightarrow>
                  if vaddr = unat (CapGetValue sentry) then mem_data_caps c \<subseteq> invoked_data_caps
-                 else if vaddr = unat (CapGetValue sentry + 16) then mem_branch_caps c \<subseteq> invoked_code_caps
+                 else if vaddr = unat (CapGetValue sentry + 16) then mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps
                  else True
-             | Points_to_PCC \<Rightarrow> mem_branch_caps c \<subseteq> invoked_code_caps))
+             | Points_to_PCC \<Rightarrow> mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps))
      | None \<Rightarrow> True) \<and>
     (is_indirect_branch \<and> invoked_indirect_caps = {} \<and> use_mem_caps \<longrightarrow>
        (\<forall>c. cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<and> is_sentry c \<longrightarrow>
-            mem_branch_caps c \<subseteq> invoked_code_caps))"
+            mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps))"
 | "invocation_ev_assms _ = True"
 
 definition invocation_trace_assms :: "register_value trace \<Rightarrow> bool" where
@@ -6305,7 +6353,7 @@ lemma C_read_branch_caps_invoked_code_cap[derivable_capsE]:
   assumes "Run (C_read n) t c" and "invocation_trace_assms t"
     and "invoked_code_reg = Some n"
     and "CapIsTagSet c" and "CapIsSealed c"
-  shows "branch_caps (CapUnseal c) \<subseteq> invoked_code_caps"
+  shows "branch_caps (clear_lsb (CapUnseal c)) \<subseteq> invoked_code_caps"
 proof -
   obtain r where "invocation_ev_assms (E_read_reg r (Regval_bitvector_129_dec c))" and "r \<in> R_name n"
     using assms(1,2,4)
@@ -6566,7 +6614,7 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap:
     (* and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry" *)
     and "indirect_sentry_type \<noteq> None"
     and "indirect_sentry_type = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)"
-  shows "mem_branch_caps c \<subseteq> invoked_code_caps"
+  shows "mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
   using assms
   unfolding mem_cap_vaddr_loaded_in_trace_if_tagged_def mem_cap_vaddr_loads_of_trace_def
   (*by (cases indirect_sentry_type rule: indirect_sentry_type_cases;
@@ -6575,7 +6623,7 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap:
            dest!: invocation_trace_assmsD[OF assms(2)] split: indirect_sentry_type.splits;
       fastforce simp: mem_branch_caps_def)*)
   apply (cases indirect_sentry_type rule: indirect_sentry_type_cases)
-  apply (auto simp: invocation_trace_assms_def mem_branch_caps_def CapIsSealed_def
+  apply (auto simp: invocation_trace_assms_def mem_branch_caps_def CapIsSealed_def image_subset_iff
            elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE
            dest!: invocation_trace_assmsD[OF assms(2)] split: indirect_sentry_type.splits)
   (*apply fastforce
@@ -6612,7 +6660,7 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_direct_mem_sentry:
     and "is_indirect_branch"
     and "invoked_indirect_caps = {}"
     and "use_mem_caps"
-  shows "mem_branch_caps c \<subseteq> invoked_code_caps"
+  shows "mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
   using assms(1-5)
   unfolding mem_cap_vaddr_loaded_in_trace_if_tagged_def mem_cap_vaddr_loads_of_trace_def
   apply (auto simp: invocation_trace_assms_def elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE
@@ -6733,15 +6781,9 @@ lemma (in Morello_ISA) BranchAddr_branch_caps_tagged_unsealed:
   using BranchAddr_in_branch_caps[OF assms] assms
   by (auto simp: BranchAddr_def Let_def elim!: Run_bindE split: if_splits)
 
-lemma bin_nth_int_unat[simp]:
-  "bin_nth (int (unat w)) n = w !! n"
-  unfolding test_bit_def' uint_nat
-  ..
-
 lemma (in Morello_ISA) branch_caps_set_bit_0_subset:
-  assumes "\<not>CapIsSealed c"
-  shows "branch_caps (set_bit c 0 False) \<subseteq> branch_caps c"
-  using assms tbi_enabled_cong[of "unat (CapGetValue c)" "unat (set_bit (CapGetValue c) 0 False)" AccType_IFETCH]
+  "branch_caps (set_bit c 0 False) \<subseteq> branch_caps c"
+  using tbi_enabled_cong[of "unat (CapGetValue c)" "unat (set_bit (CapGetValue c) 0 False)" AccType_IFETCH]
   by (auto simp: branch_caps_def normalise_cursor_flags_def CapGetValue_set_bit_commute test_bit_set_gen)
 
 locale Morello_Axiom_Automaton =
@@ -6814,6 +6856,24 @@ lemma inv_trace_assms_appendE[derivable_caps_combinators]:
   using assms
   by auto
 
+lemma invocation_trace_assms_appendE[derivable_caps_combinators]:
+  assumes "t = t1 @ t2"
+    and "t = t1 @ t2 \<Longrightarrow> invocation_trace_assms t"
+  shows "invocation_trace_assms t1" and "invocation_trace_assms t2"
+  by (use assms in auto)
+
+lemma load_cap_trace_assms_appendE[derivable_caps_combinators]:
+  assumes "t = t1 @ t2"
+    and "t = t1 @ t2 \<Longrightarrow> load_cap_trace_assms t"
+  shows "load_cap_trace_assms t1" and "load_cap_trace_assms t2"
+  by (use assms in auto)
+
+lemma translation_assms_trace_appendE[derivable_caps_combinators]:
+  assumes "t = t1 @ t2"
+    and "t = t1 @ t2 \<Longrightarrow> translation_assms_trace t"
+  shows "translation_assms_trace t1" and "translation_assms_trace t2"
+  by (use assms in auto)
+
 declare datatype_splits[where P = "\<lambda>m. traces_enabled m s" for s, traces_enabled_split]
 
 definition "instr_exp_assms m \<equiv> invocation_instr_exp_assms m \<and> load_instr_exp_assms m"
@@ -6854,7 +6914,7 @@ lemma leq_cap_CapSetFlags:
   by (auto simp: leq_cap_def CapGetPermissions_eq_leq_perms intro: leq_bounds_CapSetFlags)
 
 lemma branch_caps_leq:
-  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  assumes "c' \<in> branch_caps c"
   shows "leq_cap CC c' c"
 proof cases
   assume "CapIsTagSet c"
@@ -6879,15 +6939,15 @@ lemma BranchAddr_leq_cap:
   by (auto elim!: Run_bindE Run_letE Run_ifE Run_and_boolM_E Run_or_boolM_E intro: leq_cap_CapSetFlags)
 
 lemma branch_caps_derivable:
-  assumes "c' \<in> branch_caps c" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c" and "c \<in> derivable C"
+  assumes "c' \<in> branch_caps c" and "c \<in> derivable C"
   shows "c' \<in> derivable C"
-  using branch_caps_leq[OF assms(1,2)] assms(3)
+  using branch_caps_leq[OF assms(1)] assms(2)
   by (auto intro: derivable.Restrict)
 
 lemma branch_caps_derivable_caps:
-  assumes "c' \<in> branch_caps c" and "c \<in> derivable_caps s" and "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c"
+  assumes "c' \<in> branch_caps c" and "c \<in> derivable_caps s"
   shows "c' \<in> derivable_caps s"
-  using assms(2) branch_caps_derivable[OF assms(1,3)] branch_caps_128th_iff[OF assms(1)]
+  using assms(2) branch_caps_derivable[OF assms(1)] branch_caps_128th_iff[OF assms(1)]
   by (auto simp: derivable_caps_def)
 
 end

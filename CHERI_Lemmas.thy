@@ -475,8 +475,7 @@ lemma traces_enabled_PCC_set:
      (auto simp: register_defs is_sentry_def invokable_def CapIsSealed_def leq_cap_tag_imp[of CC, simplified])
 
 definition enabled_branch_target :: "Capability \<Rightarrow> (Capability, register_value) axiom_state \<Rightarrow> bool" where
-  "enabled_branch_target c s \<equiv>
-     (CapIsTagSet c \<and> \<not>CapIsSealed c) \<longrightarrow> (\<forall>c' \<in> branch_caps c. enabled_pcc c' s)"
+  "enabled_branch_target c s \<equiv> CapIsTagSet c \<longrightarrow> (\<forall>c' \<in> branch_caps c. enabled_pcc c' s)"
 
 declare Run_ifE[where thesis = "enabled_branch_target c s" and a = c for c s, derivable_caps_combinators]
 declare Run_letE[where thesis = "enabled_branch_target c s" and a = c for c s, derivable_caps_combinators]
@@ -494,17 +493,50 @@ declare Run_bindE'[where P = "\<lambda>t. enabled_branch_target (CapUnseal c) (r
 declare Run_bindE[where thesis = "enabled_branch_target (CapUnseal c) s" and a = c for c s, simplified, derivable_caps_combinators]
 declare if_split[where P = "\<lambda>c. enabled_branch_target (CapUnseal c) s" for s, THEN iffD2, derivable_capsI]
 
+declare Run_ifE[where thesis = "enabled_branch_target (clear_lsb c) s" and a = c for c s, derivable_caps_combinators]
+declare Run_letE[where thesis = "enabled_branch_target (clear_lsb c) s" and a = c for c s, derivable_caps_combinators]
+declare Run_return_resultE[where P = "\<lambda>c. enabled_branch_target (clear_lsb c) s" for s, derivable_caps_combinators]
+
+declare Run_bindE'[where P = "\<lambda>t. enabled_branch_target (clear_lsb c) (run s t)" for c s, simplified, derivable_caps_combinators]
+declare Run_bindE[where thesis = "enabled_branch_target (clear_lsb c) s" and a = c for c s, derivable_caps_combinators]
+declare if_split[where P = "\<lambda>c. enabled_branch_target (clear_lsb c) s" for s, THEN iffD2, derivable_capsI]
+
+declare Run_ifE[where thesis = "enabled_branch_target (clear_lsb (CapUnseal c)) s" and a = c for c s, derivable_caps_combinators]
+declare Run_letE[where thesis = "enabled_branch_target (clear_lsb (CapUnseal c)) s" and a = c for c s, derivable_caps_combinators]
+declare Run_return_resultE[where P = "\<lambda>c. enabled_branch_target (clear_lsb (CapUnseal c)) s" for s, derivable_caps_combinators]
+
+declare Run_bindE'[where P = "\<lambda>t. enabled_branch_target (clear_lsb (CapUnseal c)) (run s t)" for c s, simplified, derivable_caps_combinators]
+declare Run_bindE[where thesis = "enabled_branch_target (clear_lsb (CapUnseal c)) s" and a = c for c s, derivable_caps_combinators]
+declare if_split[where P = "\<lambda>c. enabled_branch_target (clear_lsb (CapUnseal c)) s" for s, THEN iffD2, derivable_capsI]
+
+lemma enabled_branch_target_clear_lsb_CapWithTagClear[derivable_capsI]:
+  "enabled_branch_target (clear_lsb (CapWithTagClear c)) s"
+  by (auto simp: enabled_branch_target_def enabled_pcc_def derivable_caps_def branch_caps_128th_iff test_bit_set_gen)
+
+lemma enabled_branch_target_clear_lsb:
+  "enabled_branch_target c s \<Longrightarrow> enabled_branch_target (clear_lsb c) s"
+  using tbi_enabled_cong[of "unat (c AND mask 64)" "unat (set_bit c 0 False AND mask 64)" AccType_IFETCH]
+  by (auto simp: enabled_branch_target_def branch_caps_def CapGetValue_def nth_ucast test_bit_set_gen word_ao_nth split: if_splits)
+
 lemma run_append_enabled_branch_targetE[derivable_caps_combinators]:
   assumes "t = t1 @ t2" and "t = t1 @ t2 \<longrightarrow> enabled_branch_target c (run (run s t1) t2)"
   shows "enabled_branch_target c (run s t)"
   using assms
   by auto
 
+lemma CapIsSealed_branch_caps_empty:
+  "CapIsSealed c \<Longrightarrow> branch_caps c = {}"
+  by (auto simp: branch_caps_def)
+
+lemma branch_caps_unsealed:
+  "\<forall>c' \<in> branch_caps c. \<not>CapIsSealed c'"
+  by (auto simp: branch_caps_def CapIsSealed_def normalise_cursor_flags_def)
+
 lemma enabled_branch_targetI:
   assumes "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> (\<forall>c' \<in> branch_caps c. enabled_pcc c' s)"
   shows "enabled_branch_target c s"
   using assms
-  by (auto simp: enabled_branch_target_def)
+  by (auto simp: enabled_branch_target_def CapIsSealed_branch_caps_empty)
 
 lemma exception_targets_mono:
   assumes "C \<subseteq> C'"
@@ -600,20 +632,21 @@ lemma C_read_direct_sentry_enabled_branch_target[derivable_capsE]:
     and "invoked_code_reg = Some n"
     and "CapIsTagSet c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB"
     and "n = 29 \<longrightarrow> {''_R29''} \<subseteq> accessible_regs s"
-  shows "enabled_branch_target (CapUnseal c) (run s t)"
+  shows "enabled_branch_target (clear_lsb (CapUnseal c)) (run s t)"
 proof (intro enabled_branch_targetI impI ballI)
   fix c'
-  assume c: "CapIsTagSet (CapUnseal c) \<and> \<not> CapIsSealed (CapUnseal c)"
-    and c': "c' \<in> branch_caps (CapUnseal c)"
-  have "branch_caps (CapUnseal c) \<subseteq> invoked_code_caps"
+  assume c: "CapIsTagSet (clear_lsb (CapUnseal c)) \<and> \<not>CapIsSealed (clear_lsb (CapUnseal c))"
+    and c': "c' \<in> branch_caps (clear_lsb (CapUnseal c))"
+  have "branch_caps (clear_lsb (CapUnseal c)) \<subseteq> invoked_code_caps"
     using assms c
-    by (elim C_read_branch_caps_invoked_code_cap) (auto simp: CapIsSealed_def)
+    by (elim C_read_branch_caps_invoked_code_cap) (auto simp: CapIsSealed_def test_bit_set_gen)
   moreover have "c \<in> accessed_caps (load_caps_permitted \<and> invoked_indirect_caps = {}) (run s t)"
     using assms c
-    by (elim C_read_accessed_caps_cases) auto
+    by (elim C_read_accessed_caps_cases) (auto simp: test_bit_set_gen)
   ultimately have "is_invoked_direct_sentry c' (run s t)"
-    using assms c c' branch_caps_leq[OF c']
-    by (auto simp: is_invoked_direct_sentry_def CapIsSealed_def is_sentry_def)
+    using assms c c'
+    using leq_cap_trans[OF branch_caps_leq[OF c'] leq_cap_set_0th]
+    by (auto simp: is_invoked_direct_sentry_def CapIsSealed_def is_sentry_def test_bit_set_gen)
   then show "enabled_pcc c' (run s t)"
     by (auto simp: enabled_pcc_def is_invoked_code_cap_def)
 qed
@@ -640,29 +673,32 @@ lemma untagged_enabled_branch_target[simp]:
 lemma enabled_branch_target_CapWithTagClear[derivable_capsI]:
   "enabled_branch_target (CapWithTagClear c) s"
   "enabled_branch_target (CapUnseal (CapWithTagClear c)) s"
-  by (auto simp: enabled_branch_target_def enabled_pcc_def derivable_caps_def branch_caps_128th_iff)
+  "enabled_branch_target (clear_lsb (CapUnseal (CapWithTagClear c))) s"
+  by (auto simp: enabled_branch_target_def enabled_pcc_def derivable_caps_def branch_caps_128th_iff test_bit_set_gen)
 
 lemma if_CapWithTagClear_128th_iff[simp]:
   "(if clear then CapWithTagClear c else c) !! 128 \<longleftrightarrow> \<not>clear \<and> c !! 128"
   by auto
 
-lemma enabled_branch_target_CapUnseal_if_clear:
+(*lemma enabled_branch_target_CapUnseal_if_clear:
   assumes "CapIsTagSet c \<longrightarrow> (\<forall>c' \<in> branch_caps (CapUnseal c). enabled_pcc c' s)"
   shows "enabled_branch_target (CapUnseal (if clear then CapWithTagClear c else c)) s"
   using assms
-  by (auto simp: enabled_branch_target_def)
+  by (auto simp: enabled_branch_target_def)*)
 
 lemma derivable_enabled_branch_target:
   assumes "CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c \<longrightarrow> c \<in> derivable_caps s"
   shows "enabled_branch_target c s"
   using assms branch_caps_derivable_caps[where c = c]
-  by (auto simp: enabled_branch_target_def enabled_pcc_def)
+  by (auto simp: enabled_branch_target_def enabled_pcc_def CapIsSealed_branch_caps_empty)
 
 lemma C_read_enabled_branch_target[derivable_capsE]:
   assumes "Run (C_read n) t c" and "{''_R29''} \<subseteq> accessible_regs s"
   shows "enabled_branch_target c (run s t)"
   using assms
   by (auto intro: derivable_enabled_branch_target C_read_derivable)
+
+declare C_read_enabled_branch_target[THEN enabled_branch_target_clear_lsb, derivable_capsE]
 
 lemma CapSetOffset_enabled_branch_target[derivable_capsE]:
   assumes "Run (CapSetOffset c offset) t c'"
@@ -731,7 +767,7 @@ lemma CVBAR_read__1_exception_target[derivable_capsE]:
 lemma exception_target_enabled_branch_target:
   assumes c: "CapIsTagSet c \<and> \<not>CapIsSealed c \<longrightarrow> c \<in> exception_targets (read_from_KCC s)" and ex: "ex_traces"
   shows "enabled_branch_target c s"
-proof (unfold enabled_branch_target_def, intro impI ballI)
+proof (intro enabled_branch_targetI impI ballI)
   fix c'
   assume valid: "CapIsTagSet c \<and> \<not>CapIsSealed c" and c': "c' \<in> branch_caps c"
   have "c' \<in> exception_targets (read_from_KCC s)"
@@ -776,7 +812,7 @@ lemma CapGetObjectType_if_CapWithTagClear_eq:
   "CapGetObjectType (if clear then CapWithTagClear c else c) = CapGetObjectType c"
   by auto
 
-lemma branch_sealed_pair_enabled_pcc:
+lemma sealed_pair_enabled_branch_target:
   assumes "CapGetObjectType (if clear then CapWithTagClear cc else cc) = CapGetObjectType cd"
     and "CapIsTagSet cc" and "CapIsTagSet cd"
     and "cap_permits CAP_PERM_EXECUTE cc" and "\<not>cap_permits CAP_PERM_EXECUTE cd"
@@ -784,12 +820,12 @@ lemma branch_sealed_pair_enabled_pcc:
     and "CAP_MAX_FIXED_SEAL_TYPE < uint (CapGetObjectType cc)"
     and "cc \<in> accessed_reg_caps s"
     and "cd \<in> accessed_reg_caps s"
-    and "branch_caps (CapUnseal cc) \<subseteq> invoked_code_caps"
-  shows "\<forall>c' \<in> branch_caps (CapUnseal cc). enabled_pcc c' s"
+    and "branch_caps (clear_lsb (CapUnseal cc)) \<subseteq> invoked_code_caps"
+  shows "enabled_branch_target (clear_lsb (CapUnseal cc)) s"
   using assms
   unfolding CapGetObjectType_if_CapWithTagClear_eq
-  by (auto simp: invokable_def CapIsSealed_def is_sentry_def split: if_splits
-           intro!: branch_caps_leq invokable_enabled_pccI[of cc cd])
+  by (auto simp: invokable_def CapIsSealed_def is_sentry_def enabled_branch_target_def
+           intro!: invokable_enabled_pccI[of cc cd] elim: leq_cap_trans[OF branch_caps_leq leq_cap_set_0th])
 
 lemma (in Write_Cap_Assm_Automaton) traces_enabled_write_IDC_CCall:
   assumes "c \<in> invoked_data_caps" and "invokable CC cc cd"
@@ -872,7 +908,7 @@ fun indirect_code_cap_offset :: "indirect_sentry_type \<Rightarrow> nat option" 
 
 definition
   "is_indirectly_invoked_mem_code_cap sentry type c s \<equiv>
-   load_caps_permitted \<longrightarrow> is_indirectly_invoked_cap sentry type (indirect_code_cap_offset type) c s \<and> mem_branch_caps c \<subseteq> invoked_code_caps"
+   load_caps_permitted \<longrightarrow> is_indirectly_invoked_cap sentry type (indirect_code_cap_offset type) c s \<and> mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
 
 definition
   "is_invoked_indirect_sentry_for_addr sentry type addr offset s \<equiv>
@@ -1111,7 +1147,7 @@ proof -
     using assms
     by (cases sentry_type)
        (auto elim!: Run_bindE C_read_unseal_invoked_indirect_caps_cases CSP_read_invoked_indirect_caps_cases
-             simp: is_invoked_indirect_sentry_def accessed_caps_def get_indirect_sentry_type_Some_iffs split: if_splits)
+             simp: is_invoked_indirect_sentry_def accessed_caps_def split: if_splits)
 qed
 
 lemma VACheckAddress_is_invoked_indirect_sentry_for_addr:
@@ -1309,9 +1345,9 @@ proof -
   moreover have "(unat addr, c) \<in> mem_cap_vaddr_loads (run s t)"
     using loaded assms(5)
     by (auto simp: mem_cap_vaddr_loads_run_eq mem_cap_vaddr_loaded_in_trace_if_tagged_def)
-  moreover have "mem_branch_caps c \<subseteq> invoked_code_caps"
+  moreover have "mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
     using assms(1-5) sentry mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap[OF loaded, where sentry = sentry]
-    by (auto simp: is_invoked_indirect_sentry_def)
+    by (auto simp: is_invoked_indirect_sentry_def clear_lsb_image_mem_branch_caps_eq)
   ultimately have "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"
     using assms(6) is_invoked_run_mono(4)[of sentry sentry_type s t]
     unfolding is_indirectly_invoked_mem_code_cap_def is_indirectly_invoked_cap_def mem_cap_vaddr_loads_def
@@ -1319,49 +1355,38 @@ proof -
   then show ?thesis by blast
 qed
 
-(* TODO: Replace in CHERI_Instantiation *)
-lemma branch_caps_leq:
-  assumes "c' \<in> branch_caps c"
-  shows "leq_cap CC c' c"
-  using assms
-  unfolding branch_caps_def normalise_cursor_flags_def
-  by (auto intro: leq_cap_set_0th leq_cap_CapSetFlags leq_cap_CapSetFlags[THEN leq_cap_trans] split: if_splits)
-
-lemma CapIsSealed_branch_caps_singleton:
-  "CapIsSealed c \<Longrightarrow> branch_caps c = {c}"
-  by (auto simp: branch_caps_def)
+lemma clear_lsb_member_branch_caps_imp:
+  "c \<in> branch_caps c' \<Longrightarrow> clear_lsb c \<in> branch_caps c'"
+  by (auto simp: branch_caps_def normalise_cursor_flags_def CapSetFlags_clear_lsb_commute)
 
 lemma is_indirectly_invoked_mem_code_cap_is_single_code_cap:
   assumes "is_indirectly_invoked_mem_code_cap sentry Points_to_PCC c s"
     and "load_caps_permitted"
-    and "c' \<in> mem_branch_caps c"
+    and "c' \<in> mem_branch_caps (clear_lsb c)"
   shows "is_indirectly_invoked_single_code_cap c' s"
   using assms
-  using branch_caps_leq[of c' c] branch_caps_leq[of c' "CapUnseal c"] (*branch_caps_leq[of c' "clear_perm mutable_perms c"]*)
-  using leq_cap_trans[OF branch_caps_leq[of c' "clear_perm mutable_perms c"] clear_perm_leq_cap]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_lsb (CapUnseal c)"] leq_cap_set_0th]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_lsb c"] leq_cap_set_0th]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_perm mutable_perms (clear_lsb c)"] clear_perm_leq_cap, THEN leq_cap_trans[OF _ leq_cap_set_0th]]
   unfolding is_indirectly_invoked_single_code_cap_def is_indirectly_invoked_mem_code_cap_def
-  apply (cases "CapIsSealed c")
-   apply (auto simp: mem_branch_caps_def is_sentry_def CapIsSealed_branch_caps_singleton split: if_splits)
-  apply (simp add: CapIsSealed_def)
-  done
+  by (fastforce simp: mem_branch_caps_def is_sentry_def CapIsSealed_def CapUnseal_clear_lsb_commute split: if_splits)
 
 lemma is_indirectly_invoked_mem_code_cap_is_pair_code_cap:
   assumes "is_indirectly_invoked_mem_code_cap sentry Points_to_Pair c s"
     and "load_caps_permitted"
-    and "c' \<in> mem_branch_caps c"
+    and "c' \<in> mem_branch_caps (clear_lsb c)"
   shows "is_indirectly_invoked_pair_code_cap c' s"
   using assms
-  using branch_caps_leq[of c' c] branch_caps_leq[of c' "CapUnseal c"]
-  using leq_cap_trans[OF branch_caps_leq[of c' "clear_perm mutable_perms c"] clear_perm_leq_cap]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_lsb (CapUnseal c)"] leq_cap_set_0th]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_lsb c"] leq_cap_set_0th]
+  using leq_cap_trans[OF branch_caps_leq[of c' "clear_perm mutable_perms (clear_lsb c)"] clear_perm_leq_cap, THEN leq_cap_trans[OF _ leq_cap_set_0th]]
   unfolding is_indirectly_invoked_pair_code_cap_def is_indirectly_invoked_mem_code_cap_def
-  by (cases "CapIsSealed c";
-      auto simp: mem_branch_caps_def is_sentry_def CapIsSealed_branch_caps_singleton CapIsSealed_def split: if_splits;
-      fastforce)
+  by (fastforce simp: mem_branch_caps_def is_sentry_def CapIsSealed_def CapUnseal_clear_lsb_commute split: if_splits)
 
 lemma is_indirectly_invoked_mem_code_cap_is_invoked_code_cap:
   assumes "is_indirectly_invoked_mem_code_cap sentry sentry_type c s"
     and "load_caps_permitted"
-  shows "\<forall>c' \<in> mem_branch_caps c. is_invoked_code_cap c' s"
+  shows "\<forall>c' \<in> mem_branch_caps (clear_lsb c). is_invoked_code_cap c' s"
   using assms(1)
   by (cases sentry_type)
      (auto simp: is_invoked_code_cap_def
@@ -1390,7 +1415,7 @@ qed (auto intro: derivable_enabled_branch_target)*)
 
 definition
   "is_invoked_direct_mem_sentry c s \<equiv>
-   c \<in> accessed_mem_caps s \<and> CapIsTagSet c \<and> is_sentry c \<and> mem_branch_caps c \<subseteq> invoked_code_caps"
+   c \<in> accessed_mem_caps s \<and> CapIsTagSet c \<and> is_sentry c \<and> mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
 
 definition
   "is_invoked_mem_code_cap auth sentry_type_opt c s \<equiv>
@@ -1399,14 +1424,18 @@ definition
      then (\<exists>sentry_type. sentry_type_opt = Some sentry_type \<and> is_indirectly_invoked_mem_code_cap auth sentry_type c s)
      else is_invoked_direct_mem_sentry c s))"
 
+(*lemma CapGetObjectType_clear_lsb_if_unsealed_eq[simp]:
+  "CapGetObjectType (clear_lsb_if_unsealed c) = CapGetObjectType c"
+  by (auto simp: clear_lsb_if_unsealed_def)*)
+
 lemma is_invoked_direct_mem_sentry_is_invoked_direct_sentry:
   assumes "is_invoked_direct_mem_sentry c s"
     and "load_caps_permitted"
     and "\<not>invokes_indirect_caps"
-  shows "\<forall>c' \<in> mem_branch_caps c. \<not>CapIsSealed c' \<longrightarrow> is_invoked_direct_sentry c' s"
-  using assms branch_caps_leq[where c = "CapUnseal c"]
+  shows "\<forall>c' \<in> mem_branch_caps (clear_lsb c). is_invoked_direct_sentry c' s"
+  using assms leq_cap_trans[OF branch_caps_leq[where c = "clear_lsb (CapUnseal c)"] leq_cap_set_0th]
   unfolding is_invoked_direct_sentry_def is_invoked_direct_mem_sentry_def accessed_caps_def
-  by (auto simp: mem_branch_caps_def CapIsSealed_def is_sentry_def) fastforce
+  by (auto simp: mem_branch_caps_def CapIsSealed_def is_sentry_def CapUnseal_clear_lsb_commute) fastforce
 
 (*lemma is_invoked_direct_mem_sentry_is_invoked_direct_sentry:
   assumes "is_invoked_direct_mem_sentry c s"
@@ -1422,7 +1451,7 @@ lemma is_invoked_direct_mem_sentry_is_invoked_direct_sentry:
 lemma is_invoked_mem_code_cap_is_invoked_code_cap:
   assumes "is_invoked_mem_code_cap sentry sentry_type c s"
     and "load_caps_permitted"
-  shows "\<forall>c' \<in> mem_branch_caps c. \<not>CapIsSealed c' \<longrightarrow> is_invoked_code_cap c' s"
+  shows "\<forall>c' \<in> mem_branch_caps (clear_lsb c). is_invoked_code_cap c' s"
   using assms
   using is_indirectly_invoked_mem_code_cap_is_invoked_code_cap[of sentry _ c s]
   using is_invoked_direct_mem_sentry_is_invoked_direct_sentry[of c s]
@@ -1447,22 +1476,20 @@ lemma enabled_branch_target_CapUnseal_mem_cap:
     (* and "c \<in> derivable_mem_caps s" *)
     (* and "indirect_sentry_type = Some sentry_type" *)
     and "CapIsTagSet c' \<and> CapIsTagSet c \<and> CapGetObjectType c' = CapGetObjectType c \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
-  shows "enabled_branch_target (CapUnseal c') (run s t)"
+  shows "enabled_branch_target (clear_lsb (CapUnseal c')) (run s t)"
 proof (intro enabled_branch_targetI impI ballI, elim conjE)
   fix c''
-  assume c'': "c'' \<in> branch_caps (CapUnseal c')" and tagged: "CapIsTagSet (CapUnseal c')"
+  assume c'': "c'' \<in> branch_caps (clear_lsb (CapUnseal c'))" and tagged: "CapIsTagSet (clear_lsb (CapUnseal c'))"
   then have "load_caps_permitted"
     using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
-    by auto
-  from c'' have unsealed: "\<not>CapIsSealed c''"
-    by (auto simp: branch_caps_def CapIsSealed_def normalise_cursor_flags_def split: if_splits)
+    by (auto simp: test_bit_set_gen)
   have "c' = c \<and> is_sentry c \<and> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
     using tagged assms
-    by (elim CapSquashPostLoadCap_cases) (auto simp: CapIsSealed_def is_sentry_def)
+    by (elim CapSquashPostLoadCap_cases) (auto simp: CapIsSealed_def is_sentry_def test_bit_set_gen)
   then have "is_invoked_code_cap c'' s"
-    using is_invoked_mem_code_cap_is_invoked_code_cap[of "VirtualAddress_base base" _ c s]
-    using \<open>load_caps_permitted\<close> unsealed c''
-    by (auto simp: mem_branch_caps_def is_sentry_def)
+    using is_invoked_mem_code_cap_is_invoked_code_cap[of "VirtualAddress_base base" indirect_sentry_type c s]
+    using \<open>load_caps_permitted\<close> c'' (*unsealed lsb branch_cap*)
+    by (auto simp: mem_branch_caps_def is_sentry_def CapUnseal_clear_lsb_commute)
   then show "enabled_pcc c'' (run s t)"
     by (intro enabled_pcc_run_imp) (auto simp: enabled_pcc_def)
 qed
@@ -1493,10 +1520,10 @@ proof -
       (* and bounds: "set (address_range (unat addr) 16) \<subseteq> get_mem_region CC sentry" *)
       using assms valid
       by (cases sentry_type; auto simp: is_invoked_indirect_sentry_for_addr_def)+
-    moreover have "mem_branch_caps c \<subseteq> invoked_code_caps"
+    moreover have "mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
       using assms(1-5) sentry addr (*bounds*)
       using mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap[OF loaded, where sentry = sentry]
-      by (auto simp: is_invoked_indirect_sentry_def)
+      by (auto simp: is_invoked_indirect_sentry_def clear_lsb_image_mem_branch_caps_eq)
     ultimately have "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"
       using assms(6) loaded' is_invoked_run_mono(4)[of sentry sentry_type s t]
       unfolding is_indirectly_invoked_mem_code_cap_def is_indirectly_invoked_cap_def mem_cap_vaddr_loads_def
@@ -1514,7 +1541,7 @@ proof -
       using False assms(4,5,7)
       using mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_direct_mem_sentry[OF loaded assms(3,5)]
       unfolding is_invoked_mem_code_cap_def is_invoked_direct_mem_sentry_def
-      by (auto simp: is_sentry_def)
+      by (auto simp: is_sentry_def clear_lsb_image_mem_branch_caps_eq)
   qed
 qed
 
@@ -1573,23 +1600,28 @@ lemma branch_caps_GetObjectType_eq:
   shows "CapGetObjectType c' = CapGetObjectType c"
   by (use assms in \<open>auto simp: branch_caps_def normalise_cursor_flags_def split: if_splits\<close>)
 
+(* TODO: Why doesn't this exist already? *)
+lemma derivable_caps_leq_cap:
+  "c \<in> derivable_caps s \<Longrightarrow> leq_cap CC c' c \<Longrightarrow> c' \<in> derivable_caps s"
+  by (auto simp: derivable_caps_def leq_cap_def intro: derivable.intros)
+
 lemma enabled_branch_target_CapSquashPostLoadCap:
   assumes "Run (CapSquashPostLoadCap c base) t c'" "load_cap_trace_assms t"
     and "VA_from_load_auth base"
     and "c \<in> derivable_mem_caps s"
     and "(CapIsTagSet c \<and> \<not>CapIsSealed c \<and> invokes_indirect_caps) \<longrightarrow> is_invoked_mem_code_cap (VirtualAddress_base base) indirect_sentry_type c s"
-  shows "enabled_branch_target c' (run s t)"
+  shows "enabled_branch_target (clear_lsb c') (run s t)"
 proof (cases "invokes_indirect_caps \<and> CapIsTagSet c'")
   case True
   then have *: "invokes_indirect_caps" "load_caps_permitted"
     using Run_CapSquashPostLoadCap_use_mem_caps[OF assms(1-3)]
     by auto
   note leqI = branch_caps_leq leq_cap_trans[OF branch_caps_leq clear_perm_leq_cap]
-  have "enabled_branch_target c' s"
-    using assms True
+  have "enabled_branch_target (clear_lsb c') s"
+    using assms True CapIsSealed_branch_caps_empty[of "clear_lsb c"]
     by (cases rule: CapSquashPostLoadCap_cases)
-       (auto simp: enabled_branch_target_def mem_branch_caps_def enabled_pcc_def CapIsSealed_def branch_caps_GetObjectType_eq
-             dest: is_invoked_mem_code_cap_is_invoked_code_cap[OF _ \<open>load_caps_permitted\<close>])
+       (auto simp: enabled_branch_target_def mem_branch_caps_def enabled_pcc_def CapIsSealed_def CapClearPerms_clear_lsb_commute
+             dest: is_invoked_mem_code_cap_is_invoked_code_cap[OF _ \<open>load_caps_permitted\<close>] split: if_splits)
   then show ?thesis
     by (intro enabled_branch_target_run_imp)
 next
@@ -1598,8 +1630,11 @@ next
     using assms
     by (cases "CapIsTagSet c'", elim CapSquashPostLoadCap_from_load_auth_reg_derivable_caps)
        (auto simp: derivable_caps_def)
-  then have "enabled_branch_target c' s"
-    by (auto intro: derivable_enabled_branch_target)
+  then have "clear_lsb c' \<in> derivable_caps s" if "CapIsTagSet c' \<and> \<not>CapIsSealed c'"
+    using that
+    by (auto intro: derivable_caps_leq_cap leq_cap_set_0th)
+  then have "enabled_branch_target (clear_lsb c') s"
+    by (auto intro: derivable_enabled_branch_target simp: test_bit_set_gen)
   then show ?thesis
     by (intro enabled_branch_target_run_imp)
 qed
@@ -1753,7 +1788,7 @@ proof -
     and "''_R29'' \<in> R_name 29"
     and "t = [E_read_reg ''_R29'' (Regval_bitvector_129_dec c)]"
     using assms(1-4,8)
-    by (auto simp add: invocation_trace_assms_def register_defs CapNull_def R_name_def elim!: Run_C_readE)
+    by (auto simp add: invocation_trace_assms_def register_defs CapNull_def R_name_def image_subset_iff elim!: Run_C_readE)
   then show ?thesis
     using assms(3,5-8)
     unfolding invocation_ev_assms.simps is_indirectly_invoked_single_data_cap_def is_invoked_indirect_sentry_def
@@ -1774,14 +1809,14 @@ lemma traces_enabled_BranchToCapability[traces_enabledI]:
   unfolding BranchToCapability_def bind_assoc
   by (traces_enabledI assms: assms intro: traces_enabled_PCC_set non_cap_expI[THEN non_cap_exp_traces_enabledI] simp: BranchTaken_ref_def PSTATE_ref_def PC_ref_def)
 
-lemma enabled_branch_target_set_0th[derivable_capsI]:
+lemma enabled_branch_target_set_0th:
   assumes "enabled_branch_target c s"
   shows "enabled_branch_target (update_vec_dec c 0 (Morello.Bit 0)) s"
   using assms tbi_enabled_cong[of "unat (c AND mask 64)" "unat (set_bit c 0 False AND mask 64)" AccType_IFETCH]
   by (auto simp: enabled_branch_target_def branch_caps_def CapGetValue_def nth_ucast test_bit_set_gen word_ao_nth split: if_splits)
 
 lemma traces_enabled_BranchXToCapability[traces_enabledI]:
-  assumes "enabled_branch_target c s"
+  assumes "enabled_branch_target (clear_lsb c) s"
   shows "traces_enabled (BranchXToCapability c branch_type) s"
   unfolding BranchXToCapability_def
   by (traces_enabledI assms: assms intro: non_cap_expI[THEN non_cap_exp_traces_enabledI] simp: PSTATE_ref_def)
