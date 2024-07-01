@@ -6,8 +6,124 @@ theory CHERI_PCC_Properties
     Trace_Properties
 begin
 
-definition idc_write_axiom'  :: \<open> 'cap Capability_class \<Rightarrow>('cap,'regval,'instr,'e)isa \<Rightarrow> 'cap set \<Rightarrow> nat \<Rightarrow> ('regval,'instr)isa_trace \<Rightarrow> bool \<close>  where
-     \<open> idc_write_axiom' CC ISA initial_caps n t = (
+context Morello_ISA
+begin
+
+(* Helper functions for getting initial values of register/memory appearing in a trace
+   before they get overwritten *)
+definition trace_reads_initial_caps_from_gpr :: "int \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "trace_reads_initial_caps_from_gpr n t \<equiv>
+     {c. \<exists>i < length t. \<exists>r \<in> R_name n.
+        t ! i = E_read_reg r (Regval_bitvector_129_dec c) \<and>
+        (\<forall>r' \<in> R_name n. \<forall>v. E_write_reg r v \<notin> set (take i t))}"
+
+definition no_mem_writes_in_trace where
+  "no_mem_writes_in_trace t \<equiv>
+     (\<forall>wk addr sz v r. E_write_mem wk addr sz v r \<notin> set t) \<and>
+     (\<forall>wk addr sz v tag r. E_write_memt wk addr sz v tag r \<notin> set t)"
+
+definition initial_mem_cap_vaddr_loads_of_trace where
+  "initial_mem_cap_vaddr_loads_of_trace t \<equiv>
+     {(vaddr, c) | vaddr c paddr i.
+        i < length t \<and>
+        (paddr, c) \<in> mem_cap_loads_of_ev (t ! i) \<and>
+        translate_address vaddr = Some paddr \<and>
+        no_mem_writes_in_trace (take i t)}"
+
+(* "Other" instructions not denoted by an instruction AST node definitely won't perform an invocation *)
+lemma instr_of_trace_None_instr_invokes_no_caps:
+  assumes "instr_of_trace t = None"
+  shows "instr_invokes_code_caps instr t = {}"
+    and "instr_invokes_data_caps instr t = {}"
+    and "instr_invokes_indirect_caps instr t = {}"
+  using assms
+  by (auto simp: trace_invoked_cap_defs)
+
+(* Characterisation of the different cases of invocation for a given instruction trace *)
+lemma hasTrace_instr_sem_invocation_cases:
+  assumes "hasTrace t (instr_sem opcode)"
+    and "instr_of_trace t = Some instr" \<comment> \<open>instruction AST, e.g. @{verbatim Instr_BRS_C_C}, not opcode\<close>
+    and "\<not>hasException t (instr_sem opcode)"
+    and "\<not>hasFailure t (instr_sem opcode)" \<comment> \<open>ignoring assertion failures\<close>
+  obtains (SealedPair) cc cd nc nd
+    where "instr_invokes_code_cap_from_reg instr = Some nc"
+    and "instr_invokes_data_cap_from_reg instr = Some nd"
+    and "trace_reads_initial_caps_from_gpr nc t = {cc}"
+    and "trace_reads_initial_caps_from_gpr nd t = {cd}"
+    and "invokable CC cc cd"
+    and "instr_invokes_code_caps opcode t = \<Union>{branch_caps (clear_lsb (CapUnseal cc))}"
+    and "instr_invokes_data_caps opcode t = {CapUnseal cd}"
+    and "instr_invokes_indirect_caps opcode t = {}"
+  | (DirectRegSentry) c n
+    where "instr_invokes_code_cap_from_reg instr = Some n"
+    and "trace_reads_initial_caps_from_gpr n t = {c}"
+    and "CapIsTagSet c" and "is_sentry c"
+    and "instr_invokes_code_caps opcode t = \<Union>{branch_caps (clear_lsb (CapUnseal c))}"
+    and "instr_invokes_data_caps opcode t = {}"
+    and "instr_invokes_indirect_caps opcode t = {}"
+  | (DirectMemSentry) n c c' vaddr sentry_type
+      \<comment> \<open>Using an indirect branching instruction with a register other than 29, or a capability
+      that isn't an indirect sentry, can still load a direct sentry from memory and invoke it\<close>
+    where "instr_invokes_indirect_cap_from_reg instr = Some n"
+    and "trace_reads_initial_caps_from_gpr n t = {c}"
+    and "instr_indirect_sentry_type instr = Some sentry_type"
+    and "n = 29 \<longrightarrow> get_indirect_sentry_type_method CC c \<noteq> Some sentry_type"
+    and "initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c')}"
+    and "is_sentry c'"
+    and "instr_invokes_code_caps opcode t = \<Union>{branch_caps (clear_lsb (CapUnseal c'))}"
+    and "instr_invokes_data_caps opcode t = {}"
+    and "instr_invokes_indirect_caps opcode t = {}"
+  | (IndirectPointsToPCC) c c' vaddr
+    where "instr_invokes_indirect_cap_from_reg instr = Some 29"
+    and "instr_indirect_sentry_type instr = Some Points_to_PCC"
+    and "trace_reads_initial_caps_from_gpr 29 t = {c}"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c = CAP_SEAL_TYPE_LB"
+    and "cap_permits CAP_PERM_LOAD_CAP c"
+    and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
+    and "initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c')}"
+    and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
+    and "instr_invokes_code_caps opcode t = mem_branch_caps (clear_lsb c)"
+    and "instr_invokes_data_caps opcode t = instr_invokes_indirect_caps opcode t"
+  | (IndirectPointsToPair) c cc cd
+    where "instr_invokes_indirect_cap_from_reg instr = Some 29"
+    and "instr_indirect_sentry_type instr = Some Points_to_Pair"
+    and "trace_reads_initial_caps_from_gpr 29 t = {c}"
+    and "CapIsTagSet c"
+    and "CapGetObjectType c = CAP_SEAL_TYPE_LPB"
+    and "cap_permits CAP_PERM_LOAD_CAP c"
+    and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
+    and "initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue c), cd), (unat (CapGetValue c + 16), cc)}"
+    and "instr_invokes_code_caps opcode t = mem_branch_caps (clear_lsb cc)"
+    and "instr_invokes_code_caps opcode t = mem_data_caps cd"
+    and "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c))) 32) \<subseteq> get_mem_region CC c"
+  | (NoInvocation) "instr_invokes_code_caps opcode t = {}"
+    and "instr_invokes_data_caps opcode t = {}"
+    and "instr_invokes_indirect_caps opcode t = {}"
+  oops
+
+end
+
+(* In the case of an invocation, PSTATE.C64 will be set to the LSB of the invoked code capability *)
+(* TODO: Could maybe be merged into another property, like the lemma above *)
+
+definition pstate_c64_writes :: "register_value trace \<Rightarrow> bool set" where
+  "pstate_c64_writes t \<equiv> {test_bit (ProcState_C64 ps) 0 | ps. E_write_reg ''PSTATE'' (Regval_ProcState ps) \<in> set t}"
+
+context Morello_ISA
+begin
+
+definition invocation_writes_pstate_c64 :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
+  "invocation_writes_pstate_c64 t \<equiv>
+     (\<forall>c' \<in> trace_invokes_code_caps ISA t \<inter> trace_writes_pcc_caps ISA t.
+       \<exists>c. original_code_caps_invoked_in_trace (trace t) = {c} \<and>
+            c' \<in> clear_lsb ` (branch_caps (CapUnseal c) \<union> mem_branch_caps c) \<and>
+            pstate_c64_writes (trace t) = {lsb c})"
+
+end
+
+definition idc_write_axiom''  :: \<open> 'cap Capability_class \<Rightarrow>('cap,'regval,'instr,'e)isa \<Rightarrow> 'cap set \<Rightarrow> nat \<Rightarrow> ('regval,'instr)isa_trace \<Rightarrow> bool \<close>  where
+     \<open> idc_write_axiom'' CC ISA initial_caps n t = (
   ((\<forall> i. \<forall> c. \<forall> idc.
      (i < n \<and> (writes_to_reg_at_idx i t = Some idc) \<and> ((idc \<in>(IDC   ISA)) \<and> (c \<in> (writes_reg_caps_at_idx
   CC ISA i t))) \<and> is_invoked_data_cap_at_idx CC ISA c t i)
@@ -20,10 +136,10 @@ definition idc_write_axiom'  :: \<open> 'cap Capability_class \<Rightarrow>('cap
 
 lemma idc_write_axiom'_idc_write_axiom:
   assumes "store_cap_reg_axiom CC ISA initial_caps n t"
-    and "idc_write_axiom' CC ISA initial_caps n t"
+    and "idc_write_axiom'' CC ISA initial_caps n t"
     and "disjnt (PCC ISA) (IDC ISA)"
-  shows "idc_write_axiom CC ISA initial_caps n t"
-proof (unfold idc_write_axiom_def, intro allI impI)
+  shows "idc_write_axiom' CC ISA initial_caps n t"
+proof (unfold idc_write_axiom'_def, intro allI impI)
   fix i c idc
   assume *: "i < n \<and> writes_to_reg_at_idx i t = Some idc \<and> idc \<in> IDC ISA \<and> c \<in> writes_reg_caps_at_idx CC ISA i t"
   then have c: "cap_derivable CC (initial_caps \<union> available_caps CC ISA i t) c \<or> is_invoked_data_cap_at_idx CC ISA c t i"
@@ -33,15 +149,15 @@ proof (unfold idc_write_axiom_def, intro allI impI)
   then show "cap_derivable CC (initial_caps \<union> available_caps CC ISA i t) c \<or>
              (\<exists>cc. trace_writes_pcc_caps ISA t = {cc} \<and> (is_tagged_method CC cc \<longrightarrow> cc \<in> trace_invokes_code_caps ISA t))"
     using assms *
-    by (auto simp: idc_write_axiom'_def)
+    by (auto simp: idc_write_axiom''_def)
 qed
 
 lemma no_invoked_data_caps_idc_write_axiom:
   assumes "store_cap_reg_axiom CC ISA initial_caps n t"
     and "trace_invokes_data_caps ISA t = {}"
     and "disjnt (PCC ISA) (IDC ISA)"
-  shows "idc_write_axiom CC ISA initial_caps n t"
-proof (unfold idc_write_axiom_def, intro allI impI)
+  shows "idc_write_axiom' CC ISA initial_caps n t"
+proof (unfold idc_write_axiom'_def, intro allI impI)
   fix i c idc
   assume *: "i < n \<and> writes_to_reg_at_idx i t = Some idc \<and> idc \<in> IDC ISA \<and> c \<in> writes_reg_caps_at_idx CC ISA i t"
   have "\<not>is_invoked_data_cap_at_idx CC ISA c t i"
@@ -160,9 +276,9 @@ lemma idc_write_axiom_from_idc_write_axiom':
   assumes "idc_write_axiom_from s t"
     and "invoked_code_caps \<subseteq> trace_invokes_code_caps ISA (instr_trace instr t)"
     and "trace_invokes_data_caps ISA (instr_trace instr t) \<subseteq> invoked_data_caps"
-  shows "idc_write_axiom' CC ISA UNKNOWN_caps n (instr_trace instr t)"
+  shows "idc_write_axiom'' CC ISA UNKNOWN_caps n (instr_trace instr t)"
   using assms
-  apply (auto simp: idc_write_axiom_from_def idc_write_axiom'_def trace_writes_pcc_caps_pcc_regvals_of_trace
+  apply (auto simp: idc_write_axiom_from_def idc_write_axiom''_def trace_writes_pcc_caps_pcc_regvals_of_trace
               dest!: is_invoked_data_cap_at_idx_in_trace_invokes_data_caps)
   subgoal for i c
     by (erule allE[where x = c]) (use nth_mem[of i t] in auto)

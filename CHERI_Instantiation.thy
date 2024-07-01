@@ -1800,6 +1800,9 @@ definition R_name :: "int \<Rightarrow> string set" where
       if n = 31 then {''RSP_EL0'', ''SP_EL0'', ''SP_EL1'', ''SP_EL2'', ''SP_EL3''} else
       {})"
 
+definition trace_reads_caps_from_gpr :: "int \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "trace_reads_caps_from_gpr n t \<equiv> {c. \<exists>r \<in> R_name n. E_read_reg r (Regval_bitvector_129_dec c) \<in> set t}"
+
 definition DDC_names :: "string set" where
   "DDC_names \<equiv> {''DDC_EL0'', ''RDDC_EL0'', ''DDC_EL1'', ''DDC_EL2'', ''DDC_EL3''}"
 
@@ -1837,10 +1840,11 @@ abbreviation "trace_is_indirect_branch t \<equiv> trace_indirect_sentry_type t \
 definition trace_invokes_indirect_sentries :: "register_value trace \<Rightarrow> Capability set" where
   "trace_invokes_indirect_sentries t \<equiv>
      {CapUnseal c' | c'.
-        \<exists>n r sentry_type.
-         trace_invokes_indirect_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
-         E_read_reg r (Regval_bitvector_129_dec c') \<in> set t \<and>
+        \<exists>n sentry_type.
+         trace_invokes_indirect_cap_from_reg t = Some n \<and>
+         c' \<in> trace_reads_caps_from_gpr n t \<and>
          CapIsTagSet c' \<and> CapIsSealed c' \<and>
+         cap_permits CAP_PERM_LOAD_CAP c' \<and>
          trace_indirect_sentry_type t = Some sentry_type \<and>
          get_indirect_sentry_type_method CC c' = Some sentry_type}"
 
@@ -1965,6 +1969,12 @@ definition trace_raises_ex :: "(register_value, instr) isa_trace \<Rightarrow> b
         Instr_Trace instr \<Rightarrow> runTrace (trace t) (instr_sem instr) = Some (Exception (Error_ExceptionTaken ()))
       | Fetch_Trace \<Rightarrow> runTrace (trace t) instr_fetch = Some (Exception (Error_ExceptionTaken ())))"
 
+definition trace_has_assertion_failure :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
+  "trace_has_assertion_failure t \<equiv>
+     (case trace_kind t of
+        Instr_Trace instr \<Rightarrow> \<exists>msg. runTrace (trace t) (instr_sem instr) = Some (Fail msg)
+      | Fetch_Trace \<Rightarrow> \<exists>msg. runTrace (trace t) instr_fetch = Some (Fail msg))"
+
 text \<open>Over-approximation of allowed exception targets
 TODO: Restrict to valid branch targets of KCC caps with (small) offset?\<close>
 
@@ -2051,6 +2061,17 @@ definition trace_invokes_direct_mem_sentries :: "register_value trace \<Rightarr
   "trace_invokes_direct_mem_sentries t \<equiv>
      clear_lsb ` \<Union>(mem_branch_caps ` original_direct_mem_sentries_invoked_in_trace t)"
 
+definition original_direct_reg_sentries_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
+  "original_direct_reg_sentries_invoked_in_trace t \<equiv>
+     {c. \<exists>n. trace_invokes_code_cap_from_reg t = Some n \<and>
+             trace_invokes_data_cap_from_reg t = None \<and>
+             c \<in> trace_reads_caps_from_gpr n t \<and>
+             CapIsTagSet c \<and> is_sentry c}"
+
+definition trace_invokes_direct_reg_sentries :: "register_value trace \<Rightarrow> Capability set" where
+  "trace_invokes_direct_reg_sentries t \<equiv>
+     clear_lsb ` \<Union>(branch_caps ` CapUnseal ` original_direct_reg_sentries_invoked_in_trace t)"
+
 definition original_code_caps_indirectly_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
   "original_code_caps_indirectly_invoked_in_trace t \<equiv>
      {c. \<exists>rk vaddr paddr sz bytes tag sentry.
@@ -2096,12 +2117,19 @@ definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightar
           trace_invokes_indirect_sentries t
       | None \<Rightarrow> {})"
 
+definition original_cap_pairs_invoked_in_trace :: "register_value trace \<Rightarrow> (Capability * Capability) set" where
+  "original_cap_pairs_invoked_in_trace t \<equiv>
+     {(cc, cd). \<exists>nc nd.
+        trace_invokes_code_cap_from_reg t = Some nc \<and>
+        trace_invokes_data_cap_from_reg t = Some nd \<and>
+        cc \<in> trace_reads_caps_from_gpr nc t \<and>
+        cd \<in> trace_reads_caps_from_gpr nd t \<and>
+        invokable CC cc cd}"
+
 definition original_reg_code_caps_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
   "original_reg_code_caps_invoked_in_trace t =
-     {c. \<exists>n r.
-          trace_invokes_code_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
-          E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
-          CapIsTagSet c \<and> CapIsSealed c}"
+     {cc. \<exists>cd. (cc, cd) \<in> original_cap_pairs_invoked_in_trace t}
+     \<union> original_direct_reg_sentries_invoked_in_trace t"
 
 definition trace_invokes_reg_code_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_invokes_reg_code_caps t \<equiv> clear_lsb ` \<Union>(branch_caps ` CapUnseal ` original_reg_code_caps_invoked_in_trace t)"
@@ -2126,10 +2154,7 @@ lemma instr_invokes_code_caps_lsb_clear:
 
 definition instr_invokes_data_caps :: "instr \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
   "instr_invokes_data_caps instr t =
-     {CapUnseal c | c. \<exists>n r.
-          trace_invokes_data_cap_from_reg t = Some n \<and> r \<in> R_name n \<and>
-          E_read_reg r (Regval_bitvector_129_dec c) \<in> set t \<and>
-          CapIsTagSet c \<and> CapIsSealed c}
+     {CapUnseal cd | cd. \<exists>cc. (cc, cd) \<in> original_cap_pairs_invoked_in_trace t}
      \<union> trace_indirectly_invokes_data_caps t"
 
 definition "ISA \<equiv>
@@ -2147,6 +2172,7 @@ definition "ISA \<equiv>
    isa.indirect_pair_sentry_code_offset = 16,
    isa.indirect_pair_sentry_data_offset = 0,
    isa.trace_raises_ex = trace_raises_ex,
+   isa.trace_has_assertion_failure = trace_has_assertion_failure,
    isa.exception_targets = exception_targets,
    read_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''},
    write_privileged_regs = {''CDBGDTR_EL0'', ''CDLR_EL0'', ''VBAR_EL1'', ''VBAR_EL2'', ''VBAR_EL3''} \<union> translation_control_regs,
