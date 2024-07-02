@@ -2050,11 +2050,11 @@ definition mem_data_caps :: "Capability \<Rightarrow> Capability set" where
 
 definition original_direct_mem_sentries_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
   "original_direct_mem_sentries_invoked_in_trace t \<equiv>
-     {c. \<exists>e \<in> set t. \<exists>addr sz.
+     {c. \<exists>e \<in> set t. \<exists>addr.
          trace_is_indirect_branch t \<and>
          trace_invokes_indirect_sentries t = {} \<and>
          trace_has_cap_load_auth t \<and>
-         reads_mem_cap CC e = Some (addr, sz, c) \<and>
+         reads_mem_cap CC e = Some (addr, nat CAPABILITY_DBYTES, c) \<and>
          CapIsTagSet c \<and> is_sentry c}"
 
 definition trace_invokes_direct_mem_sentries :: "register_value trace \<Rightarrow> Capability set" where
@@ -2074,14 +2074,14 @@ definition trace_invokes_direct_reg_sentries :: "register_value trace \<Rightarr
 
 definition original_code_caps_indirectly_invoked_in_trace :: "register_value trace \<Rightarrow> Capability set" where
   "original_code_caps_indirectly_invoked_in_trace t \<equiv>
-     {c. \<exists>rk vaddr paddr sz bytes tag sentry.
+     {c. \<exists>rk vaddr paddr sz bytes sentry.
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> trace_invokes_indirect_sentries t \<and>
-            \<comment> \<open>TODO: Do we need this: set (address_range vaddr sz) \<subseteq> get_mem_region CC sentry \<and>\<close>
+            set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
             (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)) \<and>
             translate_address vaddr = Some paddr \<and>
-            E_read_memt rk paddr sz (bytes, tag) \<in> set t \<and>
-            cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c}"
+            E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>
+            cap_of_mem_bytes bytes B1 = Some c \<and> CapIsTagSet c}"
 
 definition trace_indirectly_invokes_code_caps :: "register_value trace \<Rightarrow> Capability set" where
   "trace_indirectly_invokes_code_caps t \<equiv>
@@ -2105,12 +2105,13 @@ definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightar
   "trace_indirectly_invokes_data_caps t \<equiv>
      (case trace_indirect_sentry_type t of
         Some Points_to_Pair \<Rightarrow>
-          {c. \<exists>rk paddr sz bytes tag sentry c'.
+          {c. \<exists>rk paddr sz bytes sentry c'.
                  sz = nat CAPABILITY_DBYTES \<and>
                  sentry \<in> trace_invokes_indirect_sentries t \<and>
+                 set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue sentry))) 16) \<subseteq> get_mem_region CC sentry \<and>
                  translate_address (unat (CapGetValue sentry)) = Some paddr \<and>
-                 E_read_memt rk paddr sz (bytes, tag) \<in> set t \<and>
-                 cap_of_mem_bytes bytes tag = Some c' \<and> CapIsTagSet c' \<and>
+                 E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>
+                 cap_of_mem_bytes bytes B1 = Some c' \<and> CapIsTagSet c' \<and>
                  c \<in> mem_data_caps c'}
       | Some Points_to_PCC \<Rightarrow>
           \<comment> \<open>Indirect sentry becomes data capability\<close>
