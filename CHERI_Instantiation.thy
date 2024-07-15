@@ -1844,7 +1844,6 @@ definition trace_invokes_indirect_sentries :: "register_value trace \<Rightarrow
          trace_invokes_indirect_cap_from_reg t = Some n \<and>
          c' \<in> trace_reads_caps_from_gpr n t \<and>
          CapIsTagSet c' \<and> CapIsSealed c' \<and>
-         cap_permits CAP_PERM_LOAD_CAP c' \<and>
          trace_indirect_sentry_type t = Some sentry_type \<and>
          get_indirect_sentry_type_method CC c' = Some sentry_type}"
 
@@ -2077,6 +2076,7 @@ definition original_code_caps_indirectly_invoked_in_trace :: "register_value tra
      {c. \<exists>rk vaddr paddr sz bytes sentry.
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> trace_invokes_indirect_sentries t \<and>
+            trace_has_cap_load_auth t \<and>
             set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
             (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)) \<and>
             translate_address vaddr = Some paddr \<and>
@@ -2108,6 +2108,7 @@ definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightar
           {c. \<exists>rk paddr sz bytes sentry c'.
                  sz = nat CAPABILITY_DBYTES \<and>
                  sentry \<in> trace_invokes_indirect_sentries t \<and>
+                 trace_has_cap_load_auth t \<and>
                  set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue sentry))) 16) \<subseteq> get_mem_region CC sentry \<and>
                  translate_address (unat (CapGetValue sentry)) = Some paddr \<and>
                  E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>

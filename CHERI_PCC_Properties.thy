@@ -22,11 +22,13 @@ definition no_mem_writes_in_trace where
      (\<forall>wk addr sz v r. E_write_mem wk addr sz v r \<notin> set t) \<and>
      (\<forall>wk addr sz v tag r. E_write_memt wk addr sz v tag r \<notin> set t)"
 
+(* Includes untagged capabilities *)
 definition initial_mem_cap_vaddr_loads_of_trace where
   "initial_mem_cap_vaddr_loads_of_trace t \<equiv>
-     {(vaddr, c) | vaddr c paddr i.
+     {(vaddr, c) | vaddr c wk paddr bytes tag i.
         i < length t \<and>
-        reads_mem_cap CC (t ! i) = Some (vaddr, 16, c) \<and>
+        t ! i = E_read_memt wk paddr 16 (bytes, tag) \<and>
+        cap_of_mem_bytes bytes tag = Some c \<and>
         translate_address vaddr = Some paddr \<and>
         no_mem_writes_in_trace (take i t)}"
 
@@ -53,6 +55,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "\<not>hasException t (instr_sem opcode)"
     and "\<not>hasFailure t (instr_sem opcode)" \<comment> \<open>ignoring assertion failures\<close>
     and "translation_assms_trace t"
+    and "cap_inv_trace t"
     \<comment> \<open>TODO: Add assumption that (at least) reads from GPRs behave sequentially, i.e. reading
         the same register more than once in a row gives the same value.  Needed in particular for
         the sealed pair invocation case when the two given source registers are the same.\<close>
@@ -92,11 +95,10 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "trace_reads_initial_caps_from_gpr 29 t = {c}"
     and "CapIsTagSet c"
     and "CapGetObjectType c = CAP_SEAL_TYPE_LB"
-    and "cap_permits CAP_PERM_LOAD_CAP c"
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
     and "initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c')}"
     and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
-    and "instr_invokes_code_caps opcode t = mem_branch_caps (clear_lsb c')"
+    and "instr_invokes_code_caps opcode t = (if CapIsTagSet c' \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb c') else {})"
     and "instr_invokes_data_caps opcode t = {CapUnseal c}"
   | (IndirectPointsToPair) n c cc cd
     where "instr_invokes_indirect_cap_from_reg instr = Some n"
@@ -104,11 +106,10 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "trace_reads_initial_caps_from_gpr n t = {c}"
     and "CapIsTagSet c"
     and "CapGetObjectType c = CAP_SEAL_TYPE_LPB"
-    and "cap_permits CAP_PERM_LOAD_CAP c"
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
     and "initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue c), cd), (unat (CapGetValue c + 16), cc)}"
-    and "instr_invokes_code_caps opcode t = mem_branch_caps (clear_lsb cc)"
-    and "instr_invokes_code_caps opcode t = mem_data_caps cd"
+    and "instr_invokes_code_caps opcode t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb cc) else {})"
+    and "instr_invokes_data_caps opcode t = (if CapIsTagSet cd \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_data_caps cd else {})"
     and "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c))) 32) \<subseteq> get_mem_region CC c"
   | (NoInvocation) "instr_invokes_code_caps opcode t = {}"
     and "instr_invokes_data_caps opcode t = {}"
