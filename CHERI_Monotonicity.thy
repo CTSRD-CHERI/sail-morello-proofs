@@ -179,8 +179,8 @@ definition "instr_state_assms _ s \<equiv> fetch_state_assms s \<and> pcc_tagged
 
 text \<open>TODO: Show that the trace assumptions (apart from the translation and UNKNOWN cap ones) are
   implied by the state assumptions and reduce the following to the remaining trace assumptions.\<close>
-abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms tbi_enabled translate_address is_translation_event translation_assms UNKNOWN_caps t instr \<and> wellformed_trace t"
-abbreviation "fetch_trace_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms tbi_enabled translate_address is_translation_event translation_assms UNKNOWN_caps t \<and> wellformed_trace t"
+abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms translation_el s1_enabled tbi_enabled in_host translate_address is_translation_event translation_assms UNKNOWN_caps t instr \<and> wellformed_trace t"
+abbreviation "fetch_trace_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms translation_el s1_enabled tbi_enabled in_host translate_address is_translation_event translation_assms UNKNOWN_caps t \<and> wellformed_trace t"
 
 abbreviation "s_translate_address addr acctype s \<equiv> translate_address addr"
 
