@@ -23,6 +23,14 @@ definition no_mem_writes_in_trace where
      (\<forall>wk addr sz v tag r. E_write_memt wk addr sz v tag r \<notin> set t)"
 
 (* Includes untagged capabilities *)
+definition initial_mem_cap_loads_of_trace where
+  "initial_mem_cap_loads_of_trace t \<equiv>
+     {(paddr, c) | paddr c wk bytes tag i.
+        i < length t \<and>
+        t ! i = E_read_memt wk paddr 16 (bytes, tag) \<and>
+        cap_of_mem_bytes bytes tag = Some c \<and>
+        no_mem_writes_in_trace (take i t)}"
+
 definition initial_mem_cap_vaddr_loads_of_trace where
   "initial_mem_cap_vaddr_loads_of_trace t \<equiv>
      {(vaddr, c) | vaddr c wk paddr bytes tag i.
@@ -76,7 +84,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "instr_invokes_code_caps opcode t = branch_caps (clear_lsb (CapUnseal c))"
     and "instr_invokes_data_caps opcode t = {}"
     and "instr_invokes_indirect_caps opcode t = {}"
-  | (DirectMemSentry) n c c' vaddr sentry_type
+  | (DirectMemSentry) n c c' paddr vaddr sentry_type
       \<comment> \<open>Using an indirect branching instruction with a register other than 29, or a capability
       that isn't an indirect sentry, can still load a direct sentry from memory and invoke it\<close>
     where "instr_load_auth instr = Some (RegAuth n)"
@@ -84,30 +92,34 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "instr_indirect_sentry_type instr = Some sentry_type"
     and "\<not>CapIsSealed c"
     and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
-    and "initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c')}"
+    and "translate_address vaddr = Some paddr"
+    and "(paddr, c') \<in> initial_mem_cap_loads_of_trace t"
     and "CapGetObjectType c' = CAP_SEAL_TYPE_RB"
     and "instr_invokes_code_caps opcode t = branch_caps (clear_lsb (CapUnseal c'))"
     and "instr_invokes_data_caps opcode t = {}"
     and "instr_invokes_indirect_caps opcode t = {}"
-  | (IndirectPointsToPCC) c c' vaddr
+  | (IndirectPointsToPCC) c c' paddr vaddr
     where "instr_invokes_indirect_cap_from_reg instr = Some 29"
     and "instr_indirect_sentry_type instr = Some Points_to_PCC"
     and "trace_reads_initial_caps_from_gpr 29 t = {c}"
     and "CapIsTagSet c"
     and "CapGetObjectType c = CAP_SEAL_TYPE_LB"
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
-    and "initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c')}"
+    and "translate_address vaddr = Some paddr"
+    and "initial_mem_cap_loads_of_trace t = {(paddr, c')}"
     and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
     and "instr_invokes_code_caps opcode t = (if CapIsTagSet c' \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb c') else {})"
     and "instr_invokes_data_caps opcode t = {CapUnseal c}"
-  | (IndirectPointsToPair) n c cc cd
+  | (IndirectPointsToPair) n c cc cd paddr_cc paddr_cd
     where "instr_invokes_indirect_cap_from_reg instr = Some n"
     and "instr_indirect_sentry_type instr = Some Points_to_Pair"
     and "trace_reads_initial_caps_from_gpr n t = {c}"
     and "CapIsTagSet c"
     and "CapGetObjectType c = CAP_SEAL_TYPE_LPB"
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
-    and "initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue c), cd), (unat (CapGetValue c + 16), cc)}"
+    and "translate_address (unat (CapGetValue c)) = Some paddr_cd"
+    and "translate_address (unat (CapGetValue c + 16)) = Some paddr_cc"
+    and "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
     and "instr_invokes_code_caps opcode t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb cc) else {})"
     and "instr_invokes_data_caps opcode t = (if CapIsTagSet cd \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_data_caps cd else {})"
     and "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c))) 32) \<subseteq> get_mem_region CC c"

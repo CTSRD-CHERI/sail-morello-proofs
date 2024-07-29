@@ -165,6 +165,22 @@ lemma Run_VAToCapability_iff:
   unfolding VAToCapability_def
   by auto
 
+lemma VACheckAddress_CapIsTagSet:
+  assumes "Run (VACheckAddress \<lparr>VirtualAddress_vatype = VA_Capability, VirtualAddress_base = c, VirtualAddress_offset = offset\<rparr> addr64 sz requested_perms acctype) t u"
+  shows "CapIsTagSet c"
+  using assms
+  unfolding VACheckAddress_def CheckCapability_def
+  by (auto simp: VAIsBits64_def VAToCapability_def elim!: Run_bindE)
+
+lemmas VACheckAddress_128th[simp] = VACheckAddress_CapIsTagSet[unfolded CapIsTagSet_128th]
+
+lemma CapIsTagSet_if_CapUnseal:
+  "CapIsTagSet (if b then CapUnseal c else c) \<longleftrightarrow> CapIsTagSet c"
+  by (cases b) auto
+
+lemmas VACheckAddress_if_CapUnseal_128th[simp] =
+  VACheckAddress_CapIsTagSet[THEN CapIsTagSet_if_CapUnseal[THEN iffD1], unfolded CapIsTagSet_128th]
+
 context Morello_ISA
 begin
 
@@ -937,6 +953,14 @@ lemma Run_VAddress_eq_CapGetValue:
   using assms
   by (auto simp: VAddress_def VAIsBits64_def elim!: Run_bindE)
 
+lemma Run_VAddress_add_vec_int_eq:
+  assumes "Run (VAddress va) t addr"
+    and "VirtualAddress_vatype va = VA_Capability"
+    and "addr = CapGetValue (VirtualAddress_base va) \<longrightarrow> add_vec_int (CapGetValue (VirtualAddress_base va)) n = m"
+  shows "add_vec_int addr n = m"
+  using assms
+  by (auto simp: Run_VAddress_eq_CapGetValue)
+
 (* TODO: Move *)
 lemma CapIsRangeInBounds_in_get_mem_region:
   assumes "Run (CapIsRangeInBounds c addr sz) t True"
@@ -1525,6 +1549,40 @@ proof (intro enabled_branch_targetI impI ballI, elim conjE)
     by (intro enabled_pcc_run_imp) (auto simp: enabled_pcc_def)
 qed
 
+definition "is_original_reg_load_auth_cap c \<equiv> (\<exists>c' \<in> original_reg_load_auth_caps. c \<in> {c', CapUnseal c'})"
+
+lemma VAFromCapability_elim:
+  assumes "Run (VAFromCapability c) t va"
+  obtains offset where "va = \<lparr>VirtualAddress_vatype = VA_Capability, VirtualAddress_base = c, VirtualAddress_offset = offset\<rparr>"
+proof -
+  from assms obtain va' where "va = va'\<lparr>VirtualAddress_vatype := VA_Capability, VirtualAddress_base := c\<rparr>"
+    unfolding VAFromCapability_def
+    by auto
+  then show ?thesis
+    by (cases va') (auto intro: that)
+qed
+
+lemma VAFromCapability_is_original_reg_load_auth_cap[derivable_capsE]:
+  assumes "Run (VAFromCapability c) t va"
+    and "\<And>offset. va = \<lparr>VirtualAddress_vatype = VA_Capability, VirtualAddress_base = c, VirtualAddress_offset = offset\<rparr> \<longrightarrow> is_original_reg_load_auth_cap c"
+  shows "is_original_reg_load_auth_cap (VirtualAddress_base va)"
+  using assms
+  by (auto elim: VAFromCapability_elim)
+
+lemma is_original_reg_load_auth_cap_if_CapUnseal[derivable_capsI]:
+  assumes "c \<in> original_reg_load_auth_caps"
+  shows "is_original_reg_load_auth_cap (if b then CapUnseal c else c)"
+  using assms
+  by (auto simp: is_original_reg_load_auth_cap_def)
+
+lemma is_original_reg_load_auth_cap_itself:
+  assumes "c \<in> original_reg_load_auth_caps"
+  shows "is_original_reg_load_auth_cap c"
+  by (use assms in \<open>auto simp: is_original_reg_load_auth_cap_def\<close>)
+
+lemmas CSP_or_C_read_is_original_reg_load_auth_cap[derivable_capsE] =
+  CSP_or_C_read_original_reg_load_auth_caps[THEN is_original_reg_load_auth_cap_itself]
+
 lemma MemC_read_is_invoked_mem_code_cap:
   assumes "Run (MemC_read addr acctype) t c"
     and "translation_assms_trace t"
@@ -1532,7 +1590,8 @@ lemma MemC_read_is_invoked_mem_code_cap:
     and "indirect_sentry_type = Some sentry_type"
     and "CapIsTagSet c"
     and "invokes_indirect_caps \<and> valid_address acctype (unat addr) \<longrightarrow> is_invoked_indirect_sentry_for_addr sentry sentry_type addr (indirect_code_cap_offset sentry_type) s"
-    and "\<not>invokes_indirect_caps \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB"
+    and "\<not>invokes_indirect_caps \<longrightarrow> CapGetObjectType c = CAP_SEAL_TYPE_RB \<and>
+            (sentry_type = Points_to_Pair \<longrightarrow> is_original_reg_load_auth_cap sentry \<and> addr = CapGetValue sentry + 16)"
   shows "is_invoked_mem_code_cap sentry indirect_sentry_type c (run s t)"
 proof -
   have valid: "valid_address acctype (unat addr)"
@@ -1571,7 +1630,7 @@ proof -
       using False assms(4,5,7)
       using mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_direct_mem_sentry[OF loaded assms(3,5)]
       unfolding is_invoked_mem_code_cap_def is_invoked_direct_mem_sentry_def
-      by (auto simp: is_sentry_def clear_lsb_image_mem_branch_caps_eq)
+      by (cases sentry_type; fastforce simp: is_sentry_def clear_lsb_image_mem_branch_caps_eq is_original_reg_load_auth_cap_def CapUnseal_get_bounds_helpers_eq)
   qed
 qed
 
