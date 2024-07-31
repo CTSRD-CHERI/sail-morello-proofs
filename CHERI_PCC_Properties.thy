@@ -6,8 +6,20 @@ theory CHERI_PCC_Properties
     Trace_Properties
 begin
 
+(* In the case of an invocation, PSTATE.C64 will be set to the LSB of the invoked code capability *)
+
+definition pstate_c64_writes :: "register_value trace \<Rightarrow> bool set" where
+  "pstate_c64_writes t \<equiv> {test_bit (ProcState_C64 ps) 0 | ps. E_write_reg ''PSTATE'' (Regval_ProcState ps) \<in> set t}"
+
 context Morello_ISA
 begin
+
+definition invocation_writes_pstate_c64 :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
+  "invocation_writes_pstate_c64 t \<equiv>
+     (\<forall>c' \<in> trace_invokes_code_caps ISA t \<inter> trace_writes_pcc_caps ISA t.
+       \<exists>c. original_code_caps_invoked_in_trace (trace t) = {c} \<and>
+            c' \<in> clear_lsb ` (branch_caps (CapUnseal c) \<union> mem_branch_caps c) \<and>
+            pstate_c64_writes (trace t) = {lsb c})"
 
 (* Helper functions for getting initial values of register/memory appearing in a trace
    before they get overwritten *)
@@ -40,6 +52,78 @@ definition initial_mem_cap_vaddr_loads_of_trace where
         translate_address vaddr = Some paddr \<and>
         no_mem_writes_in_trace (take i t)}"
 
+abbreviation instr_trace_has_invocation where
+  "instr_trace_has_invocation opcode t \<equiv> trace_invokes_code_cap_from_reg t \<noteq> None \<or> trace_invokes_indirect_cap_from_reg t \<noteq> None \<or> trace_invokes_data_cap_from_reg t \<noteq> None"
+
+definition branch_instr_run_has_expected_gpr_reads where
+  "branch_instr_run_has_expected_gpr_reads t \<equiv>
+     (\<forall>n. trace_invokes_code_cap_from_reg t = Some n \<or> trace_invokes_data_cap_from_reg t = Some n \<or>
+          trace_invokes_indirect_cap_from_reg t = Some n \<or> trace_load_auths t = Some (RegAuth n) \<longrightarrow>
+           (\<exists>c. trace_reads_caps_from_gpr n t = {c} \<and> trace_reads_initial_caps_from_gpr n t = {c}))"
+
+definition branch_instr_run_has_expected_pstate_writes where
+  "branch_instr_run_has_expected_pstate_writes opcode t \<equiv>
+     (\<forall>cc' \<in> instr_invokes_code_caps opcode t.
+         CapIsTagSet cc' \<longrightarrow>
+           (\<exists>cc \<in> original_code_caps_invoked_in_trace t. pstate_c64_writes t = {lsb cc}))"
+
+definition branch_instr_run_performs_expected_invocation where
+  "branch_instr_run_performs_expected_invocation opcode t \<equiv>
+     (\<exists>cc. trace_writes_pcc_caps ISA (instr_trace opcode t) = {cc} \<and>
+           (instr_trace_has_invocation opcode t \<and> CapIsTagSet cc \<longrightarrow> cc \<in> instr_invokes_code_caps opcode t)) \<and>
+     (instr_invokes_data_caps opcode t = {} \<or>
+        (\<exists>cd. trace_writes_idc_caps ISA (instr_trace opcode t) = {cd} \<and> cd \<in> instr_invokes_data_caps opcode t))"
+
+definition trace_has_reg_load_auth_for_addr where
+  "trace_has_reg_load_auth_for_addr t auth vaddr sz \<equiv>
+     (\<exists>n. trace_load_auths t = Some (RegAuth n) \<and>
+          auth \<in> trace_reads_caps_from_gpr n t \<and>
+          CapIsTagSet auth \<and>
+          set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC auth)"
+
+definition branch_instr_run_has_expected_invocation_loads where
+  "branch_instr_run_has_expected_invocation_loads t \<equiv>
+     (case trace_indirect_sentry_type t of
+        Some Points_to_PCC \<Rightarrow>
+          (\<exists>auth paddr vaddr c.
+              trace_has_reg_load_auth_for_addr t auth vaddr 16 \<and>
+              (get_indirect_sentry_type auth = Some Points_to_PCC \<and> CapUnseal auth \<in> trace_invokes_indirect_sentries t \<or> \<not>CapIsSealed auth) \<and>
+              \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c)} \<and>
+              mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
+              translate_address vaddr = Some paddr \<and>
+              initial_mem_cap_loads_of_trace t = {(paddr, c)} \<and>
+              mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c})
+      | Some Points_to_Pair \<Rightarrow>
+          (\<exists>auth paddr_cc paddr_cd cc cd.
+              trace_has_reg_load_auth_for_addr t auth (unat (CapGetValue auth)) 32 \<and>
+              (get_indirect_sentry_type auth = Some Points_to_Pair \<and> CapUnseal auth \<in> trace_invokes_indirect_sentries t \<or> \<not>CapIsSealed auth) \<and>
+              \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue auth), cd), (unat (CapGetValue auth) + 16, cc)} \<and>
+              mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
+              translate_address (unat (CapGetValue auth)) = Some paddr_cd \<and>
+              translate_address (unat (CapGetValue auth) + 16) = Some paddr_cc \<and>
+              initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)} \<and>
+              mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c} \<and>
+              unat (CapGetValue auth + 16) = unat (CapGetValue auth) + 16 \<and>
+              bounds_address AccType_NORMAL (unat (CapGetValue auth) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue auth)) + 16)
+      | None \<Rightarrow> True)"
+
+definition branch_instr_trace_has_expected_exceptions where
+  "branch_instr_trace_has_expected_exceptions opcode t \<equiv>
+     (\<forall>e. (instr_sem opcode, t, Exception e) \<in> Traces \<longrightarrow>
+          trace_writes_idc_caps ISA (instr_trace opcode t) = {} \<and>
+          is_singleton (trace_writes_pcc_caps ISA (instr_trace opcode t)) \<and>
+          e = Error_ExceptionTaken ())"
+
+definition branch_instr_trace_has_expected_invocations where
+  "branch_instr_trace_has_expected_invocations opcode t \<longleftrightarrow>
+     (Run (instr_sem opcode) t () \<longrightarrow>
+        branch_instr_run_performs_expected_invocation opcode t \<and>
+        branch_instr_run_has_expected_gpr_reads t \<and>
+        branch_instr_run_has_expected_invocation_loads t \<and>
+        branch_instr_run_has_expected_pstate_writes opcode t)
+     \<and>
+     branch_instr_trace_has_expected_exceptions opcode t"
+
 (* "Other" instructions not denoted by an instruction AST node definitely won't perform an invocation *)
 lemma instr_of_trace_None_instr_invokes_no_caps:
   assumes "instr_of_trace t = None"
@@ -56,10 +140,26 @@ lemma mem_cap_loads_of_ev_reads_mem_cap:
      (auto simp: reads_mem_cap_def no_cap_load_translation_events bind_eq_Some_conv cap_of_mem_bytes_def nth_ucast
            dest: test_bit_len split: option.splits if_splits)
 
+lemma trace_has_cap_load_auth_iff_load_cap_perm:
+  assumes "trace_load_auths t = Some (RegAuth n)"
+    and "trace_reads_caps_from_gpr n t = {c}"
+  shows "trace_has_cap_load_auth t \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
+  using assms
+  by (fastforce simp: trace_has_cap_load_auth_def load_auth_caps_of_trace_def trace_reads_caps_from_gpr_def set_eq_iff)
+
+lemma hasTrace_Run:
+  assumes "hasTrace t m"
+    and "\<not>hasException t m"
+    and "\<not>hasFailure t m"
+  shows "\<exists>a. Run m t a"
+  using assms
+  by (auto simp add: hasTrace_def hasException_def hasFailure_def final_def
+           simp flip: runTrace_iff_Traces split: option.splits monad.splits)
+
 (* Characterisation of the different cases of invocation for a given instruction trace *)
 lemma hasTrace_instr_sem_invocation_cases:
   assumes "hasTrace t (instr_sem opcode)"
-    and "instr_of_trace t = Some instr" \<comment> \<open>instruction AST, e.g. @{verbatim Instr_BRS_C_C}, not opcode\<close>
+    and instr: "instr_of_trace t = Some instr" \<comment> \<open>instruction AST, e.g. @{verbatim Instr_BRS_C_C}, not opcode\<close>
     and "\<not>hasException t (instr_sem opcode)"
     and "\<not>hasFailure t (instr_sem opcode)" \<comment> \<open>ignoring assertion failures\<close>
     and "translation_assms_trace t"
@@ -131,25 +231,346 @@ lemma hasTrace_instr_sem_invocation_cases:
   | (NoInvocation) "instr_invokes_code_caps opcode t = {}"
     and "instr_invokes_data_caps opcode t = {}"
     and "instr_invokes_indirect_caps opcode t = {}"
-  oops
+proof (use assms(2) in
+       \<open>cases rule: instr_of_trace_invocation_cases[where opcode = opcode,
+          case_names SealedPair' DirectRegSentry' DirectMemSentry' IndirectPointsToPCC' IndirectPointsToPair' NoInvocation']\<close>)
+  case (SealedPair' nc nd)
+  have *: "branch_instr_trace_has_expected_invocations opcode t"
+    sorry
+  obtain cc where cc: "trace_reads_caps_from_gpr nc t = {cc}" "trace_reads_initial_caps_from_gpr nc t = {cc}"
+    using * SealedPair' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
+    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_code_cap_from_reg_def)
+  obtain cd where cd: "trace_reads_caps_from_gpr nd t = {cd}" "trace_reads_initial_caps_from_gpr nd t = {cd}"
+    using * SealedPair' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
+    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_data_cap_from_reg_def)
+  show thesis
+  proof (cases "invokable CC cc cd")
+    case True
+    then show ?thesis
+      using SealedPair' cc cd
+      by (intro SealedPair[of nc nd cc cd])
+         (auto simp add: image_UN clear_lsb_image_branch_caps_eq)+
+  next
+    case False
+    then show ?thesis
+      using SealedPair' cc cd
+      by (intro NoInvocation) auto
+  qed
+next
+  case (DirectRegSentry' n)
+  have *: "branch_instr_trace_has_expected_invocations opcode t"
+    sorry
+  obtain c where c: "trace_reads_caps_from_gpr n t = {c}" "trace_reads_initial_caps_from_gpr n t = {c}"
+    using * DirectRegSentry' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
+    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_code_cap_from_reg_def)
+  show ?thesis
+  proof (cases "CapIsTagSet c \<and> is_sentry c")
+    case True
+    then show ?thesis
+      using DirectRegSentry' c
+      by (intro DirectRegSentry[of n c])
+         (auto simp: is_sentry_def image_UN clear_lsb_image_branch_caps_eq)
+  next
+    case False
+    then show ?thesis
+      using DirectRegSentry' c
+      by (intro NoInvocation) auto
+  qed
+next
+  case (DirectMemSentry' sentry_type)
+  obtain n where n: "instr_load_auth instr = Some (RegAuth n)"
+    by (use \<open>instr_indirect_sentry_type instr = Some sentry_type\<close> in \<open>auto elim!: instr_indirect_sentry_type.elims\<close>)
+  then have [simp]: "trace_indirect_sentry_type t = Some sentry_type"
+    and [simp]: "trace_load_auths t = Some (RegAuth n)"
+    using DirectMemSentry' instr
+    by (auto simp: trace_indirect_sentry_type_def trace_load_auths_def)
+  have *: "branch_instr_trace_has_expected_invocations opcode t"
+    sorry
+  then have **: "branch_instr_run_has_expected_invocation_loads t"
+    using hasTrace_Run[OF assms(1,3,4)]
+    by (auto simp: branch_instr_trace_has_expected_invocations_def)
+  obtain c where c: "trace_reads_caps_from_gpr n t = {c}" "trace_reads_initial_caps_from_gpr n t = {c}"
+                    "CapIsTagSet c" "\<not>CapIsSealed c"
+    using * n DirectMemSentry'(9) hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
+    by (cases sentry_type)
+       (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_invocation_loads_def
+                   trace_has_reg_load_auth_for_addr_def branch_instr_run_has_expected_gpr_reads_def
+                   instr_invokes_indirect_caps_def)
+  then have [simp]: "load_auth_caps_of_trace t = {c}"
+    by (fastforce simp add: load_auth_caps_of_trace_def trace_reads_caps_from_gpr_def set_eq_iff)
+  show thesis
+  proof (cases "instr_invokes_code_caps opcode t = {}")
+    case True
+    then show thesis
+      using DirectMemSentry'
+      by (intro NoInvocation) auto
+  next
+    case False
+    show thesis
+    proof (cases sentry_type)
+      case Points_to_PCC
+      then obtain cc vaddr paddr where paddr_cc: "initial_mem_cap_loads_of_trace t = {(paddr, cc)}"
+        and vaddr: "translate_address vaddr = Some paddr"
+        and bounds: "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
+        using ** n c
+        by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def)
+      then have cap_loads: "mem_cap_loads_of_trace t = (if CapIsTagSet cc then {(paddr, cc)} else {})"
+        using Points_to_PCC **
+        by (intro set_eqI; simp add: branch_instr_run_has_expected_invocation_loads_def; fastforce)
+      have original_code_caps: "original_code_caps_invoked_in_trace t = {cc. \<exists>paddr. (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> is_sentry cc}"
+        using DirectMemSentry'(6) Points_to_PCC
+        by (auto simp: mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap reads_mem_cap_Some_iff)
+      then have cc: "CapIsTagSet cc" "CapGetObjectType cc = CAP_SEAL_TYPE_RB"
+        using DirectMemSentry'(7) False
+        unfolding cap_loads
+        by (auto simp: is_sentry_def split: if_splits)
+      show thesis
+        using DirectMemSentry'(1,7-9) n c cc False original_code_caps cap_loads Points_to_PCC paddr_cc vaddr bounds ** instr
+        by (intro DirectMemSentry[of n c sentry_type vaddr paddr cc])
+           (auto simp add: image_UN clear_lsb_image_branch_caps_eq)
+    next
+      case Points_to_Pair
+      then obtain cc cd paddr_cc paddr_cd
+        where initial_loads: "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
+        and paddr_cd: "translate_address (unat (CapGetValue c)) = Some paddr_cd"
+        and paddr_cc: "translate_address (unat (CapGetValue c) + 16) = Some paddr_cc"
+        and bounds: "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c) + 16)) 16) \<subseteq> get_mem_region CC c"
+        using ** c
+        by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def subset_eq)
+      have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
+        sorry
+      have "original_code_caps_invoked_in_trace t = {cc. (paddr_cc, cc) \<in> mem_cap_loads_of_trace t \<and> is_sentry cc}"
+        using initial_loads paddr_cd paddr_cc ** c Points_to_Pair
+        unfolding DirectMemSentry'(6)
+        by (auto simp: mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap reads_mem_cap_Some_iff
+                       branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def set_eq_iff)
+      then have "original_code_caps_invoked_in_trace t = (if CapIsTagSet cc \<and> is_sentry cc then {cc} else {})"
+        using ** Points_to_Pair initial_loads c paddr_cd paddr_cc paddr_distinct
+        by (auto simp: branch_instr_run_has_expected_invocation_loads_def)
+      moreover have "instr_invokes_code_caps opcode t = branch_caps (clear_lsb (CapUnseal cc))"
+        and "CapIsTagSet cc" and "is_sentry cc"
+        using calculation False
+        unfolding DirectMemSentry'(7)
+        by (auto simp: image_UN clear_lsb_image_branch_caps_eq split: if_splits)
+      ultimately show ?thesis
+        using DirectMemSentry'(1,8,9) n c initial_loads paddr_cc bounds
+        by (intro DirectMemSentry[of n c sentry_type "unat (CapGetValue c) + 16" paddr_cc cc])
+           (auto simp: is_sentry_def)
+    qed
+  qed
+next
+  case IndirectPointsToPCC'
+  then have load_auth: "instr_load_auth instr = Some (RegAuth 29)"
+    by (auto elim!: instr_indirect_sentry_type.elims split: if_splits)
+  then have [simp]: "trace_indirect_sentry_type t = Some Points_to_PCC"
+    and [simp]: "trace_load_auths t = Some (RegAuth 29)"
+    using IndirectPointsToPCC' instr
+    by (auto simp: trace_indirect_sentry_type_def trace_load_auths_def)
+  have *: "branch_instr_trace_has_expected_invocations opcode t"
+    sorry
+  then have **: "branch_instr_run_has_expected_invocation_loads t"
+    using hasTrace_Run[OF assms(1,3,4)]
+    by (auto simp: branch_instr_trace_has_expected_invocations_def)
+  obtain c where c: "trace_reads_caps_from_gpr 29 t = {c}" "trace_reads_initial_caps_from_gpr 29 t = {c}"
+                    "CapIsTagSet c" "CapGetObjectType c = CAP_SEAL_TYPE_LB"
+    and indirect_sentries: "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
+    using IndirectPointsToPCC' * hasTrace_Run[OF assms(1,3,4)] instr
+    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def)
+  then have load_cap: "trace_has_cap_load_auth t \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
+    using load_auth \<open>instr_of_trace t = Some instr\<close>
+    by (intro trace_has_cap_load_auth_iff_load_cap_perm) (auto simp: trace_load_auths_def)
+  obtain cc vaddr paddr where paddr_cc: "initial_mem_cap_loads_of_trace t = {(paddr, cc)}"
+    and vaddr: "translate_address vaddr = Some paddr"
+    and authorised: "trace_has_reg_load_auth_for_addr t c vaddr 16"
+    using ** load_auth c
+    by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def)
+  then have cap_loads: "mem_cap_loads_of_trace t = (if CapIsTagSet cc then {(paddr, cc)} else {})"
+    using **
+    by (intro set_eqI; simp add: branch_instr_run_has_expected_invocation_loads_def; fastforce)
+  have "original_code_caps_invoked_in_trace t =
+          {cc. \<exists>vaddr paddr. (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> translate_address vaddr = Some paddr \<and>
+                             cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c vaddr 16}"
+    using c get_mem_region_CapUnseal_eq[of c]
+    unfolding IndirectPointsToPCC'(4)
+    by (auto simp: indirect_sentries load_cap mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap
+                   reads_mem_cap_Some_iff trace_has_reg_load_auth_for_addr_def)
+       blast+
+  then have "original_code_caps_invoked_in_trace t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then {cc} else {})"
+    using vaddr authorised
+    unfolding cap_loads
+    by auto
+  moreover have
+    "instr_invokes_code_caps opcode t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb cc) else {})"
+    using calculation IndirectPointsToPCC'(5)
+    by (auto simp: clear_lsb_image_mem_branch_caps_eq)
+  ultimately show thesis
+    using IndirectPointsToPCC'(1,2,6) c indirect_sentries vaddr paddr_cc authorised
+    by (intro IndirectPointsToPCC[of c vaddr paddr cc])
+       (auto simp: trace_has_reg_load_auth_for_addr_def)
+next
+  case (IndirectPointsToPair' n)
+  have [simp]: "trace_indirect_sentry_type t = Some Points_to_Pair"
+    and [simp]: "trace_load_auths t = Some (RegAuth n)"
+    using \<open>instr_invokes_indirect_cap_from_reg instr = Some n\<close> \<open>instr_indirect_sentry_type instr = Some Points_to_Pair\<close> instr
+    by (auto simp: trace_indirect_sentry_type_def trace_load_auths_def
+             elim!: instr_indirect_sentry_type.elims split: if_splits)
+  have *: "branch_instr_trace_has_expected_invocations opcode t"
+    sorry
+  then have **: "branch_instr_run_has_expected_invocation_loads t"
+    using hasTrace_Run[OF assms(1,3,4)]
+    by (auto simp: branch_instr_trace_has_expected_invocations_def)
+  obtain c where c: "trace_reads_caps_from_gpr n t = {c}" "trace_reads_initial_caps_from_gpr n t = {c}"
+                    "CapIsTagSet c" "CapGetObjectType c = CAP_SEAL_TYPE_LPB"
+    and indirect_sentries: "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
+    using IndirectPointsToPair'(1,3,7) * hasTrace_Run[OF assms(1,3,4)] instr
+    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def)
+  then have load_cap: "trace_has_cap_load_auth t \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
+    using \<open>trace_load_auths t = Some (RegAuth n)\<close> \<open>instr_of_trace t = Some instr\<close>
+    by (intro trace_has_cap_load_auth_iff_load_cap_perm) (auto simp: trace_load_auths_def)
+  obtain cc cd paddr_cc paddr_cd
+    where initial_loads: "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
+    and paddr_cd: "translate_address (unat (CapGetValue c)) = Some paddr_cd"
+    and paddr_cc: "translate_address (unat (CapGetValue c) + 16) = Some paddr_cc"
+    and authorised: "trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c)) 32"
+    and no_overflow[simp]:
+      "unat (CapGetValue c + 16) = unat (CapGetValue c) + 16"
+      "bounds_address AccType_NORMAL (unat (CapGetValue c) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue c)) + 16"
+    using ** c
+    by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def subset_eq)
+  then have cap_loads:
+    "mem_cap_loads_of_trace t =
+       (if CapIsTagSet cd then {(paddr_cd, cd)} else {}) \<union>
+       (if CapIsTagSet cc then {(paddr_cc, cc)} else {})"
+    using **
+    by (intro set_eqI; simp add: branch_instr_run_has_expected_invocation_loads_def; fastforce)
+  have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
+    sorry
+  have "original_code_caps_invoked_in_trace t = {cc. \<exists>paddr.
+          (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> translate_address (unat (CapGetValue c + 16)) = Some paddr \<and>
+          cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c + 16)) 16}"
+    using c
+    unfolding IndirectPointsToPair'(4) indirect_sentries
+    by (auto simp: mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap reads_mem_cap_Some_iff
+                   get_mem_region_CapUnseal_eq CapUnseal_get_bounds_helpers_eq load_cap
+                   trace_has_reg_load_auth_for_addr_def)
+  then have original_code_caps:
+    "original_code_caps_invoked_in_trace t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then {cc} else {})"
+    using authorised paddr_distinct
+    by (auto simp: cap_loads paddr_cc trace_has_reg_load_auth_for_addr_def)
+  have code_caps:
+    "instr_invokes_code_caps opcode t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb cc) else {})"
+    unfolding IndirectPointsToPair'(5) original_code_caps
+    by (auto simp: clear_lsb_image_mem_branch_caps_eq)
+  have "instr_invokes_data_caps opcode t =
+          \<Union>{mem_data_caps cd | cd. \<exists>paddr.
+              (paddr, cd) \<in> mem_cap_loads_of_trace t \<and> translate_address (unat (CapGetValue c)) = Some paddr \<and>
+              cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c)) 16}"
+    using IndirectPointsToPair'(6) indirect_sentries c
+    by (auto simp: mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap reads_mem_cap_Some_iff
+                   get_mem_region_CapUnseal_eq trace_has_reg_load_auth_for_addr_def load_cap
+                   CapUnseal_get_bounds_helpers_eq; fastforce)
+  then have data_caps:
+    "instr_invokes_data_caps opcode t = (if CapIsTagSet cd \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_data_caps cd else {})"
+    using authorised paddr_cd paddr_distinct
+    by (simp add: cap_loads trace_has_reg_load_auth_for_addr_def; fastforce)
+  show thesis
+    using IndirectPointsToPair'(1,2) c indirect_sentries paddr_cd paddr_cc initial_loads original_code_caps code_caps data_caps authorised
+    by (intro IndirectPointsToPair[of n c paddr_cd paddr_cc cd cc])
+       (auto simp: trace_has_reg_load_auth_for_addr_def)
+next
+  case NoInvocation'
+  then show ?thesis
+    by (intro NoInvocation)
+qed
+
+lemma [simp]:
+  "isa.trace_has_assertion_failure ISA t = trace_has_assertion_failure t"
+  by (auto simp: ISA_def)
+
+lemma branch_caps_empty_iff_sealed:
+  "branch_caps c = {} \<longleftrightarrow> CapIsSealed c"
+  by (auto simp: branch_caps_def)
+
+lemma idc_write_axiom_if_trace_has_expected_invocations:
+  assumes "hasTrace t (instr_sem opcode)"
+    and "translation_assms_trace t"
+    and "cap_inv_trace t"
+    and "\<forall>instr. instr_of_trace t = Some instr \<longrightarrow> branch_instr_trace_has_expected_invocations opcode t"
+  shows "idc_write_axiom CC ISA (instr_trace opcode t)"
+proof (cases "instr_of_trace t")
+  case None
+  then show ?thesis
+    using instr_of_trace_None_instr_invokes_no_caps[OF None, where instr = opcode]
+    by (auto simp: idc_write_axiom_def)
+next
+  case (Some instr)
+  then show ?thesis
+  proof (use assms(1) in \<open>cases rule: hasTrace_cases\<close>)
+    case (Run a)
+    have [simp]:
+      "trace_invokes_code_cap_from_reg t = instr_invokes_code_cap_from_reg instr"
+      "trace_invokes_data_cap_from_reg t = instr_invokes_data_cap_from_reg instr"
+      "trace_invokes_indirect_cap_from_reg t = instr_invokes_indirect_cap_from_reg instr"
+      using Some
+      by (auto simp: trace_invokes_code_cap_from_reg_def trace_invokes_data_cap_from_reg_def trace_invokes_indirect_cap_from_reg_def)
+    from Run have no_ex: "\<not>hasException t (instr_sem opcode)"
+      and no_fail: "\<not>hasFailure t (instr_sem opcode)"
+      by (auto simp add: hasException_def hasFailure_def simp flip: runTrace_iff_Traces)
+    then show ?thesis
+      using Run Some assms(4)
+      by (cases rule: hasTrace_instr_sem_invocation_cases[OF assms(1) Some no_ex no_fail assms(2,3)])
+         (auto simp add: idc_write_axiom_def branch_instr_trace_has_expected_invocations_def
+                         branch_instr_run_performs_expected_invocation_def)
+  next
+    case (Fail f)
+    then show ?thesis
+      by (auto simp: idc_write_axiom_def trace_has_assertion_failure_def runTrace_iff_Traces)
+  next
+    case (Ex e)
+    then show ?thesis
+      using Some assms(4)
+      by (auto simp: idc_write_axiom_def branch_instr_trace_has_expected_invocations_def
+                     branch_instr_trace_has_expected_exceptions_def is_singleton_def
+                     trace_raises_ex_def runTrace_iff_Traces)
+  qed
+qed
+
+lemma mem_branch_caps_128th_iff:
+  assumes "c' \<in> mem_branch_caps c"
+  shows "c' !! 128 \<longleftrightarrow> c !! 128"
+  using assms
+  by (auto simp: mem_branch_caps_def branch_caps_128th_iff split: if_splits)
+
+lemma invocation_writes_pstate_c64_instr_trace:
+  assumes "hasTrace t (instr_sem opcode)"
+    and "\<not>hasException t (instr_sem opcode)"
+    and "\<not>hasFailure t (instr_sem opcode)" \<comment> \<open>ignoring assertion failures\<close>
+    and "translation_assms_trace t"
+    and "cap_inv_trace t"
+    and "\<forall>instr. instr_of_trace t = Some instr \<longrightarrow> branch_instr_trace_has_expected_invocations opcode t"
+  shows "invocation_writes_pstate_c64 (instr_trace opcode t)"
+proof (cases "instr_of_trace t")
+  case None
+  then show ?thesis
+    using instr_of_trace_None_instr_invokes_no_caps[OF None, where instr = opcode]
+    by (auto simp: invocation_writes_pstate_c64_def)
+next
+  case (Some instr)
+  then have "branch_instr_run_has_expected_pstate_writes opcode t"
+    using hasTrace_Run[OF assms(1-3)] assms(6)
+    by (simp add: branch_instr_trace_has_expected_invocations_def)
+  then show ?thesis
+    using Some assms(6)
+    by (cases rule: hasTrace_instr_sem_invocation_cases[OF assms(1) Some assms(2-5)])
+       (auto simp add: invocation_writes_pstate_c64_def branch_instr_run_has_expected_pstate_writes_def
+                       image_Un clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq
+                       branch_caps_128th_iff mem_branch_caps_128th_iff test_bit_set_gen invokable_def)
+qed
 
 end
 
-(* In the case of an invocation, PSTATE.C64 will be set to the LSB of the invoked code capability *)
-(* TODO: Could maybe be merged into another property, like the lemma above *)
-
-definition pstate_c64_writes :: "register_value trace \<Rightarrow> bool set" where
-  "pstate_c64_writes t \<equiv> {test_bit (ProcState_C64 ps) 0 | ps. E_write_reg ''PSTATE'' (Regval_ProcState ps) \<in> set t}"
-
 context Morello_ISA
 begin
-
-definition invocation_writes_pstate_c64 :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
-  "invocation_writes_pstate_c64 t \<equiv>
-     (\<forall>c' \<in> trace_invokes_code_caps ISA t \<inter> trace_writes_pcc_caps ISA t.
-       \<exists>c. original_code_caps_invoked_in_trace (trace t) = {c} \<and>
-            c' \<in> clear_lsb ` (branch_caps (CapUnseal c) \<union> mem_branch_caps c) \<and>
-            pstate_c64_writes (trace t) = {lsb c})"
 
 end
 
