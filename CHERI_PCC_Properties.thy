@@ -4,6 +4,8 @@ theory CHERI_PCC_Properties
     CHERI_Instantiation
     CHERI_Lemmas
     Trace_Properties
+    "Sail-T-CHERI.Trace_Subset"
+    "Sail-T-CHERI.No_Exception"
 begin
 
 (* In the case of an invocation, PSTATE.C64 will be set to the LSB of the invoked code capability *)
@@ -52,13 +54,13 @@ definition initial_mem_cap_vaddr_loads_of_trace where
         translate_address vaddr = Some paddr \<and>
         no_mem_writes_in_trace (take i t)}"
 
-abbreviation instr_trace_has_invocation where
-  "instr_trace_has_invocation opcode t \<equiv> trace_invokes_code_cap_from_reg t \<noteq> None \<or> trace_invokes_indirect_cap_from_reg t \<noteq> None \<or> trace_invokes_data_cap_from_reg t \<noteq> None"
+abbreviation instr_trace_may_invoke where
+  "instr_trace_may_invoke opcode t \<equiv> trace_invokes_code_cap_from_reg t \<noteq> None \<or> trace_indirect_sentry_type t \<noteq> None \<or> trace_invokes_data_cap_from_reg t \<noteq> None"
 
 definition branch_instr_run_has_expected_gpr_reads where
   "branch_instr_run_has_expected_gpr_reads t \<equiv>
      (\<forall>n. trace_invokes_code_cap_from_reg t = Some n \<or> trace_invokes_data_cap_from_reg t = Some n \<or>
-          trace_invokes_indirect_cap_from_reg t = Some n \<or> trace_load_auths t = Some (RegAuth n) \<longrightarrow>
+          trace_load_auths t = Some (RegAuth n) \<longrightarrow>
            (\<exists>c. trace_reads_caps_from_gpr n t = {c} \<and> trace_reads_initial_caps_from_gpr n t = {c}))"
 
 definition branch_instr_run_has_expected_pstate_writes where
@@ -69,8 +71,9 @@ definition branch_instr_run_has_expected_pstate_writes where
 
 definition branch_instr_run_performs_expected_invocation where
   "branch_instr_run_performs_expected_invocation opcode t \<equiv>
+     instr_trace_may_invoke opcode t \<longrightarrow>
      (\<exists>cc. trace_writes_pcc_caps ISA (instr_trace opcode t) = {cc} \<and>
-           (instr_trace_has_invocation opcode t \<and> CapIsTagSet cc \<longrightarrow> cc \<in> instr_invokes_code_caps opcode t)) \<and>
+           (CapIsTagSet cc \<longrightarrow> cc \<in> instr_invokes_code_caps opcode t)) \<and>
      (instr_invokes_data_caps opcode t = {} \<or>
         (\<exists>cd. trace_writes_idc_caps ISA (instr_trace opcode t) = {cd} \<and> cd \<in> instr_invokes_data_caps opcode t))"
 
@@ -132,6 +135,894 @@ lemma instr_of_trace_None_instr_invokes_no_caps:
     and "instr_invokes_indirect_caps instr t = {}"
   using assms
   by (auto simp: trace_invoked_cap_defs)
+
+end
+
+text \<open>Helper definitions - TODO: Move\<close>
+
+lemmas monad_trace_subset_datatype_splits[monad_trace_subset_intro] =
+  datatype_splits[where P="monad_trace_subset _", THEN iffD2]
+
+lemma monad_trace_subset_ConstrainUnpredictable[monad_trace_subset]:
+  "monad_trace_subset {} (ConstrainUnpredictable u)"
+  by (cases u) (auto simp: monad_trace_subset_return)
+
+setup \<open>Monad_Trace_Subset_Exploration.install_recs
+  ["Morello_bindings", "Morello"]
+  @{thms execute_LDPBLR_C_C_C_def}
+\<close>
+
+find_theorems monad_trace_subset execute_LDPBLR_C_C_C
+find_theorems monad_trace_subset VACheckAddress
+
+lemmas monad_no_exception_datatype_splits[monad_no_exception_intro] =
+  datatype_splits[where P="monad_no_exception _", THEN iffD2]
+
+lemma monad_no_exception_ConstrainUnpredictable[monad_no_exception]:
+  "monad_no_exception {} (ConstrainUnpredictable u)"
+  by (cases u) (auto simp: monad_no_exception_return)
+
+lemma monad_no_exception_IsSecureBelowEL3[monad_no_exception]:
+  "monad_no_exception {} (IsSecureBelowEL3 el)"
+  by (auto simp: IsSecureBelowEL3_def SCR_GEN_read_def HaveEL_def
+           intro: monad_no_exception_bind_simple monad_no_exception)
+
+lemma monad_no_exception_HaveRASExt[monad_no_exception]:
+  "monad_no_exception {} (HaveRASExt u)"
+  by (auto simp: HaveRASExt_def intro: monad_no_exception)
+
+lemma monad_no_exception_HaveIESB[monad_no_exception]:
+  "monad_no_exception {} (HaveIESB u)"
+  by (auto simp: HaveIESB_def HaveRASExt_def IMPDEF_boolean_def IMPDEF_boolean_map_def intro: monad_no_exception)
+
+lemma monad_no_exception_HaveSSBSExt[monad_no_exception]:
+  "monad_no_exception {} (HaveSSBSExt u)"
+  by (auto simp: HaveSSBSExt_def IMPDEF_boolean_def IMPDEF_boolean_map_def intro: monad_no_exception)
+
+lemma monad_no_exception_HaveMPAMExt[monad_no_exception]:
+  "monad_no_exception {} (HaveMPAMExt u)"
+  by (auto simp: HaveMPAMExt_def IMPDEF_boolean_def IMPDEF_boolean_map_def intro: monad_no_exception)
+
+lemma monad_no_exception_Have16bitVMID[monad_no_exception]:
+  "monad_no_exception {} (Have16bitVMID u)"
+  (* FIXME *)
+  (* by (auto simp: Have16bitVMID_def IMPDEF_boolean_def IMPDEF_boolean_map_def intro: monad_no_exception) *)
+  sorry
+
+setup \<open>Monad_No_Exception_Exploration.install_recs
+  ["Morello_bindings", "Morello"]
+  @{thms execute_LDPBLR_C_C_C_def}
+\<close>
+
+text \<open>Yet another Hoare logic\<close>
+
+locale Hoare_Logic =
+  fixes ev_assms :: "'state \<Rightarrow> 'regval event \<Rightarrow> bool"
+    and step_state :: "'state \<Rightarrow> 'regval event \<Rightarrow> 'state"
+begin
+
+abbreviation run_state :: "'state \<Rightarrow> 'regval trace \<Rightarrow> 'state" where
+  "run_state \<equiv> foldl step_state"
+
+fun trace_assms :: "'state \<Rightarrow> 'regval trace \<Rightarrow> bool" where
+  "trace_assms s (e # t) \<longleftrightarrow> ev_assms s e \<and> trace_assms (step_state s e) t"
+| "trace_assms s [] \<longleftrightarrow> True"
+
+lemma trace_assms_append[simp]:
+  "trace_assms s (t1 @ t2) \<longleftrightarrow> trace_assms s t1 \<and> trace_assms (run_state s t1) t2"
+  by (induction t1 arbitrary: s) auto
+
+definition
+  "pre_post P m Q E F \<equiv>
+     (\<forall>s t m'. (m, t, m') \<in> Traces \<and> trace_assms s t \<and> P s
+               \<longrightarrow>
+               (case m' of
+                  Done a \<Rightarrow> Q a (run_state s t)
+                | Exception e \<Rightarrow> E e (run_state s t)
+                | Fail msg \<Rightarrow> F msg (run_state s t)
+                | _ \<Rightarrow> True))"
+
+abbreviation "pre_post_ignore_fail P m Q E \<equiv> pre_post P m Q E (\<lambda>_ _. True)"
+
+lemma pre_postI:
+  assumes "\<And>s t a. Run m t a \<Longrightarrow> P s \<Longrightarrow> trace_assms s t \<Longrightarrow> Q a (run_state s t)"
+    and "\<And>s t e. (m, t, Exception e) \<in> Traces \<Longrightarrow> P s \<Longrightarrow> trace_assms s t \<Longrightarrow> E e (run_state s t)"
+    and "\<And>s t d. (m, t, Fail d) \<in> Traces \<Longrightarrow> P s \<Longrightarrow> trace_assms s t \<Longrightarrow> F d (run_state s t)"
+  shows "pre_post P m Q E F"
+  using assms
+  by (auto simp: pre_post_def split: monad.split)
+
+lemma pre_post_RunE:
+  assumes "pre_post P m Q E F" and "Run m t a" and "P s" and "trace_assms s t"
+  shows "Q a (run_state s t)"
+  using assms
+  by (fastforce simp: pre_post_def)
+
+lemma pre_post_ExceptionE:
+  assumes "pre_post P m Q E F" and "(m, t, Exception e) \<in> Traces" and "P s" and "trace_assms s t"
+  shows "E e (run_state s t)"
+  using assms
+  by (fastforce simp: pre_post_def)
+
+lemma pre_post_FailE:
+  assumes "pre_post P m Q E F" and "(m, t, Fail d) \<in> Traces" and "P s" and "trace_assms s t"
+  shows "F d (run_state s t)"
+  using assms
+  by (fastforce simp: pre_post_def)
+
+lemma pre_post_consequence:
+  assumes "pre_post P' m Q' E' F'"
+    and "\<And>s. P s \<Longrightarrow> P' s"
+    and "\<And>a s. Q' a s \<Longrightarrow> Q a s"
+    and "\<And>e s. E' e s \<Longrightarrow> E e s"
+    and "\<And>msg s. F' msg s \<Longrightarrow> F msg s"
+  shows "pre_post P m Q E F"
+  using assms
+  by (fastforce simp: pre_post_def split: monad.split)
+
+lemma pre_post_strengthen_pre:
+  assumes "pre_post P' m Q F E"
+    and "\<And>s. P s \<Longrightarrow> P' s"
+  shows "pre_post P m Q F E"
+  using assms
+  by (rule pre_post_consequence)
+
+lemma pre_post_return:
+  "pre_post (Q a) (return a) Q E F"
+  by (auto simp: pre_post_def)
+
+lemma pre_post_bind:
+  assumes f: "\<And>s t a. Run m t a \<Longrightarrow> P s \<Longrightarrow> trace_assms s t \<Longrightarrow> pre_post (R a) (f a) Q E F"
+    and m: "pre_post P m R E F"
+  shows "pre_post P (bind m f) Q E F"
+  by (intro pre_postI;
+      fastforce elim!: Run_bindE bind_Exception_cases bind_Fail_cases
+                elim: m[THEN pre_post_ExceptionE] f[THEN pre_post_ExceptionE, rotated 3]
+                      m[THEN pre_post_FailE] f[THEN pre_post_FailE, rotated 3]
+                      m[THEN pre_post_RunE] f[THEN pre_post_RunE, rotated 3])
+
+lemma pre_post_read_reg:
+  "pre_post
+     (\<lambda>s. \<forall>e v a. e = E_read_reg (name r) v \<and> ev_assms s e
+            \<longrightarrow>
+          (case of_regval r v of
+             Some a \<Rightarrow> Q a (step_state s e)
+           | None \<Rightarrow> F ''read_reg: unrecognised value'' (step_state s e)))
+     (read_reg r) Q E F"
+  by (intro pre_postI; fastforce simp: read_reg_def elim: Traces_cases split: option.splits)
+
+lemma pre_post_write_reg:
+  "pre_post
+     (\<lambda>s. \<forall>e. e = E_write_reg (name r) (regval_of r v) \<and> ev_assms s e \<longrightarrow> Q () (step_state s e))
+     (write_reg r v) Q E F"
+  by (intro pre_postI) (auto simp: write_reg_def elim: Traces_cases)
+
+lemma pre_post_read_memt_BC:
+  "pre_post
+     (\<lambda>s. case nat_of_bv BCa addr of
+            Some addr' \<Rightarrow>
+              (\<forall>e bytes tag.
+                 e = E_read_memt rk addr' (nat sz) (bytes, tag) \<and> ev_assms s e \<longrightarrow>
+                 (case of_bits_method BCb (bits_of_mem_bytes bytes) of
+                    Some v \<Rightarrow> Q (v, tag) (step_state s e)
+                  | None \<Rightarrow> F ''bits_of_mem_bytes'' (step_state s e)))
+          | None \<Rightarrow> F ''nat_of_bv'' s)
+     (read_memt BCa BCb rk addr sz) Q E F"
+  by (intro pre_postI;
+      fastforce simp: read_memt_def read_memt_bytes_def maybe_fail_def elim: Traces_cases split: option.splits)
+
+lemma pre_post_read_memt:
+  "pre_post
+     (\<lambda>s. (\<forall>e bytes tag.
+             e = E_read_memt rk (unat addr) (nat sz) (bytes, tag) \<and> ev_assms s e \<longrightarrow>
+             (case of_bits_method BC_mword (bits_of_mem_bytes bytes) of
+                Some v \<Rightarrow> Q (v, tag) (step_state s e)
+              | None \<Rightarrow> F ''bits_of_mem_bytes'' (step_state s e))))
+     (read_memt BC_mword BC_mword rk addr sz) Q E F"
+  by (intro pre_post_read_memt_BC[THEN pre_post_strengthen_pre]) auto
+
+lemma pre_post_throw:
+  "pre_post (E e) (throw e) Q E F"
+  by (intro pre_postI; auto simp: throw_def)
+
+lemma pre_post_ignore_fail_assert_exp:
+  "pre_post_ignore_fail (\<lambda>s. b \<longrightarrow> Q () s) (assert_exp b msg) Q E"
+  by (rule pre_postI) (auto simp: assert_exp_def split: if_splits)
+
+definition "no_state_update m \<equiv> (\<forall>s t m'. (m, t, m') \<in> Traces \<and> trace_assms s t \<longrightarrow> run_state s t = s)"
+
+lemma pre_post_no_state_update:
+  assumes "no_state_update m"
+  shows "pre_post
+           (\<lambda>s. \<forall>t m'. runTrace t m = Some m' \<and> trace_assms s t \<longrightarrow>
+                         (case m' of Done a \<Rightarrow> Q a s | Exception e \<Rightarrow> E e s | Fail d \<Rightarrow> F d s | _ \<Rightarrow> True))
+           m Q E F"
+  by (intro pre_postI)
+     (use assms in \<open>auto simp add: no_state_update_def simp flip: runTrace_iff_Traces split: monad.splits\<close>)
+
+lemma monad_no_exceptionD':
+  assumes "monad_no_exception S m"
+  shows "\<forall>t e. e \<notin> S \<longrightarrow> (m, t, Exception e) \<notin> Traces"
+  by (use assms in \<open>auto simp: monad_no_exception_def\<close>)
+
+lemma pre_post_no_state_update_no_exception:
+  assumes "no_state_update m"
+    and "monad_no_exception {} m"
+  shows "pre_post
+           (\<lambda>s. \<forall>t m'. runTrace t m = Some m' \<and> trace_assms s t \<longrightarrow>
+                         (case m' of Done a \<Rightarrow> Q a s | Fail d \<Rightarrow> F d s | _ \<Rightarrow> True))
+           m Q E F"
+  by (intro pre_post_no_state_update[THEN pre_post_strengthen_pre])
+     (use assms in \<open>auto simp: runTrace_iff_Traces dest: monad_no_exceptionD' split: monad.splits\<close>)
+
+lemma pre_post_ignore_fail_no_state_update_no_exception:
+  assumes "no_state_update m"
+    and "monad_no_exception {} m"
+  shows "pre_post_ignore_fail (\<lambda>s. \<forall>t a. Run m t a \<and> trace_assms s t \<longrightarrow> Q a s) m Q E"
+  by (intro pre_post_no_state_update_no_exception[THEN pre_post_strengthen_pre])
+     (use assms in \<open>auto simp: runTrace_iff_Traces split: monad.split\<close>)
+
+lemma pre_post_ignore_fail_no_state_update_no_exception_ignore_result:
+  assumes "no_state_update m"
+    and "monad_no_exception {} m"
+  shows "pre_post_ignore_fail Q m (\<lambda>_ s. Q s) E"
+  by (rule pre_post_strengthen_pre,
+      rule pre_post_ignore_fail_no_state_update_no_exception[OF assms])
+     auto
+
+lemma pre_post_if:
+  assumes "b \<Longrightarrow> pre_post P1 m1 Q E F" and "\<not>b \<Longrightarrow> pre_post P2 m2 Q E F"
+  shows "pre_post (\<lambda>s. if b then P1 s else P2 s) (if b then m1 else m2) Q E F"
+  by (use assms in auto)
+
+lemma pre_post_if_common_pre:
+  assumes "b \<Longrightarrow> pre_post P m1 Q E F" and "\<not>b \<Longrightarrow> pre_post P m2 Q E F"
+  shows "pre_post P (if b then m1 else m2) Q E F"
+  by (use assms in auto)
+
+lemma pre_post_if_post_collapse:
+  assumes "pre_post P m Q E F"
+  shows "pre_post P m (\<lambda>a s. if b then Q a s else Q a s) E F"
+  by (use assms in auto)
+
+end
+
+definition no_reads_from_gpr where
+  "no_reads_from_gpr n m \<equiv> (\<forall>t m' r v. (m, t, m') \<in> Traces \<and> r \<in> R_name n \<longrightarrow> E_read_reg r v \<notin> set t)"
+
+definition no_reads_from_any_gpr where
+  "no_reads_from_any_gpr m \<equiv> (\<forall>n. no_reads_from_gpr n m)"
+
+definition no_writes_to_gpr where
+  "no_writes_to_gpr n m \<equiv> (\<forall>t m' r v. (m, t, m') \<in> Traces \<and> r \<in> R_name n \<longrightarrow> E_write_reg r v \<notin> set t)"
+
+definition no_writes_to_any_gpr where
+  "no_writes_to_any_gpr m \<equiv> (\<forall>n. no_writes_to_gpr n m)"
+
+definition no_accesses_to_gpr where
+  "no_accesses_to_gpr n m \<equiv> no_reads_from_gpr n m \<and> no_writes_to_gpr n m"
+
+definition no_accesses_to_any_gpr where
+  "no_accesses_to_any_gpr m \<equiv> no_reads_from_any_gpr m \<and> no_writes_to_any_gpr m"
+
+definition no_mem_cap_reads where
+  "no_mem_cap_reads m \<equiv> (\<forall>t m' rk addr sz val. (m, t, m') \<in> Traces \<longrightarrow> E_read_memt rk addr sz val \<notin> set t)"
+
+definition no_gpr_accesses_or_mem_cap_reads where
+  "no_gpr_accesses_or_mem_cap_reads m \<equiv> no_accesses_to_any_gpr m \<and> no_mem_cap_reads m"
+
+definition "all_R_names \<equiv> {''_R00'', ''_R01'', ''_R02'', ''_R03'', ''_R04'', ''_R05'', ''_R06'',
+  ''_R07'', ''_R08'', ''_R09'', ''_R10'', ''_R11'', ''_R12'', ''_R13'', ''_R14'', ''_R15'', ''_R16'',
+  ''_R17'', ''_R18'', ''_R19'', ''_R20'', ''_R21'', ''_R22'', ''_R23'', ''_R24'', ''_R25'',  ''_R26'',
+  ''_R27'', ''_R28'', ''_R29'', ''_R30'', ''RSP_EL0'', ''SP_EL0'', ''SP_EL1'', ''SP_EL2'', ''SP_EL3''}"
+
+lemma R_name_in_all_R_names:
+  "r \<in> R_name n \<Longrightarrow> r \<in> all_R_names"
+  by (auto simp: R_name_def all_R_names_def split: if_splits)
+
+lemma all_R_names_R_name:
+  assumes "r \<in> all_R_names"
+  shows "\<exists>n. r \<in> R_name n"
+  sorry
+
+lemma all_R_names_iff_R_name:
+  "r \<in> all_R_names \<longleftrightarrow> (\<exists>n. r \<in> R_name n)"
+  by (auto intro: R_name_in_all_R_names elim: all_R_names_R_name)
+
+lemma R29_all_R_names:
+  "''_R29'' \<in> all_R_names"
+  by (auto simp: all_R_names_def)
+
+lemma monad_trace_subset_no_reads_from_gpr:
+  assumes "monad_trace_subset S m"
+    and "\<forall>r \<in> R_name n. disjnt (range (E_read_reg r)) S"
+  shows "no_reads_from_gpr n m"
+  using assms
+  by (fastforce simp: no_reads_from_gpr_def monad_trace_subset_def disjnt_def)
+
+lemma monad_trace_subset_no_reads_from_any_gpr:
+  assumes "monad_trace_subset S m"
+    and "\<forall>r \<in> all_R_names. disjnt (range (E_read_reg r)) S"
+  shows "no_reads_from_any_gpr m"
+  using assms
+  unfolding no_reads_from_any_gpr_def
+  by (intro allI monad_trace_subset_no_reads_from_gpr[of S m]) (auto dest: R_name_in_all_R_names)
+
+lemma monad_trace_subset_no_writes_to_gpr:
+  assumes "monad_trace_subset S m"
+    and "\<forall>r \<in> R_name n. disjnt (range (E_write_reg r)) S"
+  shows "no_writes_to_gpr n m"
+  using assms
+  by (fastforce simp: no_writes_to_gpr_def monad_trace_subset_def disjnt_def)
+
+lemma monad_trace_subset_no_writes_to_any_gpr:
+  assumes "monad_trace_subset S m"
+    and "\<forall>r \<in> all_R_names. disjnt (range (E_write_reg r)) S"
+  shows "no_writes_to_any_gpr m"
+  using assms
+  unfolding no_writes_to_any_gpr_def
+  by (intro allI monad_trace_subset_no_writes_to_gpr[of S m]) (auto dest: R_name_in_all_R_names)
+
+lemma monad_trace_subset_no_accesses_to_gpr:
+  assumes "monad_trace_subset S m"
+    and "\<forall>r \<in> R_name n. disjnt (range (E_read_reg r) \<union> range (E_write_reg r)) S"
+  shows "no_accesses_to_gpr n m"
+  using assms
+  by (auto simp: no_accesses_to_gpr_def intro: monad_trace_subset_no_reads_from_gpr monad_trace_subset_no_writes_to_gpr)
+
+lemma monad_trace_subset_no_accesses_to_any_gpr:
+  assumes "monad_trace_subset S m"
+    and "\<forall>r \<in> all_R_names. disjnt (range (E_read_reg r) \<union> range (E_write_reg r)) S"
+  shows "no_accesses_to_any_gpr m"
+  using assms
+  by (auto simp: no_accesses_to_any_gpr_def intro: monad_trace_subset_no_reads_from_any_gpr monad_trace_subset_no_writes_to_any_gpr)
+
+lemma monad_trace_subset_no_mem_cap_reads:
+  assumes "monad_trace_subset S m"
+    and "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) S"
+  shows "no_mem_cap_reads m"
+  using assms
+  by (fastforce simp: no_mem_cap_reads_def monad_trace_subset_def disjnt_def)
+
+lemma monad_trace_subset_no_gpr_accesses_or_mem_cap_reads:
+  assumes "monad_trace_subset S m"
+    and "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) S \<and> (\<forall>r \<in> all_R_names. disjnt (range (E_read_reg r) \<union> range (E_write_reg r)) S)"
+  shows "no_gpr_accesses_or_mem_cap_reads m"
+  using assms
+  by (auto simp: no_gpr_accesses_or_mem_cap_reads_def intro: monad_trace_subset_no_mem_cap_reads monad_trace_subset_no_accesses_to_any_gpr)
+
+lemma disjnt_range_event:
+  "r \<noteq> r' \<Longrightarrow> disjnt (range (E_read_reg r)) (range (E_read_reg r'))"
+  "disjnt (range (E_read_reg r)) (range (E_write_reg r'))"
+  "disjnt (range (E_read_reg r)) (range (E_choose msg))"
+  "disjnt (range (E_read_reg r)) (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val))"
+  "r \<noteq> r' \<Longrightarrow> disjnt (range (E_write_reg r)) (range (E_write_reg r'))"
+  "disjnt (range (E_write_reg r)) (range (E_read_reg r'))"
+  "disjnt (range (E_write_reg r)) (range (E_choose msg))"
+  "disjnt (range (E_write_reg r)) (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val))"
+  "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) (range (E_read_reg r'))"
+  "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) (range (E_write_reg r'))"
+  "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) (range (E_choose msg))"
+  by (auto simp: disjnt_def)
+
+method no_reads_from_any_gpr =
+  (rule monad_trace_subset[THEN monad_trace_subset_no_reads_from_any_gpr]
+        monad_trace_subset[THEN monad_trace_subset_no_writes_to_any_gpr]
+        monad_trace_subset[THEN monad_trace_subset_no_accesses_to_any_gpr]
+        monad_trace_subset[THEN monad_trace_subset_no_gpr_accesses_or_mem_cap_reads];
+   unfold all_R_names_def ball_simps disjnt_Un1 disjnt_Un2;
+   intro conjI disjnt_empty2 disjnt_range_event;
+   simp add: register_defs)
+
+lemma no_reads_from_gpr_invocation_helper_functions:
+  "\<And>u. no_gpr_accesses_or_mem_cap_reads (CheckCapabilitiesEnabled u)"
+  by no_reads_from_any_gpr
+
+fun ev_reads_from_reg_state :: "(register_name \<rightharpoonup> 'regval) \<Rightarrow> 'regval event \<Rightarrow> bool" where
+  "ev_reads_from_reg_state s (E_read_reg r v) \<longleftrightarrow>
+     (case s r of Some v' \<Rightarrow> v = v' | _ \<Rightarrow> True)"
+| "ev_reads_from_reg_state s _ \<longleftrightarrow> True"
+
+fun regs_sequential_in_trace :: "(register_name \<rightharpoonup> 'regval) \<Rightarrow> 'regval trace \<Rightarrow> bool" where
+  "regs_sequential_in_trace s (E_read_reg r v # t) \<longleftrightarrow>
+     (case s r of Some v' \<Rightarrow> v = v' | _ \<Rightarrow> True) \<and> regs_sequential_in_trace s t"
+| "regs_sequential_in_trace s (E_write_reg r v # t) \<longleftrightarrow>
+     regs_sequential_in_trace (if r \<in> dom s then s(r\<mapsto>v) else s) t"
+| "regs_sequential_in_trace s (_ # t) \<longleftrightarrow> regs_sequential_in_trace s t"
+| "regs_sequential_in_trace s [] \<longleftrightarrow> True"
+
+record invocation_state =
+  code_reg_caps :: "Capability set"
+  data_reg_caps :: "Capability set"
+  load_auth_caps :: "Capability set"
+  mem_caps :: "(nat * Capability) set"
+  reg_state :: "register_name \<rightharpoonup> register_value"
+  pcc_writes :: "register_value list"
+  idc_writes :: "register_value list"
+  pstate_writes :: "register_value list"
+  branch_taken_writes :: "register_value list"
+  gprs_written :: bool
+  gpr_reads_after_write :: bool
+
+definition
+  "initial_invocation_state regs \<equiv>
+     \<lparr>code_reg_caps = {}, data_reg_caps = {}, load_auth_caps = {}, mem_caps = {},
+      reg_state = regs, pcc_writes = [], idc_writes = [], pstate_writes = [],
+      branch_taken_writes = [], gprs_written = False, gpr_reads_after_write = False\<rparr>"
+
+locale Morello_Instr_Invocation_Property = Morello_ISA +
+  fixes instr :: instr_ast
+begin
+
+definition is_code_reg :: "register_name \<Rightarrow> bool" where
+  "is_code_reg r \<equiv> (\<exists>n. instr_invokes_code_cap_from_reg instr = Some n \<and> r \<in> R_name n)"
+
+definition is_data_reg :: "register_name \<Rightarrow> bool" where
+  "is_data_reg r \<equiv> (\<exists>n. instr_invokes_data_cap_from_reg instr = Some n \<and> r \<in> R_name n)"
+
+definition is_indirect_reg :: "register_name \<Rightarrow> bool" where
+  "is_indirect_reg r \<equiv> (\<exists>n. instr_invokes_indirect_cap_from_reg instr = Some n \<and> r \<in> R_name n)"
+
+definition is_load_auth_reg :: "register_name \<Rightarrow> bool" where
+  "is_load_auth_reg r \<equiv> (\<exists>n. instr_load_auth instr = Some (RegAuth n) \<and> r \<in> R_name n)"
+
+definition "invocation_regs = all_R_names \<union> {''PCC'', ''PSTATE'', ''__BranchTaken''}"
+
+fun step_state :: "invocation_state \<Rightarrow> register_value event \<Rightarrow> invocation_state" where
+  "step_state s (E_read_reg r (Regval_bitvector_129_dec c)) =
+    s\<lparr>code_reg_caps := (if is_code_reg r then insert c (code_reg_caps s) else code_reg_caps s),
+      data_reg_caps := (if is_data_reg r then insert c (data_reg_caps s) else data_reg_caps s),
+      load_auth_caps := (if is_load_auth_reg r then insert c (load_auth_caps s) else load_auth_caps s),
+      gpr_reads_after_write := (if gprs_written s \<and> r \<in> all_R_names then True else gpr_reads_after_write s)\<rparr>"
+| "step_state s (E_write_reg r v) =
+    s\<lparr>\<comment> \<open>reg_state := (if r \<in> dom (reg_state s) \<inter> invocation_regs then (reg_state s)(r\<mapsto>v) else reg_state s),\<close>
+      pcc_writes := (if r = ''PCC'' then v # pcc_writes s else pcc_writes s),
+      idc_writes := (if r = ''_R29'' then v # idc_writes s else idc_writes s),
+      pstate_writes := (if r = ''PSTATE'' then v # pstate_writes s else pstate_writes s),
+      branch_taken_writes := (if r = ''__BranchTaken'' then v # branch_taken_writes s else branch_taken_writes s),
+      gprs_written := (if r \<in> all_R_names then True else gprs_written s)\<rparr>"
+| "step_state s (E_read_memt rk paddr sz (bytes, tag)) =
+    (case cap_of_mem_bytes bytes tag of Some c \<Rightarrow> s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr> | None \<Rightarrow> s)"
+| "step_state s e = s"
+
+definition has_expected_gpr_reads :: "invocation_state \<Rightarrow> bool" where
+  "has_expected_gpr_reads s \<longleftrightarrow>
+     (instr_invokes_code_cap_from_reg instr \<noteq> None \<longrightarrow> is_singleton (code_reg_caps s)) \<and>
+     (instr_invokes_data_cap_from_reg instr \<noteq> None \<longrightarrow> is_singleton (data_reg_caps s)) \<and>
+     (\<forall>n. instr_load_auth instr = Some (RegAuth n) \<longrightarrow> is_singleton (load_auth_caps s)) \<and>
+     \<not>gpr_reads_after_write s"
+
+definition original_mem_code_caps :: "invocation_state \<Rightarrow> Capability set" where
+  "original_mem_code_caps s \<equiv>
+     {cc. \<exists>paddr.
+             (paddr, cc) \<in> mem_caps s \<and>
+             (instr_indirect_sentry_type instr = Some Points_to_Pair \<longrightarrow>
+                (\<exists>auth \<in> load_auth_caps s. translate_address (unat (CapGetValue auth + 16)) = Some paddr))}"
+
+definition "original_code_caps s \<equiv> code_reg_caps s \<union> original_mem_code_caps s"
+
+definition invoked_code_caps :: "invocation_state \<Rightarrow> Capability set" where
+  "invoked_code_caps s =
+     \<Union>(branch_caps ` CapUnseal ` code_reg_caps s) \<union>
+     \<Union>(mem_branch_caps ` original_mem_code_caps s)"
+
+definition original_mem_data_caps :: "invocation_state \<Rightarrow> Capability set" where
+  "original_mem_data_caps s \<equiv>
+     {cc. \<exists>paddr.
+             (paddr, cc) \<in> mem_caps s \<and>
+             instr_indirect_sentry_type instr = Some Points_to_Pair \<and>
+             (\<exists>auth \<in> load_auth_caps s. translate_address (unat (CapGetValue auth)) = Some paddr)}"
+
+definition original_reg_data_caps :: "invocation_state \<Rightarrow> Capability set" where
+  "original_reg_data_caps s \<equiv>
+     (case instr_indirect_sentry_type instr of
+        Some Points_to_PCC \<Rightarrow> load_auth_caps s
+      | Some Points_to_Pair \<Rightarrow> {}
+      | None \<Rightarrow> data_reg_caps s)"
+
+definition invoked_data_caps :: "invocation_state \<Rightarrow> Capability set" where
+  "invoked_data_caps s =
+     (CapUnseal ` original_reg_data_caps s) \<union>
+     \<Union>(mem_data_caps ` original_mem_data_caps s)"
+
+definition has_expected_pstate_writes where
+  "has_expected_pstate_writes s \<equiv>
+     (\<forall>cc \<in> original_code_caps s.
+        CapIsTagSet cc \<longrightarrow>
+        (\<exists>pstate. pstate_writes s = [Regval_ProcState pstate] \<and> (test_bit (ProcState_C64 pstate) 0 = lsb cc)))"
+
+definition has_expected_code_cap_invocation where
+  "has_expected_code_cap_invocation s \<equiv>
+     (\<exists>cc. pcc_writes s = [Regval_bitvector_129_dec cc] \<and> (CapIsTagSet cc \<longrightarrow> cc \<in> invoked_code_caps s))"
+
+definition has_expected_data_cap_invocation where
+  "has_expected_data_cap_invocation s \<equiv>
+     (\<exists>cd. idc_writes s = [Regval_bitvector_129_dec cd] \<and>
+           (invoked_data_caps s = {} \<or> cd \<in> invoked_data_caps s))"
+
+abbreviation "has_expected_invocation s \<equiv> has_expected_code_cap_invocation s \<and> has_expected_data_cap_invocation s"
+
+definition cap_authorises_load where
+  "cap_authorises_load c vaddr sz \<equiv>
+     CapIsTagSet c \<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC c"
+
+definition has_expected_loads where
+  "has_expected_loads s \<equiv>
+     (case instr_indirect_sentry_type instr of
+        Some Points_to_PCC \<Rightarrow>
+         \<exists>auth paddr vaddr c.
+            auth \<in> load_auth_caps s \<and> cap_authorises_load auth vaddr 16 \<and>
+            translate_address vaddr = Some paddr \<and>
+            mem_caps s = {(paddr, c)} \<and>
+            valid_address AccType_NORMAL vaddr \<and>
+            bounds_address AccType_NORMAL vaddr + 16 \<le> 2^64
+      | Some Points_to_Pair \<Rightarrow>
+         \<exists>auth cc paddr_cc cd paddr_cd.
+            auth \<in> load_auth_caps s \<and> cap_authorises_load auth (unat (CapGetValue auth)) 32 \<and>
+            translate_address (unat (CapGetValue auth)) = Some paddr_cd \<and>
+            translate_address (unat (CapGetValue auth) + 16) = Some paddr_cc \<and>
+            mem_caps s = {(paddr_cd, cd), (paddr_cc, cc)} \<and>
+            valid_address AccType_NORMAL (unat (CapGetValue auth)) \<and>
+            bounds_address AccType_NORMAL (unat (CapGetValue auth)) + 32 \<le> 2^64
+      | None \<Rightarrow> True)"
+
+abbreviation ev_assms :: "invocation_state \<Rightarrow> register_value event \<Rightarrow> bool" where
+  "ev_assms s e \<equiv> ev_reads_from_reg_state (reg_state s) e \<and> translation_assms e"
+
+sublocale Hoare_Logic where ev_assms = ev_assms and step_state = step_state .
+
+lemma trace_assms_translation_assms_trace:
+  "trace_assms s t \<Longrightarrow> translation_assms_trace t"
+  by (induction s t rule: trace_assms.induct) auto
+
+lemma gprs_written_step_state:
+  "gprs_written (step_state s e) \<longleftrightarrow> (\<exists>r v. e = E_write_reg r v \<and> r \<in> all_R_names) \<or> gprs_written s"
+  by (induction s e rule: step_state.induct) (auto split: option.split)
+
+lemma gprs_written_run_state:
+  "gprs_written (run_state s t) \<longleftrightarrow> (\<exists>r v i. t ! i = E_write_reg r v \<and> i < length t \<and> r \<in> all_R_names) \<or> gprs_written s"
+  by (induction t arbitrary: s) (auto simp: nth_Cons gprs_written_step_state gr0_conv_Suc split: nat.splits)
+
+lemma gpr_reads_after_write_step_state:
+  "gpr_reads_after_write (step_state s e) \<longleftrightarrow>
+   (\<exists>r c. e = E_read_reg r (Regval_bitvector_129_dec c) \<and> r \<in> all_R_names \<and> gprs_written s) \<or> gpr_reads_after_write s"
+  by (induction s e rule: step_state.induct) (auto split: option.split)
+
+lemma gpr_reads_after_write_run_state:
+  "gpr_reads_after_write (run_state s t) \<longleftrightarrow>
+     (\<exists>r c i. t ! i = E_read_reg r (Regval_bitvector_129_dec c) \<and> r \<in> all_R_names \<and> i < length t \<and>
+              gprs_written (run_state s (take i t)))
+     \<or> gpr_reads_after_write s"
+  by (induction t arbitrary: s)
+     (auto simp: nth_Cons gpr_reads_after_write_step_state gr0_conv_Suc split: nat.splits)
+
+lemma mem_caps_step_state:
+  "mem_caps (step_state s e) =
+     {(paddr, c) | paddr c. \<exists>rk sz bytes tag.
+        e = E_read_memt rk paddr sz (bytes, tag) \<and> cap_of_mem_bytes bytes tag = Some c}
+     \<union> mem_caps s"
+  by (induction s e rule: step_state.induct) (auto split: option.splits)
+
+lemma mem_caps_run_state:
+  "mem_caps (run_state s t) =
+     {(paddr, c) | paddr c. \<exists>rk sz bytes tag.
+        E_read_memt rk paddr sz (bytes, tag) \<in> set t \<and> cap_of_mem_bytes bytes tag = Some c}
+     \<union> mem_caps s"
+  by (induction t arbitrary: s) (auto simp: mem_caps_step_state)
+
+lemma pstate_writes_step_state:
+  "pstate_writes (step_state s e) = (case e of E_write_reg r v \<Rightarrow> (if r = ''PSTATE'' then [v] else []) | _ \<Rightarrow> []) @ pstate_writes s"
+  by (induction s e rule: step_state.induct) (auto split: option.splits)
+
+lemma set_pstate_writes_run_state:
+  "set (pstate_writes (run_state s t)) = {v. E_write_reg ''PSTATE'' v \<in> set t \<or> v \<in> set (pstate_writes s)}"
+  by (induction t arbitrary: s) (auto simp add: pstate_writes_step_state)
+
+lemma trace_reads_initial_caps_from_gpr_eq:
+  assumes "\<not>gpr_reads_after_write (run_state s t)"
+  shows "trace_reads_initial_caps_from_gpr n t = trace_reads_caps_from_gpr n t"
+  using assms
+  unfolding gpr_reads_after_write_run_state
+  unfolding trace_reads_initial_caps_from_gpr_def trace_reads_caps_from_gpr_def
+  by (auto simp: all_R_names_iff_R_name gprs_written_run_state in_set_conv_nth; blast)
+
+lemma code_reg_caps_run_state_trace_reads_caps_from_gpr:
+  assumes "instr_invokes_code_cap_from_reg instr = Some n"
+  shows "code_reg_caps (run_state s t) = trace_reads_caps_from_gpr n t \<union> code_reg_caps s"
+proof (induction t arbitrary: s)
+  case (Cons e t)
+  then show ?case
+  proof (cases e)
+    case (E_read_reg r v)
+    then show ?thesis
+      using Cons.prems Cons.IH[of "step_state s e"] assms
+      by (cases v) (auto simp add: trace_reads_caps_from_gpr_def is_code_reg_def)
+  qed (auto simp: trace_reads_caps_from_gpr_def split: option.splits)
+qed (auto simp: trace_reads_caps_from_gpr_def)
+
+lemma data_reg_caps_run_state_trace_reads_caps_from_gpr:
+  assumes "instr_invokes_data_cap_from_reg instr = Some n"
+  shows "data_reg_caps (run_state s t) = trace_reads_caps_from_gpr n t \<union> data_reg_caps s"
+proof (induction t arbitrary: s)
+  case (Cons e t)
+  then show ?case
+  proof (cases e)
+    case (E_read_reg r v)
+    then show ?thesis
+      using Cons.prems Cons.IH[of "step_state s e"] assms
+      by (cases v) (auto simp add: trace_reads_caps_from_gpr_def is_data_reg_def)
+  qed (auto simp: trace_reads_caps_from_gpr_def split: option.splits)
+qed (auto simp: trace_reads_caps_from_gpr_def)
+
+lemma load_auth_caps_run_state_trace_reads_caps_from_gpr:
+  assumes "instr_load_auth instr = Some (RegAuth n)"
+  shows "load_auth_caps (run_state s t) = trace_reads_caps_from_gpr n t \<union> load_auth_caps s"
+proof (induction t arbitrary: s)
+  case (Cons e t)
+  then show ?case
+  proof (cases e)
+    case (E_read_reg r v)
+    then show ?thesis
+      using Cons.prems Cons.IH[of "step_state s e"] assms
+      by (cases v) (auto simp add: trace_reads_caps_from_gpr_def is_load_auth_reg_def)
+  qed (auto simp: trace_reads_caps_from_gpr_def split: option.splits)
+qed (auto simp: trace_reads_caps_from_gpr_def)
+
+lemma instr_load_auth_if_indirect_sentry_type:
+  assumes "instr_indirect_sentry_type instr = Some sentry_type"
+  obtains n where "instr_load_auth instr = Some (RegAuth n)"
+  using assms
+  by (auto elim!: instr_indirect_sentry_type.elims)
+
+lemma indirect_cap_reg_is_load_auth:
+  assumes "instr_invokes_indirect_cap_from_reg instr = Some n"
+  shows "instr_load_auth instr = Some (RegAuth n)"
+  using assms
+  by (cases instr) (auto split: if_splits)
+
+lemma load_auth_caps_of_trace_trace_reads_caps_from_gpr:
+  assumes "instr_load_auth instr = Some (RegAuth n)"
+    and "instr_of_trace t = Some instr"
+  shows "load_auth_caps_of_trace t = trace_reads_caps_from_gpr n t"
+  using assms
+  by (auto simp: load_auth_caps_of_trace_def trace_load_auths_def trace_reads_caps_from_gpr_def)
+
+lemma load_auth_caps_run_eq_load_auth_caps_of_trace:
+  assumes "instr_indirect_sentry_type instr = Some sentry_type"
+    and "instr_of_trace t = Some instr"
+  shows "load_auth_caps (run_state s t) = load_auth_caps_of_trace t \<union> load_auth_caps s"
+  using assms
+  by (elim instr_load_auth_if_indirect_sentry_type)
+     (auto simp: load_auth_caps_run_state_trace_reads_caps_from_gpr load_auth_caps_of_trace_trace_reads_caps_from_gpr)
+
+lemma branch_instr_run_has_expected_gpr_readsI:
+  assumes "has_expected_gpr_reads (run_state (initial_invocation_state regs) t)"
+    and "instr_of_trace t = Some instr"
+  shows "branch_instr_run_has_expected_gpr_reads t"
+  using assms
+  unfolding branch_instr_run_has_expected_gpr_reads_def has_expected_gpr_reads_def
+  by (auto simp: trace_invokes_code_cap_from_reg_def trace_invokes_data_cap_from_reg_def
+                 trace_load_auths_def trace_reads_initial_caps_from_gpr_eq is_singleton_def
+                 code_reg_caps_run_state_trace_reads_caps_from_gpr
+                 data_reg_caps_run_state_trace_reads_caps_from_gpr
+                 load_auth_caps_run_state_trace_reads_caps_from_gpr initial_invocation_state_def)
+
+lemma original_reg_code_caps_invoked_in_trace_in_code_reg_caps:
+  assumes "instr_of_trace t = Some instr"
+  shows "original_reg_code_caps_invoked_in_trace t \<subseteq> code_reg_caps (run_state s t)"
+  using assms
+  unfolding original_reg_code_caps_invoked_in_trace_def original_cap_pairs_invoked_in_trace_def
+    original_direct_reg_sentries_invoked_in_trace_def
+  by (auto simp: trace_invokes_code_cap_from_reg_def code_reg_caps_run_state_trace_reads_caps_from_gpr)
+
+lemma original_code_caps_indirectly_invoked_in_trace_in_original_mem_code_caps:
+  assumes "instr_of_trace t = Some instr"
+  shows "original_code_caps_indirectly_invoked_in_trace t \<subseteq> original_mem_code_caps (run_state s t)"
+  using assms
+  unfolding original_code_caps_indirectly_invoked_in_trace_def original_mem_code_caps_def
+    trace_invokes_indirect_sentries_def trace_invokes_indirect_cap_from_reg_def
+    trace_indirect_sentry_type_def
+  apply (auto simp: mem_caps_run_state indirect_cap_reg_is_load_auth[THEN load_auth_caps_run_state_trace_reads_caps_from_gpr] CapUnseal_get_bounds_helpers_eq elim!: get_indirect_sentry_type_Some_cases)
+  apply fastforce
+  apply fastforce
+  subgoal for c rk paddr bytes c' n
+    apply (rule exI[where x = paddr])
+    apply (auto)
+    done
+  done
+
+lemma original_direct_mem_sentries_invoked_in_trace_in_original_mem_code_caps:
+  assumes "instr_of_trace t = Some instr"
+  shows "original_direct_mem_sentries_invoked_in_trace t \<subseteq> original_mem_code_caps (run_state s t)"
+  using assms
+  unfolding original_direct_mem_sentries_invoked_in_trace_def original_mem_code_caps_def
+    trace_indirect_sentry_type_def
+  by (fastforce simp: mem_caps_run_state load_auth_caps_run_eq_load_auth_caps_of_trace)
+
+lemma original_code_caps_invoked_in_trace_in_original_code_caps:
+  assumes "instr_of_trace t = Some instr"
+  shows "original_code_caps_invoked_in_trace t \<subseteq> original_code_caps (run_state s t)"
+  using original_reg_code_caps_invoked_in_trace_in_code_reg_caps[OF assms, THEN subsetD]
+    original_code_caps_indirectly_invoked_in_trace_in_original_mem_code_caps[OF assms, THEN subsetD]
+    original_direct_mem_sentries_invoked_in_trace_in_original_mem_code_caps[OF assms, THEN subsetD]
+  by (auto simp: original_code_caps_invoked_in_trace_def original_code_caps_def)
+
+lemma branch_instr_run_has_expected_pstate_writesI:
+  assumes "has_expected_pstate_writes (run_state (initial_invocation_state regs) t)"
+    and "instr_of_trace t = Some instr"
+  shows "branch_instr_run_has_expected_pstate_writes opcode t"
+proof (unfold branch_instr_run_has_expected_pstate_writes_def, intro ballI impI)
+  fix cc'
+  assume "cc' \<in> instr_invokes_code_caps opcode t" and tagged: "CapIsTagSet cc'"
+  then obtain cc where cc: "cc \<in> original_code_caps_invoked_in_trace t"
+    and "cc' \<in> branch_caps (clear_lsb (CapUnseal cc)) \<union> mem_branch_caps (clear_lsb cc)"
+    by (cases rule: instr_of_trace_invocation_cases[OF assms(2), where opcode = opcode];
+        auto simp: image_UN clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq reads_mem_cap_Some_iff;
+        fastforce)
+  then have "cc \<in> original_code_caps (run_state (initial_invocation_state regs) t)" and "CapIsTagSet cc"
+    using original_code_caps_invoked_in_trace_in_original_code_caps[OF assms(2), where s = "initial_invocation_state regs"] tagged
+    by (auto simp: branch_caps_128th_iff mem_branch_caps_128th_iff test_bit_set_gen)
+  then obtain pstate where
+    "set (pstate_writes (run_state (initial_invocation_state regs) t)) = {Regval_ProcState pstate}"
+    "test_bit (ProcState_C64 pstate) 0 = lsb cc"
+    using assms(1)
+    by (auto simp: has_expected_pstate_writes_def)
+  then show "\<exists>cc\<in>original_code_caps_invoked_in_trace t. pstate_c64_writes t = {lsb cc}"
+    using cc
+    by (intro bexI[where x = cc])
+       (auto simp add: pstate_c64_writes_def set_pstate_writes_run_state initial_invocation_state_def set_eq_iff)
+qed
+
+lemma no_state_updateI:
+  assumes "no_gpr_accesses_or_mem_cap_reads m"
+    and "no_reg_writes_to {''PCC'', ''PSTATE'', ''__BranchTaken''} m"
+  shows "no_state_update m"
+proof (unfold no_state_update_def, intro allI impI, elim conjE)
+  fix s t m'
+  assume t: "(m, t, m') \<in> Traces" and "trace_assms s t"
+  then have "\<forall>r v. r \<in> all_R_names \<longrightarrow> E_read_reg r v \<notin> set t"
+    using assms
+    by (auto simp: no_gpr_accesses_or_mem_cap_reads_def no_accesses_to_any_gpr_def no_reads_from_any_gpr_def
+                   no_reads_from_gpr_def dest: all_R_names_R_name)
+  moreover have "\<forall>r v. r \<in> invocation_regs \<longrightarrow> E_write_reg r v \<notin> set t"
+    using t assms
+    unfolding invocation_regs_def no_reg_writes_to_def no_gpr_accesses_or_mem_cap_reads_def
+      no_accesses_to_any_gpr_def no_writes_to_any_gpr_def no_writes_to_gpr_def
+    by (auto dest: all_R_names_R_name)
+  moreover have "E_read_memt rk addr sz val \<notin> set t" for rk addr sz val
+    using t assms
+    unfolding no_gpr_accesses_or_mem_cap_reads_def no_mem_cap_reads_def
+    by (cases val) auto
+  ultimately show "run_state s t = s"
+  proof (induction t)
+    case (Cons e t)
+    then show ?case
+    proof (cases e)
+      case (E_read_memt rk addr sz val)
+      then show ?thesis
+        using Cons.prems(3)[of rk addr sz val]
+        by auto
+    next
+      case (E_read_reg r v)
+      then have "r \<notin> all_R_names"
+        using Cons.prems
+        by auto
+      moreover have "\<not>is_code_reg r" and "\<not>is_data_reg r" and "\<not>is_indirect_reg r" and "\<not>is_load_auth_reg r"
+        using calculation
+        by (auto simp: is_code_reg_def is_data_reg_def is_indirect_reg_def is_load_auth_reg_def dest: R_name_in_all_R_names)
+      ultimately show ?thesis
+        using E_read_reg Cons
+        by (cases v) auto
+    next
+      case (E_write_reg r v)
+      then have "r \<notin> invocation_regs"
+        using Cons.prems
+        by auto
+      then have "r \<notin> invocation_regs \<union> all_R_names \<union> {''PCC'', ''PSTATE'', ''_R29'', ''__BranchTaken''}"
+        using R29_all_R_names
+        unfolding invocation_regs_def
+        by auto
+      then show ?thesis
+        using E_write_reg Cons
+        by auto
+    qed auto
+  qed auto
+qed
+
+definition "add_pcc_write c s \<equiv> s\<lparr>pcc_writes := Regval_bitvector_129_dec c # pcc_writes s\<rparr>"
+definition "add_pstate_write ps s \<equiv> s\<lparr>pstate_writes := Regval_ProcState ps # pstate_writes s\<rparr>"
+definition "add_branch_taken_write b s \<equiv> s\<lparr>branch_taken_writes := Regval_bool b # branch_taken_writes s\<rparr>"
+
+lemma pre_post_write_reg_BranchTaken:
+  "pre_post (\<lambda>s. Q () (add_branch_taken_write b s)) (write_reg BranchTaken_ref b) Q E F"
+  by (rule pre_post_strengthen_pre, rule pre_post_write_reg)
+     (simp add: add_branch_taken_write_def register_defs invocation_regs_def all_R_names_def)
+
+lemma pre_post_write_reg_PCC:
+  "pre_post (\<lambda>s. Q () (add_pcc_write c s)) (write_reg PCC_ref c) Q E F"
+  by (rule pre_post_strengthen_pre, rule pre_post_write_reg)
+     (simp add: add_pcc_write_def register_defs all_R_names_def)
+
+lemma pre_post_write_reg_PSTATE:
+  "pre_post (\<lambda>s. Q () (add_pstate_write ps s)) (write_reg PSTATE_ref ps) Q E F"
+  by (rule pre_post_strengthen_pre, rule pre_post_write_reg)
+     (simp add: add_pstate_write_def register_defs all_R_names_def)
+
+lemma pre_post_read_reg_PSTATE:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>pstate. (\<forall>acctype. acctype \<noteq> AccType_UNPRIV \<longrightarrow> translation_el acctype = ProcState_EL pstate) \<longrightarrow> Q pstate s)
+     (read_reg PSTATE_ref :: ProcState M) Q E"
+  apply (rule pre_post_strengthen_pre)
+   apply (rule pre_post_ignore_fail_no_state_update_no_exception)
+    apply (rule no_state_updateI, no_reads_from_any_gpr, no_reg_writes_toI, rule monad_no_exception)
+  apply (use read_reg_PSTATE_translation_el in \<open>auto dest!: trace_assms_translation_assms_trace\<close>)
+  done
+
+lemma pre_post_BranchAddr:
+  "pre_post_ignore_fail
+     (\<lambda>s. translation_el AccType_IFETCH = el \<and>
+     (\<forall>c'. (CapIsTagSet c' \<longrightarrow> c' \<in> branch_caps c) \<longrightarrow> Q c' s))
+     (BranchAddr c el) Q E"
+  apply (rule pre_post_strengthen_pre, rule pre_post_ignore_fail_no_state_update_no_exception)
+    apply (rule no_state_updateI)
+     apply (no_reads_from_any_gpr)
+    apply (no_reg_writes_toI)
+   apply (rule monad_no_exception)
+  apply (use BranchAddr_in_branch_caps in \<open>auto dest: trace_assms_translation_assms_trace\<close>)
+  done
+
+lemma pre_post_BranchToCapability:
+  "pre_post_ignore_fail
+     (\<lambda>s. (\<forall>c'. (CapIsTagSet c' \<longrightarrow> c' \<in> branch_caps c) \<longrightarrow>
+                Q () (add_branch_taken_write True (add_pcc_write c' s))))
+     (BranchToCapability c branch_type) Q E"
+  unfolding BranchToCapability_def Let_def bind_assoc
+  apply (rule pre_post_strengthen_pre)
+   apply (rule pre_post_bind)+
+          apply (rule pre_post_write_reg_BranchTaken)
+         apply (rule pre_post_write_reg_PCC)
+        apply (rule pre_post_BranchAddr)
+       apply (rule pre_post_read_reg_PSTATE)
+      apply (rule pre_post_write_reg)
+     apply (rule pre_post_ignore_fail_no_state_update_no_exception, rule no_state_updateI, no_reads_from_any_gpr, no_reg_writes_toI, rule monad_no_exception)
+    apply (rule pre_post_ignore_fail_assert_exp)
+   apply (rule pre_post_ignore_fail_no_state_update_no_exception, rule no_state_updateI, no_reads_from_any_gpr, no_reg_writes_toI, rule monad_no_exception)
+  apply (simp add: all_R_names_def register_defs)
+  done
+
+lemma pre_post_BranchXToCapability:
+  "pre_post_ignore_fail
+     (\<lambda>s. (\<forall>c' pstate.
+              (CapIsTagSet c' \<longrightarrow> c' \<in> branch_caps (clear_lsb c)) \<and>
+              ProcState_C64 pstate = of_bl [lsb c] \<longrightarrow>
+              Q () (add_branch_taken_write True (add_pcc_write c' (add_pstate_write pstate s)))))
+     (BranchXToCapability c branch_type) Q E"
+  unfolding BranchXToCapability_def Let_def bind_assoc
+  apply (rule pre_post_strengthen_pre)
+   apply (rule pre_post_bind)+
+     apply (rule pre_post_BranchToCapability)
+    apply (rule pre_post_write_reg_PSTATE)
+   apply (rule pre_post_read_reg)
+  apply (auto simp: register_defs word_lsb_alt split: option.split)
+  done
+
+lemma pre_post_R_read:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>r c e.
+            n \<in> {0..30} \<and> R_name n = {r} \<and> e = E_read_reg r (Regval_bitvector_129_dec c) \<and>
+            (reg_state s r = Some (Regval_bitvector_129_dec c) \<or> reg_state s r = None)
+            \<longrightarrow> Q c (step_state s e))
+     (R_read n) Q E"
+  unfolding R_read_def Let_def
+  apply (intro pre_post_if_common_pre)
+  apply (rule pre_post_strengthen_pre, rule pre_post_read_reg, simp add: register_defs R_name_def del: step_state.simps split: option.split)+
+  apply (rule pre_post_bind, simp, rule pre_post_strengthen_pre, rule pre_post_ignore_fail_assert_exp, simp)
+  done
+
+end
+
+context Morello_ISA
+begin
 
 (* TODO: Move *)
 lemma mem_cap_loads_of_ev_reads_mem_cap:
@@ -341,7 +1232,8 @@ next
         using ** c
         by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def subset_eq)
       have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
-        sorry
+        using translate_address_vaddr_offset_paddr_different[OF paddr_cd, where offset = 16] paddr_cc
+        by auto
       have "original_code_caps_invoked_in_trace t = {cc. (paddr_cc, cc) \<in> mem_cap_loads_of_trace t \<and> is_sentry cc}"
         using initial_loads paddr_cd paddr_cc ** c Points_to_Pair
         unfolding DirectMemSentry'(6)
@@ -447,7 +1339,8 @@ next
     using **
     by (intro set_eqI; simp add: branch_instr_run_has_expected_invocation_loads_def; fastforce)
   have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
-    sorry
+    using translate_address_vaddr_offset_paddr_different[OF paddr_cd, where offset = 16] paddr_cc
+    by auto
   have "original_code_caps_invoked_in_trace t = {cc. \<exists>paddr.
           (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> translate_address (unat (CapGetValue c + 16)) = Some paddr \<and>
           cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c + 16)) 16}"
@@ -537,12 +1430,6 @@ next
                      trace_raises_ex_def runTrace_iff_Traces)
   qed
 qed
-
-lemma mem_branch_caps_128th_iff:
-  assumes "c' \<in> mem_branch_caps c"
-  shows "c' !! 128 \<longleftrightarrow> c !! 128"
-  using assms
-  by (auto simp: mem_branch_caps_def branch_caps_128th_iff split: if_splits)
 
 lemma invocation_writes_pstate_c64_instr_trace:
   assumes "hasTrace t (instr_sem opcode)"

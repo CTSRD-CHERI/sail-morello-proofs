@@ -1629,6 +1629,24 @@ proof -
     .
 qed
 
+lemma translate_address_vaddr_offset_paddr_different:
+  assumes "translate_address vaddr = Some paddr"
+    and "offset < 2^12" and "offset > 0"
+  shows "translate_address (vaddr + offset) \<noteq> Some paddr"
+proof
+  assume "translate_address (vaddr + offset) = Some paddr"
+  from translate_address_page_offset[OF this] translate_address_page_offset[OF assms(1)]
+  have "vaddr mod 2 ^ 12 = (vaddr + offset) mod 2 ^ 12"
+    by auto
+  also have "\<dots> = (vaddr mod 2 ^ 12 + offset) mod 2 ^ 12"
+    by (simp flip: pull_mods(8))
+  also have "\<dots> = (if vaddr mod 2 ^ 12 + offset < 2 ^ 12 then vaddr mod 2 ^ 12 + offset else vaddr mod 2 ^ 12 + offset - 2 ^ 12)"
+    by (rule mod_nat_add) (use assms(2) in auto)
+  finally show False
+    using assms(2,3)
+    by (cases "vaddr mod 2 ^ 12 + offset < 2 ^ 12") auto
+qed
+
 lemma translate_address_aligned_iff[simp]:
   assumes "translate_address vaddr = Some paddr"
     and "sz dvd 2^12"
@@ -7287,6 +7305,12 @@ lemma (in Morello_ISA) branch_caps_128th_iff:
   shows "c' !! 128 \<longleftrightarrow> c !! 128"
   using assms
   by (auto simp: branch_caps_def normalise_cursor_flags_def test_bit_set_gen split: if_splits)
+
+lemma (in Morello_ISA) mem_branch_caps_128th_iff:
+  assumes "c' \<in> mem_branch_caps c"
+  shows "c' !! 128 \<longleftrightarrow> c !! 128"
+  using assms
+  by (auto simp: mem_branch_caps_def branch_caps_128th_iff split: if_splits)
 
 lemma leq_cap_CapWithTagClear[simp, intro]:
   "leq_cap CC (CapWithTagClear c) c'"

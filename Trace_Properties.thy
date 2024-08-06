@@ -26,6 +26,17 @@ lemma bind_Traces_Exception_left:
   using assms
   by (induction m arbitrary: t) (erule Traces_cases; auto)+
 
+lemma Fail_eq_bind_iff:
+  "Fail msg = (m \<bind> f) \<longleftrightarrow> (m = Fail msg \<or> (\<exists>a. m = Done a \<and> f a = Fail msg))"
+  by (cases m; auto)
+
+lemma bind_Fail_cases:
+  assumes "(m \<bind> f, t, Fail msg) \<in> Traces"
+  obtains (Left) "(m, t, Fail msg) \<in> Traces"
+  | (Bind) tm a tf where "Run m tm a" and "(f a, tf, Fail msg) \<in> Traces" and "t = tm @ tf"
+  using assms
+  by (cases rule: bind_Traces_cases) (auto simp: Fail_eq_bind_iff)
+
 lemma final_iff:
   "final m \<longleftrightarrow> (\<exists>a. m = Done a) \<or> (\<exists>e. m = Exception e) \<or> (\<exists>msg. m = Fail msg)"
   by (cases m; auto simp: final_def)
