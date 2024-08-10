@@ -145,7 +145,7 @@ lemma trace_has_cap_load_auth_iff_load_cap_perm:
     and "trace_reads_caps_from_gpr n t = {c}"
   shows "trace_has_cap_load_auth t \<longleftrightarrow> cap_permits CAP_PERM_LOAD_CAP c"
   using assms
-  by (fastforce simp: trace_has_cap_load_auth_def load_auth_caps_of_trace_def trace_reads_caps_from_gpr_def set_eq_iff)
+  by (fastforce simp: trace_has_cap_load_auth_def instr_trace_load_auth_caps_def trace_reads_caps_from_gpr_def set_eq_iff)
 
 lemma hasTrace_Run:
   assumes "hasTrace t m"
@@ -191,6 +191,7 @@ lemma hasTrace_instr_sem_invocation_cases:
       that isn't an indirect sentry, can still load a direct sentry from memory and invoke it\<close>
     where "instr_load_auth instr = Some (RegAuth n)"
     and "trace_reads_initial_caps_from_gpr n t = {c}"
+    and "instr_trace_load_auth_caps t = {c}"
     and "instr_indirect_sentry_type instr = Some sentry_type"
     and "\<not>CapIsSealed c"
     and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
@@ -205,6 +206,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     where "instr_invokes_indirect_cap_from_reg instr = Some 29"
     and "instr_indirect_sentry_type instr = Some Points_to_PCC"
     and "trace_reads_initial_caps_from_gpr 29 t = {c}"
+    and "instr_trace_load_auth_caps t = {c}"
     and "CapIsTagSet c"
     and "CapGetObjectType c = CAP_SEAL_TYPE_LB"
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
@@ -218,6 +220,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     where "instr_invokes_indirect_cap_from_reg instr = Some n"
     and "instr_indirect_sentry_type instr = Some Points_to_Pair"
     and "trace_reads_initial_caps_from_gpr n t = {c}"
+    and "instr_trace_load_auth_caps t = {c}"
     and "CapIsTagSet c"
     and "CapGetObjectType c = CAP_SEAL_TYPE_LPB"
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
@@ -296,8 +299,8 @@ next
        (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_invocation_loads_def
                    trace_has_reg_load_auth_for_addr_def branch_instr_run_has_expected_gpr_reads_def
                    instr_invokes_indirect_caps_def)
-  then have [simp]: "load_auth_caps_of_trace t = {c}"
-    by (fastforce simp add: load_auth_caps_of_trace_def trace_reads_caps_from_gpr_def set_eq_iff)
+  then have [simp]: "instr_trace_load_auth_caps t = {c}"
+    by (fastforce simp add: instr_trace_load_auth_caps_def trace_reads_caps_from_gpr_def set_eq_iff)
   show thesis
   proof (cases "instr_invokes_code_caps opcode t = {}")
     case True

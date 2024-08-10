@@ -1896,15 +1896,24 @@ definition trace_is_in_c64 :: "register_value trace \<Rightarrow> bool" where
 definition trace_load_auths :: "register_value trace \<Rightarrow> load_auth option" where
   "trace_load_auths t \<equiv> Option.bind (instr_of_trace t) instr_load_auth"
 
-definition load_auth_caps_of_trace :: "register_value trace \<Rightarrow> Capability set" where
-  "load_auth_caps_of_trace t \<equiv>
+definition instr_trace_load_auth_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "instr_trace_load_auth_caps t \<equiv>
      {c. \<exists>r auth.
         trace_load_auths t = Some auth \<and>
         r \<in> load_auth_reg_names (trace_is_in_c64 t) auth \<and>
         E_read_reg r (Regval_bitvector_129_dec c) \<in> set t}"
 
+definition fetch_trace_load_auth_caps :: "register_value trace \<Rightarrow> Capability set" where
+  "fetch_trace_load_auth_caps t \<equiv> {c. E_read_reg ''PCC'' (Regval_bitvector_129_dec c) \<in> set t}"
+
+definition trace_load_auth_caps :: "(register_value, instr) isa_trace \<Rightarrow> Capability set" where
+  "trace_load_auth_caps t \<equiv>
+     (case trace_kind t of
+        Instr_Trace _ \<Rightarrow> instr_trace_load_auth_caps (trace t)
+      | Fetch_Trace \<Rightarrow> fetch_trace_load_auth_caps (trace t))"
+
 definition trace_has_cap_load_auth :: "register_value trace \<Rightarrow> bool" where
-  "trace_has_cap_load_auth t \<equiv> (\<exists>c \<in> load_auth_caps_of_trace t. cap_permits CAP_PERM_LOAD_CAP c)"
+  "trace_has_cap_load_auth t \<equiv> (\<exists>c \<in> instr_trace_load_auth_caps t. cap_permits CAP_PERM_LOAD_CAP c)"
 
 definition trace_uses_mem_caps :: "(register_value, instr) isa_trace \<Rightarrow> bool" where
   "trace_uses_mem_caps t \<equiv> trace_has_cap_load_auth (trace t)"
@@ -2087,7 +2096,7 @@ definition original_direct_mem_sentries_invoked_in_trace :: "register_value trac
          trace_has_cap_load_auth t \<and>
          reads_mem_cap CC e = Some (addr, nat CAPABILITY_DBYTES, c) \<and>
          (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow>
-            (\<exists>auth \<in> load_auth_caps_of_trace t.
+            (\<exists>auth \<in> instr_trace_load_auth_caps t.
                translate_address (unat (CapGetValue auth + 16)) = Some addr)) \<and>
          CapIsTagSet c \<and> is_sentry c}"
 
@@ -2203,6 +2212,7 @@ definition "ISA \<equiv>
    IDC = {''_R29''},
    isa.caps_of_regval = caps_of_regval,
    isa.trace_uses_mem_caps = trace_uses_mem_caps,
+   isa.trace_load_auth_caps = trace_load_auth_caps,
    isa.instr_invokes_indirect_caps = instr_invokes_indirect_caps,
    isa.instr_invokes_code_caps = instr_invokes_code_caps,
    isa.instr_invokes_data_caps = instr_invokes_data_caps,
@@ -2319,7 +2329,7 @@ lemma instr_of_trace_invocation_cases:
            {c. \<exists>paddr. \<exists>e \<in> set t.
                   reads_mem_cap CC e = Some (paddr, 16, c) \<and> CapIsTagSet c \<and> is_sentry c \<and>
                   (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow>
-                     (\<exists>auth \<in> load_auth_caps_of_trace t.
+                     (\<exists>auth \<in> instr_trace_load_auth_caps t.
                         translate_address (unat (CapGetValue auth + 16)) = Some paddr))}"
     and "instr_invokes_code_caps opcode t =
            clear_lsb ` \<Union>(branch_caps ` CapUnseal ` original_code_caps_invoked_in_trace t)"
@@ -2514,7 +2524,7 @@ proof -
                 {c. \<exists>paddr. \<exists>e \<in> set t.
                     reads_mem_cap CC e = Some (paddr, 16, c) \<and> CapIsTagSet c \<and> is_sentry c \<and>
                     (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow>
-                       (\<exists>auth \<in> load_auth_caps_of_trace t.
+                       (\<exists>auth \<in> instr_trace_load_auth_caps t.
                           translate_address (unat (CapGetValue auth + 16)) = Some paddr))}"
             and "trace_has_cap_load_auth t"
             using Points_to_Pair No_Indirect assms
@@ -6665,7 +6675,7 @@ lemma instantiated_invocation_trace_assms:
     and "invoked_data_caps = instr_invokes_data_caps opcode t"
     and "invoked_indirect_caps = trace_invokes_indirect_sentries t"
     and "original_reg_code_caps = original_reg_code_caps_read_in_trace t"
-    and "original_reg_load_auth_caps = load_auth_caps_of_trace t"
+    and "original_reg_load_auth_caps = instr_trace_load_auth_caps t"
     and "use_mem_caps \<longrightarrow> trace_has_cap_load_auth t"
   shows "invocation_trace_assms t"
 proof (unfold invocation_trace_assms_def, intro ballI)
@@ -7630,7 +7640,7 @@ locale Morello_Trace_Axiom_Automaton = Morello_ISA +
     and invoked_data_caps = "trace_invokes_data_caps ISA t"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA t"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace t)"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace t)"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace t)"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA t"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace t)"
     and is_in_c64 = "trace_is_in_c64 (trace t)"
@@ -7645,7 +7655,7 @@ locale Morello_Trace_Write_Cap_Automaton = Morello_ISA +
     and invoked_data_caps = "trace_invokes_data_caps ISA t"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA t"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace t)"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace t)"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace t)"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA t"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace t)"
     and is_in_c64 = "trace_is_in_c64 (trace t)"
@@ -7662,7 +7672,7 @@ locale Morello_Trace_Mem_Automaton = Morello_ISA +
     and invoked_data_caps = "trace_invokes_data_caps ISA t"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA t"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace t)"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace t)"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace t)"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA t"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace t)"
     and is_in_c64 = "trace_is_in_c64 (trace t)"
@@ -7682,7 +7692,7 @@ sublocale Morello_Instr_Trace_Axiom_Automaton \<subseteq> Morello_Instr_Axiom_Au
     and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace (instr_trace instr t))"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace (instr_trace instr t))"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace (instr_trace instr t))"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
     and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
@@ -7700,7 +7710,7 @@ sublocale Morello_Fetch_Trace_Axiom_Automaton \<subseteq> Morello_Fetch_Axiom_Au
     and invoked_data_caps = "trace_invokes_data_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace (fetch_trace t :: (register_value, instr) isa_trace))"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (fetch_trace t :: (register_value, instr) isa_trace))"
     and is_in_c64 = "trace_is_in_c64 (trace (fetch_trace t :: (register_value, instr) isa_trace))"
@@ -7721,7 +7731,7 @@ sublocale Morello_Instr_Trace_Write_Cap_Automaton \<subseteq> Morello_Instr_Writ
     and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace (instr_trace instr t))"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace (instr_trace instr t))"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace (instr_trace instr t))"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
     and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
@@ -7742,7 +7752,7 @@ sublocale Morello_Instr_Trace_Mem_Automaton \<subseteq> Morello_Instr_Mem_Automa
     and invoked_data_caps = "trace_invokes_data_caps ISA (instr_trace instr t)"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (instr_trace instr t)"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace (instr_trace instr t))"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace (instr_trace instr t))"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace (instr_trace instr t))"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA (instr_trace instr t)"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (instr_trace instr t))"
     and is_in_c64 = "trace_is_in_c64 (trace (instr_trace instr t))"
@@ -7763,7 +7773,7 @@ sublocale Morello_Fetch_Trace_Write_Cap_Automaton \<subseteq> Morello_Fetch_Writ
     and invoked_data_caps = "trace_invokes_data_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace (fetch_trace t :: (register_value, instr) isa_trace))"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (fetch_trace t :: (register_value, instr) isa_trace))"
     and is_in_c64 = "trace_is_in_c64 (trace (fetch_trace t :: (register_value, instr) isa_trace))"
@@ -7784,7 +7794,7 @@ sublocale Morello_Fetch_Trace_Mem_Automaton \<subseteq> Morello_Fetch_Mem_Automa
     and invoked_data_caps = "trace_invokes_data_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and invoked_indirect_caps = "trace_invokes_indirect_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and original_reg_code_caps = "original_reg_code_caps_read_in_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
-    and original_reg_load_auth_caps = "load_auth_caps_of_trace (trace (fetch_trace t :: (register_value, instr) isa_trace))"
+    and original_reg_load_auth_caps = "instr_trace_load_auth_caps (trace (fetch_trace t :: (register_value, instr) isa_trace))"
     and load_caps_permitted = "isa.trace_uses_mem_caps ISA (fetch_trace t :: (register_value, instr) isa_trace)"
     and no_system_reg_access = "\<not>trace_has_system_reg_access (trace (fetch_trace t :: (register_value, instr) isa_trace))"
     and is_in_c64 = "trace_is_in_c64 (trace (fetch_trace t :: (register_value, instr) isa_trace))"
