@@ -101,7 +101,7 @@ begin
 sublocale Mem_Assm_Automaton_For_Trace
   where CC = CC and ISA = ISA and initial_caps = UNKNOWN_caps and ev_assms = ev_assms
     and is_isa_exception = is_isa_exception and wellformed_ev = wellformed_ev
-    and cap_invariant = cap_invariant
+    and cap_invariant = cap_invariant and translation_assms = translation_assms
     and t = "\<lparr>trace = t, trace_kind = Instr_Trace instr\<rparr>"
   by (unfold_locales, elim ev_assms_translation_assms)
 
