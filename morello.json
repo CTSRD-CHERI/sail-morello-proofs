@@ -944,7 +944,8 @@
     "_WriteTags",
     "__UNKNOWN_Capability",
     "__UNKNOWN_VirtualAddress",
-    "Step_Timers"
+    "Step_Timers",
+    "Step_CPU"
   ],
   "skip_lemmas": {
     "MemAtomicCompareAndSwapC": ["derivable_caps"],
