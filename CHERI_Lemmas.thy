@@ -2603,7 +2603,7 @@ lemma load_enabled_runI[derivable_caps_runI]:
 
 lemma addrs_in_mem_region_subset:
   assumes "addrs_in_mem_region c acctype vaddr paddr sz"
-    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
+    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz" and "vaddr' = vaddr \<or> sz' > 0"
     and "translate_address vaddr' = Some paddr'"
   shows "addrs_in_mem_region c acctype vaddr' paddr' sz'"
   using assms
@@ -2612,7 +2612,7 @@ lemma addrs_in_mem_region_subset:
 
 lemma access_enabled_data_subset:
   assumes "access_enabled s acctype vaddr paddr sz data tag"
-    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz"
+    and "vaddr \<le> vaddr'" and "vaddr' + sz' \<le> vaddr + sz" and "vaddr' = vaddr \<or> sz' > 0"
     and "translate_address vaddr' = Some paddr'"
   shows "access_enabled s acctype vaddr' paddr' sz' data' B0"
   using assms
@@ -2621,7 +2621,7 @@ lemma access_enabled_data_subset:
 
 lemma access_enabled_data_offset:
   assumes "access_enabled s acctype vaddr paddr sz data tag"
-    and "offset + sz' \<le> sz"
+    and "offset + sz' \<le> sz" and "offset = 0 \<or> sz' > 0"
     and "translate_address (vaddr + offset) = Some paddr'"
   shows "access_enabled s acctype (vaddr + offset) paddr' sz' data' B0"
   using assms
@@ -3111,7 +3111,7 @@ next
     using mem_region_2p64 offset
     by auto
   have "addrs_in_mem_region c' ?loadtype ?bvaddr' paddr' (nat sz')"
-    using mem_region offset paddr'
+    using mem_region offset paddr' sz sz'
     using translate_address_valid[OF paddr', THEN translate_bounds_address, of acctype]
     unfolding bvaddr' addrs_in_mem_region_def
     by (auto intro!: translate_bounds_address translate_address_valid)
@@ -3199,7 +3199,7 @@ next
     using mem_region_2p64 offset
     by auto
   have "addrs_in_mem_region c Store ?bvaddr' paddr' (nat sz')"
-    using mem_region offset paddr'
+    using mem_region offset paddr' sz sz'
     using translate_address_valid[OF paddr', THEN translate_bounds_address, of acctype]
     unfolding bvaddr' addrs_in_mem_region_def
     by (auto intro!: translate_bounds_address translate_address_valid)
@@ -3305,8 +3305,12 @@ proof (unfold store_enabled_def, intro conjI allI impI)
   with t' show "?bvaddr + nat 64 \<le> 2^64"
     using CapIsRangeInBounds_in_get_mem_region[OF t']
     by (auto simp: bvaddr get_mem_region_def split: if_splits)
-  show "access_enabled (run s t) Store ?bvaddr paddr (nat 64) ?bytes ?tagbit"
-    using c' paddr tagged not_sealed perms CapIsRangeInBounds_in_get_mem_region[OF t']
+  have "set (address_range (unat bvaddr) 64) \<subseteq> get_mem_region CC c'"
+    and "unat bvaddr \<in> get_mem_region CC c'"
+    using CapIsRangeInBounds_in_get_mem_region[OF t']
+    by (auto simp: get_mem_region_def split: if_splits)
+  then show "access_enabled (run s t) Store ?bvaddr paddr (nat 64) ?bytes ?tagbit"
+    using c' paddr tagged not_sealed perms
     unfolding access_enabled_def authorises_access_def addrs_in_mem_region_def has_access_permission_def
     by (auto simp: bvaddr derivable_caps_def)
 qed simp
