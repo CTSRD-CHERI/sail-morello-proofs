@@ -2150,7 +2150,7 @@ definition original_code_caps_indirectly_invoked_in_trace :: "register_value tra
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> trace_invokes_indirect_sentries t \<and>
             trace_has_cap_load_auth t \<and>
-            set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+            \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
             (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)) \<and>
             translate_address vaddr = Some paddr \<and>
             E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>
@@ -2182,7 +2182,7 @@ definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightar
                  sz = nat CAPABILITY_DBYTES \<and>
                  sentry \<in> trace_invokes_indirect_sentries t \<and>
                  trace_has_cap_load_auth t \<and>
-                 set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue sentry))) 16) \<subseteq> get_mem_region CC sentry \<and>
+                 \<comment> \<open>set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue sentry))) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                  translate_address (unat (CapGetValue sentry)) = Some paddr \<and>
                  E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>
                  cap_of_mem_bytes bytes B1 = Some c' \<and> CapIsTagSet c' \<and>
@@ -2374,7 +2374,7 @@ lemma instr_of_trace_invocation_cases:
            {c. \<exists>sentry paddr vaddr. \<exists>e \<in> set t.
                   reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                   translate_address vaddr = Some paddr \<and>
-                  set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+                  \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                   sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                   trace_has_cap_load_auth t}"
     and "instr_invokes_code_caps opcode t = clear_lsb ` \<Union>(mem_branch_caps ` original_code_caps_invoked_in_trace t)"
@@ -2391,7 +2391,7 @@ lemma instr_of_trace_invocation_cases:
                   reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                   translate_address vaddr = Some paddr \<and>
                   vaddr = unat (CapGetValue sentry + 16) \<and>
-                  set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+                  \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                   sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                   trace_has_cap_load_auth t}"
     and "instr_invokes_code_caps opcode t = clear_lsb ` \<Union>(mem_branch_caps ` original_code_caps_invoked_in_trace t)"
@@ -2400,7 +2400,7 @@ lemma instr_of_trace_invocation_cases:
                reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                translate_address vaddr = Some paddr \<and>
                vaddr = unat (CapGetValue sentry) \<and>
-               set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+               \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                trace_has_cap_load_auth t}"
     and "instr_invokes_indirect_caps opcode t \<noteq> {}"
@@ -2487,8 +2487,12 @@ proof -
         apply (auto simp: trace_invoked_cap_defs original_code_caps_invoked_in_trace_def if_then_Some_eq_Some_iff clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq image_UN image_Un CapIsSealed_def is_sentry_def reads_mem_cap_Some_iff elim!: instr_indirect_sentry_type.elims)[]
         apply (auto simp: trace_invoked_cap_defs original_code_caps_invoked_in_trace_def if_then_Some_eq_Some_iff clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq image_UN image_Un CapIsSealed_def is_sentry_def reads_mem_cap_Some_iff elim!: instr_indirect_sentry_type.elims)[]
         apply fastforce
-               apply fastforce
-        subgoal for c' x paddr vaddr rk bytes c'a c'b imm7 Cn
+           apply fastforce
+        apply (auto simp: trace_invoked_cap_defs original_code_caps_invoked_in_trace_def if_then_Some_eq_Some_iff clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq image_UN image_Un CapIsSealed_def is_sentry_def reads_mem_cap_Some_iff elim!: instr_indirect_sentry_type.elims)[]
+        apply (auto simp: trace_invoked_cap_defs original_code_caps_invoked_in_trace_def if_then_Some_eq_Some_iff clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq image_UN image_Un CapIsSealed_def is_sentry_def reads_mem_cap_Some_iff elim!: instr_indirect_sentry_type.elims)[]
+        apply (auto simp: trace_invoked_cap_defs original_code_caps_invoked_in_trace_def if_then_Some_eq_Some_iff clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq image_UN image_Un CapIsSealed_def is_sentry_def reads_mem_cap_Some_iff elim!: instr_indirect_sentry_type.elims)[]
+        done
+        (*subgoal for c' x paddr vaddr rk bytes c'a c'b imm7 Cn
           apply (erule allE[where x = rk], erule allE[where x = vaddr], erule allE[where x = paddr], erule allE[where x = bytes], erule impE, assumption, erule impE, assumption, erule allE[where x = "CapUnseal c'a"])
           apply auto
           done
@@ -2507,7 +2511,7 @@ proof -
         subgoal by (auto simp: trace_invoked_cap_defs original_code_caps_invoked_in_trace_def image_UN image_Un elim!: instr_indirect_sentry_type.elims)
         subgoal by (auto simp: trace_invoked_cap_defs elim!: instr_indirect_sentry_type.elims)
         apply assumption
-        done
+        done*)
     qed
   next
     case Points_to_Pair
@@ -2595,7 +2599,7 @@ proof -
                                reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                                translate_address vaddr = Some paddr \<and>
                                vaddr = unat (CapGetValue sentry + 16) \<and>
-                               set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+                               \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                                sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                                trace_has_cap_load_auth t}"
           using Points_to_Pair assms
@@ -2613,7 +2617,7 @@ proof -
                           reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                           translate_address vaddr = Some paddr \<and>
                           vaddr = unat (CapGetValue sentry) \<and>
-                          set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+                          \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                           sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                           trace_has_cap_load_auth t}"
           using Points_to_Pair n assms
@@ -6607,7 +6611,7 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> invoked_indirect_caps \<and>
             use_mem_caps \<and>
-            set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>
+            \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
             translate_address vaddr = Some paddr \<and>
             cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<and> tag = B1
             \<longrightarrow>
@@ -7158,12 +7162,12 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap:
     and "CapIsTagSet c" (*and "\<not>CapIsSealed c"*)
     and "sentry \<in> invoked_indirect_caps"
     (* and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry" *)
-    and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry"
+    (* and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry" *)
     and "indirect_sentry_type \<noteq> None"
     and "indirect_sentry_type = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)"
     and "use_mem_caps"
   shows "mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
-  using assms(1-7)
+  using assms(1-6)
   unfolding mem_cap_vaddr_loaded_in_trace_if_tagged_def mem_cap_vaddr_loads_of_trace_def
   (*by (cases indirect_sentry_type rule: indirect_sentry_type_cases;
       auto simp: invocation_trace_assms_def mem_branch_caps_def CapIsSealed_def
@@ -7172,11 +7176,11 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap:
       fastforce simp: mem_branch_caps_def)*)
   apply (cases indirect_sentry_type rule: indirect_sentry_type_cases)
   apply (auto simp: invocation_trace_assms_def mem_branch_caps_def CapIsSealed_def image_subset_iff
-           elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE
+           elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE intro: assms(7)
            dest!: invocation_trace_assmsD[OF assms(2)] split: indirect_sentry_type.splits)
   (*apply fastforce
                       apply fastforce*)
-  apply (((erule allE[where x = sentry], erule allE[where x = c]) | (erule allE[where x = sentry], erule allE[where x = vaddr])); auto simp: mem_branch_caps_def CapIsSealed_def assms(8))+
+  apply (((erule allE[where x = sentry], erule allE[where x = c]) | (erule allE[where x = sentry], erule allE[where x = vaddr])); auto simp: mem_branch_caps_def CapIsSealed_def assms(7))+
   done
 
 lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap:
@@ -7185,19 +7189,19 @@ lemma mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap:
     and "CapIsTagSet c"
     and "sentry \<in> invoked_indirect_caps"
     (* and "set (address_range vaddr 16) \<subseteq> get_mem_region CC sentry" *)
-    and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry"
+    (* and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry" *)
     and "indirect_sentry_type = Some Points_to_Pair"
     and "vaddr = unat (CapGetValue sentry)"
     and "use_mem_caps"
   shows "mem_data_caps c \<subseteq> invoked_data_caps"
-  using assms(1-7)
+  using assms(1-6)
   unfolding mem_cap_vaddr_loaded_in_trace_if_tagged_def mem_cap_vaddr_loads_of_trace_def
   (*by (auto simp: invocation_trace_assms_def elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE
            dest!: invocation_trace_assmsD[OF assms(2)];
       fastforce)*)
   apply (auto simp: invocation_trace_assms_def elim!: mem_cap_loads_of_traceE mem_cap_loads_of_evE
            dest!: invocation_trace_assmsD[OF assms(2)] split: if_splits)
-     apply ((erule allE[where x = sentry], (erule allE[where x = vaddr])?); auto simp: assms(8))+
+     apply ((erule allE[where x = sentry], (erule allE[where x = vaddr])?); auto simp: assms(7))+
   done
 
 thm MemC_read_mem_cap_vaddr_loaded_in_trace_if_tagged[THEN mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap]

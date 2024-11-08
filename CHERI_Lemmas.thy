@@ -1203,7 +1203,7 @@ definition
 
 definition
   "is_invoked_indirect_sentry_for_addr sentry type addr offset s \<equiv>
-   is_invoked_indirect_sentry sentry type s \<and> (case offset of Some n \<Rightarrow> addr = CapGetValue sentry + of_nat n \<and> unat (CapGetValue sentry) + n < 2 ^ 64 | None \<Rightarrow> True) \<and> set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry"
+   is_invoked_indirect_sentry sentry type s \<and> (case offset of Some n \<Rightarrow> addr = CapGetValue sentry + of_nat n \<and> unat (CapGetValue sentry) + n < 2 ^ 64 | None \<Rightarrow> True)" (* \<and> set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry"*)
 
 lemma is_indirectly_invoked_mem_code_cap_run_imp[derivable_caps_runI]:
   "is_indirectly_invoked_mem_code_cap sentry type c s \<Longrightarrow> is_indirectly_invoked_mem_code_cap sentry type c (run s t)"
@@ -1549,7 +1549,7 @@ lemma MemC_read_is_indirectly_invoked_mem_pair_data_cap:
   shows "is_indirectly_invoked_mem_pair_data_cap sentry c (run s t)"
 proof -
   from assms have sentry: "is_invoked_indirect_sentry sentry Points_to_Pair s \<and> addr = CapGetValue sentry"
-    and bounds: "set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry"
+    (* and bounds: "set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry" *)
     using MemC_read_valid_address[OF assms(1,2)]
     by (auto simp: is_invoked_indirect_sentry_for_addr_def)
   moreover have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
@@ -1559,7 +1559,7 @@ proof -
     using loaded assms(5)
     by (auto simp: mem_cap_vaddr_loads_run_eq mem_cap_vaddr_loaded_in_trace_if_tagged_def)
   moreover have "load_caps_permitted \<longrightarrow> mem_data_caps c \<subseteq> invoked_data_caps"
-    using assms(1-5) sentry bounds
+    using assms(1-5) sentry (*bounds*)
     using mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_data_cap[OF loaded, where sentry = sentry]
     by (auto simp: is_invoked_indirect_sentry_def)
   ultimately have "is_indirectly_invoked_mem_pair_data_cap sentry c (run s t)"
@@ -1659,7 +1659,7 @@ lemma MemC_read_is_indirectly_invoked_mem_code_cap:
   shows "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"
 proof -
   have sentry: "is_invoked_indirect_sentry sentry sentry_type s \<and> (\<forall>n. indirect_code_cap_offset sentry_type = Some n \<longrightarrow> addr = CapGetValue sentry + of_nat n \<and> unat addr = unat (CapGetValue sentry) + n)"
-    and bounds: "set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry"
+    (* and bounds: "set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry" *)
     by (cases sentry_type) (use assms in \<open>auto simp: is_invoked_indirect_sentry_for_addr_def\<close>)
   moreover have loaded: "mem_cap_vaddr_loaded_in_trace_if_tagged (unat addr) c t"
     using assms
@@ -1668,7 +1668,7 @@ proof -
     using loaded assms(5)
     by (auto simp: mem_cap_vaddr_loads_run_eq mem_cap_vaddr_loaded_in_trace_if_tagged_def)
   moreover have "load_caps_permitted \<longrightarrow> mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
-    using assms(1-5) sentry bounds
+    using assms(1-5) sentry (*bounds*)
     using mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap[OF loaded, where sentry = sentry]
     by (auto simp: is_invoked_indirect_sentry_def clear_lsb_image_mem_branch_caps_eq)
   ultimately have "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"
@@ -1875,10 +1875,10 @@ proof -
     case True
     then have sentry: "is_invoked_indirect_sentry sentry sentry_type s"
       and addr: "\<forall>n. indirect_code_cap_offset sentry_type = Some n \<longrightarrow> addr = CapGetValue sentry + of_nat n \<and> unat addr = unat (CapGetValue sentry) + n"
-      and bounds: "set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry"
+      (* and bounds: "set (address_range (bounds_address AccType_NORMAL (unat addr)) 16) \<subseteq> get_mem_region CC sentry" *)
       by (cases sentry_type; use True assms valid in \<open>auto simp: is_invoked_indirect_sentry_for_addr_def\<close>)+
     moreover have "load_caps_permitted \<longrightarrow> mem_branch_caps (clear_lsb c) \<subseteq> invoked_code_caps"
-      using assms(1-5) sentry addr bounds
+      using assms(1-5) sentry addr (*bounds*)
       using mem_cap_vaddr_loaded_in_trace_if_tagged_invoked_code_cap[OF loaded, where sentry = sentry]
       by (auto simp: is_invoked_indirect_sentry_def clear_lsb_image_mem_branch_caps_eq)
     ultimately have "is_indirectly_invoked_mem_code_cap sentry sentry_type c (run s t)"

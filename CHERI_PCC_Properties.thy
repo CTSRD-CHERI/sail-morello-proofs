@@ -78,18 +78,18 @@ definition branch_instr_run_performs_expected_invocation where
         (\<exists>cd. trace_writes_idc_caps ISA (instr_trace opcode t) = {cd} \<and> cd \<in> instr_invokes_data_caps opcode t))"
 
 definition trace_has_reg_load_auth_for_addr where
-  "trace_has_reg_load_auth_for_addr t auth vaddr sz \<equiv>
+  "trace_has_reg_load_auth_for_addr t auth \<comment> \<open>vaddr sz\<close> \<equiv>
      (\<exists>n. trace_load_auths t = Some (RegAuth n) \<and>
           auth \<in> trace_reads_caps_from_gpr n t \<and>
-          CapIsTagSet auth \<and>
-          set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC auth)"
+          CapIsTagSet auth
+          \<comment> \<open>\<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC auth\<close>)"
 
 definition branch_instr_run_has_expected_invocation_loads where
   "branch_instr_run_has_expected_invocation_loads t \<equiv>
      (case trace_indirect_sentry_type t of
         Some Points_to_PCC \<Rightarrow>
           (\<exists>auth paddr vaddr c.
-              trace_has_reg_load_auth_for_addr t auth vaddr 16 \<and>
+              trace_has_reg_load_auth_for_addr t auth \<comment> \<open>vaddr 16\<close> \<and>
               (get_indirect_sentry_type auth = Some Points_to_PCC \<and> CapUnseal auth \<in> trace_invokes_indirect_sentries t \<or> \<not>CapIsSealed auth) \<and>
               \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c)} \<and>
               mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
@@ -98,7 +98,7 @@ definition branch_instr_run_has_expected_invocation_loads where
               mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c})
       | Some Points_to_Pair \<Rightarrow>
           (\<exists>auth paddr_cc paddr_cd cc cd.
-              trace_has_reg_load_auth_for_addr t auth (unat (CapGetValue auth)) 32 \<and>
+              trace_has_reg_load_auth_for_addr t auth \<comment> \<open>(unat (CapGetValue auth)) 32\<close> \<and>
               (get_indirect_sentry_type auth = Some Points_to_Pair \<and> CapUnseal auth \<in> trace_invokes_indirect_sentries t \<or> \<not>CapIsSealed auth) \<and>
               \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue auth), cd), (unat (CapGetValue auth) + 16, cc)} \<and>
               mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
@@ -700,6 +700,7 @@ definition original_mem_data_caps :: "invocation_state \<Rightarrow> Capability 
      {cc. \<exists>paddr.
              (paddr, cc) \<in> mem_caps s \<and>
              instr_indirect_sentry_type instr = Some Points_to_Pair \<and>
+             instr_invokes_indirect_cap_from_reg instr \<noteq> None \<and>
              (\<exists>auth \<in> load_auth_caps s. translate_address (unat (CapGetValue auth)) = Some paddr)}"
 
 definition original_reg_data_caps :: "invocation_state \<Rightarrow> Capability set" where
@@ -747,7 +748,9 @@ definition cap_authorises_load where
      ((get_indirect_sentry_type c = instr_indirect_sentry_type instr \<and>
        instr_invokes_indirect_cap_from_reg instr \<noteq> None)
       \<or> \<not>CapIsSealed c) \<and>
-     set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC c"
+     valid_address AccType_NORMAL vaddr \<and>
+     bounds_address AccType_NORMAL vaddr + sz \<le> 2^64
+     \<comment> \<open>\<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC c\<close>"
 
 definition has_expected_loads where
   "has_expected_loads s \<equiv>
@@ -756,17 +759,13 @@ definition has_expected_loads where
          \<exists>auth paddr vaddr c.
             auth \<in> load_auth_caps s \<and> cap_authorises_load auth vaddr 16 \<and>
             translate_address vaddr = Some paddr \<and>
-            mem_caps s = {(paddr, c)} \<and>
-            valid_address AccType_NORMAL vaddr \<and>
-            bounds_address AccType_NORMAL vaddr + 16 \<le> 2^64
+            mem_caps s = {(paddr, c)}
       | Some Points_to_Pair \<Rightarrow>
          \<exists>auth cc paddr_cc cd paddr_cd.
             auth \<in> load_auth_caps s \<and> cap_authorises_load auth (unat (CapGetValue auth)) 32 \<and>
             translate_address (unat (CapGetValue auth)) = Some paddr_cd \<and>
             translate_address (unat (CapGetValue auth) + 16) = Some paddr_cc \<and>
-            mem_caps s = {(paddr_cd, cd), (paddr_cc, cc)} \<and>
-            valid_address AccType_NORMAL (unat (CapGetValue auth)) \<and>
-            bounds_address AccType_NORMAL (unat (CapGetValue auth)) + 32 \<le> 2^64
+            mem_caps s = {(paddr_cd, cd), (paddr_cc, cc)}
       | None \<Rightarrow> (load_auth_caps s = {} \<longrightarrow> mem_caps s = {}))"
 
 definition is_expected_exception where
@@ -780,6 +779,7 @@ definition
   "ev_reads_gprs_from_initial_reg_state s e \<equiv>
      (\<not>gprs_written s \<longrightarrow> ev_reads_from_reg_state (restrict_map (reg_state s) all_R_names) e)"
 
+(* TODO: cap_invariant *)
 abbreviation ev_assms :: "invocation_state \<Rightarrow> register_value event \<Rightarrow> bool" where
   "ev_assms s e \<equiv> ev_reads_gprs_from_initial_reg_state s e \<and> translation_assms e"
 
@@ -1145,7 +1145,7 @@ proof -
         and "unat (CapGetValue auth + 16) = unat (CapGetValue auth) + 16"
         using \<open>has_expected_loads s\<close> auth LoadAuth
         using valid_address_no_overflow[of AccType_NORMAL "CapGetValue auth" 16]
-        by (auto simp: has_expected_loads_def)
+        by (auto simp: has_expected_loads_def cap_authorises_load_def)
       then show ?thesis
         using LoadAuth Points_to_Pair auth
         using translate_address_vaddr_offset_paddr_different[of "unat (CapGetValue auth)" paddr_cd 16]
@@ -1390,7 +1390,7 @@ definition
      \<or> (\<exists>c' \<in> original_mem_code_caps s.
           lsb c' = lsb c \<and>
           (if is_sentry c' then CapIsTagSet c \<longrightarrow> c = CapUnseal c'
-           else CapIsTagSet c \<longrightarrow> \<not>CapIsSealed c' \<and> c \<in> {c', clear_perm mutable_perms c'}))"
+           else CapIsTagSet c \<longrightarrow> (c = c' \<or> (\<not>CapIsSealed c' \<and> c = clear_perm mutable_perms c'))))"
 
 lemma CapUnseal_unsealed_eq:
   assumes "\<not>CapIsSealed c"
@@ -2168,7 +2168,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "instr_trace_load_auth_caps t = {c}"
     and "instr_indirect_sentry_type instr = Some sentry_type"
     and "\<not>CapIsSealed c"
-    and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
+    (* and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c" *)
     and "translate_address vaddr = Some paddr"
     and "(paddr, c') \<in> initial_mem_cap_loads_of_trace t"
     and "CapIsTagSet c'" and "CapGetObjectType c' = CAP_SEAL_TYPE_RB"
@@ -2188,7 +2188,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "instr_invokes_indirect_caps opcode t = {CapUnseal c}"
     and "translate_address vaddr = Some paddr"
     and "initial_mem_cap_loads_of_trace t = {(paddr, c')}"
-    and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
+    (* and "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c" *)
     and "original_code_caps_invoked_in_trace t = (if CapIsTagSet c' \<and> cap_permits CAP_PERM_LOAD_CAP c then {c'} else {})"
     and "instr_invokes_code_caps opcode t = (if CapIsTagSet c' \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb c') else {})"
     and "instr_invokes_data_caps opcode t = {CapUnseal c}"
@@ -2208,7 +2208,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "original_code_caps_invoked_in_trace t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then {cc} else {})"
     and "instr_invokes_code_caps opcode t = (if CapIsTagSet cc \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_branch_caps (clear_lsb cc) else {})"
     and "instr_invokes_data_caps opcode t = (if CapIsTagSet cd \<and> cap_permits CAP_PERM_LOAD_CAP c then mem_data_caps cd else {})"
-    and "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c))) 32) \<subseteq> get_mem_region CC c"
+    (* and "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c))) 32) \<subseteq> get_mem_region CC c" *)
   | (NoInvocation) "instr_invokes_code_caps opcode t = {}"
     and "instr_invokes_data_caps opcode t = {}"
     and "instr_invokes_indirect_caps opcode t = {}"
@@ -2294,7 +2294,7 @@ next
       case Points_to_PCC
       then obtain cc vaddr paddr where paddr_cc: "initial_mem_cap_loads_of_trace t = {(paddr, cc)}"
         and vaddr: "translate_address vaddr = Some paddr"
-        and bounds: "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c"
+        (* and bounds: "set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC c" *)
         using ** n c
         by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def)
       then have cap_loads: "mem_cap_loads_of_trace t = (if CapIsTagSet cc then {(paddr, cc)} else {})"
@@ -2308,7 +2308,7 @@ next
         unfolding cap_loads
         by (auto simp: is_sentry_def split: if_splits)
       show thesis
-        using DirectMemSentry'(1,7-9) n c cc False original_code_caps cap_loads Points_to_PCC paddr_cc vaddr bounds ** instr
+        using DirectMemSentry'(1,7-9) n c cc False original_code_caps cap_loads Points_to_PCC paddr_cc vaddr (*bounds*) ** instr
         by (intro DirectMemSentry[of n c sentry_type vaddr paddr cc])
            (auto simp add: image_UN clear_lsb_image_branch_caps_eq)
     next
@@ -2317,7 +2317,7 @@ next
         where initial_loads: "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
         and paddr_cd: "translate_address (unat (CapGetValue c)) = Some paddr_cd"
         and paddr_cc: "translate_address (unat (CapGetValue c) + 16) = Some paddr_cc"
-        and bounds: "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c) + 16)) 16) \<subseteq> get_mem_region CC c"
+        (* and bounds: "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c) + 16)) 16) \<subseteq> get_mem_region CC c" *)
         using ** c
         by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def subset_eq)
       have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
@@ -2337,7 +2337,7 @@ next
         unfolding DirectMemSentry'(7)
         by (auto simp: image_UN clear_lsb_image_branch_caps_eq split: if_splits)
       ultimately show ?thesis
-        using DirectMemSentry'(1,8,9) n c initial_loads paddr_cc bounds
+        using DirectMemSentry'(1,8,9) n c initial_loads paddr_cc (*bounds*)
         by (intro DirectMemSentry[of n c sentry_type "unat (CapGetValue c) + 16" paddr_cc cc])
            (auto simp: is_sentry_def)
     qed
@@ -2368,7 +2368,7 @@ next
     by (auto simp: trace_has_cap_load_auth_def)
   obtain cc vaddr paddr where paddr_cc: "initial_mem_cap_loads_of_trace t = {(paddr, cc)}"
     and vaddr: "translate_address vaddr = Some paddr"
-    and authorised: "trace_has_reg_load_auth_for_addr t c vaddr 16"
+    and authorised: "trace_has_reg_load_auth_for_addr t c" (* vaddr 16"*)
     using ** load_auth c
     by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def)
   then have cap_loads: "mem_cap_loads_of_trace t = (if CapIsTagSet cc then {(paddr, cc)} else {})"
@@ -2376,7 +2376,7 @@ next
     by (intro set_eqI; simp add: branch_instr_run_has_expected_invocation_loads_def; fastforce)
   have "original_code_caps_invoked_in_trace t =
           {cc. \<exists>vaddr paddr. (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> translate_address vaddr = Some paddr \<and>
-                             cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c vaddr 16}"
+                             cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c}" (* vaddr 16}"*)
     using c get_mem_region_CapUnseal_eq[of c]
     unfolding IndirectPointsToPCC'(4)
     by (auto simp: indirect_sentries load_cap mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap
@@ -2421,7 +2421,7 @@ next
     where initial_loads: "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
     and paddr_cd: "translate_address (unat (CapGetValue c)) = Some paddr_cd"
     and paddr_cc: "translate_address (unat (CapGetValue c) + 16) = Some paddr_cc"
-    and authorised: "trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c)) 32"
+    and authorised: "trace_has_reg_load_auth_for_addr t c" (* (unat (CapGetValue c)) 32"*)
     and no_overflow[simp]:
       "unat (CapGetValue c + 16) = unat (CapGetValue c) + 16"
       "bounds_address AccType_NORMAL (unat (CapGetValue c) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue c)) + 16"
@@ -2438,7 +2438,7 @@ next
     by auto
   have "original_code_caps_invoked_in_trace t = {cc. \<exists>paddr.
           (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> translate_address (unat (CapGetValue c + 16)) = Some paddr \<and>
-          cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c + 16)) 16}"
+          cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c}" (* (unat (CapGetValue c + 16)) 16}"*)
     using c
     unfolding IndirectPointsToPair'(4) indirect_sentries
     by (auto simp: mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap reads_mem_cap_Some_iff
@@ -2455,7 +2455,7 @@ next
   have "instr_invokes_data_caps opcode t =
           \<Union>{mem_data_caps cd | cd. \<exists>paddr.
               (paddr, cd) \<in> mem_cap_loads_of_trace t \<and> translate_address (unat (CapGetValue c)) = Some paddr \<and>
-              cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c (unat (CapGetValue c)) 16}"
+              cap_permits CAP_PERM_LOAD_CAP c \<and> trace_has_reg_load_auth_for_addr t c}" (* (unat (CapGetValue c)) 16}"*)
     using IndirectPointsToPair'(6) indirect_sentries c
     by (auto simp: mem_cap_loads_of_trace_def mem_cap_loads_of_ev_reads_mem_cap reads_mem_cap_Some_iff
                    get_mem_region_CapUnseal_eq trace_has_reg_load_auth_for_addr_def load_cap
