@@ -2100,6 +2100,206 @@ lemma pre_post_execute_RET_C_C:
   unfolding execute_RET_C_C_def Let_def bind_assoc conj_assoc
   by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | auto simp: init_null_caps_def has_null_caps_def\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
 
+definition "is_unsealed_mem_branch_target c s \<equiv>
+  (\<exists>c' \<in> original_mem_code_caps s.
+     lsb c' = lsb c \<and>
+     (if is_sentry c' then CapIsTagSet c \<longrightarrow> c = c'
+      else CapIsTagSet c \<longrightarrow> (c = c' \<or> (\<not>CapIsSealed c' \<and> c = clear_perm mutable_perms c'))))"
+
+abbreviation "no_branch_writes s \<equiv> pcc_writes s = [] \<and> pstate_writes s = [] \<and> branch_taken_writes s = []"
+abbreviation "invocation_pre_final_mem c s \<equiv> is_unsealed_mem_branch_target c s \<and> no_branch_writes s"
+
+lemma is_mem_branch_target_CapWithTagClear:
+  "is_unsealed_mem_branch_target c s \<Longrightarrow> is_branch_target (CapWithTagClear c) s"
+  by (auto simp: is_branch_target_def is_unsealed_mem_branch_target_def)
+
+lemma is_mem_branch_target_CapUnseal:
+  "is_unsealed_mem_branch_target c s \<Longrightarrow> CapGetObjectType c = 1 \<Longrightarrow> is_branch_target (CapUnseal c) s"
+  by (auto simp add: is_branch_target_def is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def split: if_splits)
+
+lemma mem_branch_target_is_branch_target:
+  "is_unsealed_mem_branch_target c s \<Longrightarrow> CapIsTagSet c \<and> CapIsSealed c \<longrightarrow> CapGetObjectType c \<noteq> 1 \<Longrightarrow> is_branch_target c s"
+  by (auto simp add: is_branch_target_def is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def split: if_splits)
+
+lemmas mem_is_branch_target_intros = is_mem_branch_target_CapWithTagClear
+  is_mem_branch_target_CapUnseal mem_branch_target_is_branch_target
+
+lemma is_unsealed_mem_branch_target_cong_aux:
+  "original_mem_code_caps s = original_mem_code_caps s' \<Longrightarrow> is_unsealed_mem_branch_target c s = is_unsealed_mem_branch_target c s'"
+  by (auto simp: is_unsealed_mem_branch_target_def)
+
+lemmas is_unsealed_mem_branch_target_cong = is_unsealed_mem_branch_target_cong_aux[OF original_mem_code_caps_cong]
+
+lemma is_unsealed_mem_branch_target_simp[simp]:
+  "is_unsealed_mem_branch_target c (add_idc_write c' s) = is_unsealed_mem_branch_target c s"
+  by (auto simp: add_idc_write_def cong: is_unsealed_mem_branch_target_cong)
+
+lemma BranchXToCapability_if_unseal_untag_invocation_post_final_mem:
+  fixes c clear
+  defines "c' \<equiv> (if clear then CapWithTagClear c else c)"
+  defines "unseal \<equiv> CapIsTagSet c' \<and> CapIsSealed c' \<and> CapGetObjectType c' = CAP_SEAL_TYPE_RB"
+  defines "c'' \<equiv> (if unseal then CapUnseal c' else c')"
+  shows "pre_post_ignore_fail
+     (\<lambda>s. invocation_post_idc s \<and> invocation_pre_final_mem c s)
+     (BranchXToCapability c'' branch_type) (\<lambda>_ s. invocation_post_final s) E"
+  by (rule pre_post_strengthen_pre, rule BranchXToCapability_invocation_post_final)
+     (auto simp: c''_def c'_def unseal_def intro: mem_is_branch_target_intros)
+
+abbreviation "invocation_sentry_pre_idc_write type c s \<equiv> c \<in> load_auth_caps s \<and> idc_writes s = [] \<and> instr_indirect_sentry_type instr = Some type"
+
+lemma pre_post_C_set_29_indirect_pcc_sentry_invocation_post_idc[unfolded conj_assoc]:
+  "pre_post_ignore_fail
+     (\<lambda>s. invocation_post_load s \<and> invocation_pre_final_mem c' s \<and> invocation_sentry_pre_idc_write Points_to_PCC c s)
+     (C_set 29 (if sentry then CapUnseal c else c)) (\<lambda>_ s. invocation_post_idc s \<and> invocation_pre_final_mem c' s) E"
+  apply (rule pre_post_strengthen_pre, rule pre_post_C_set)
+  apply (auto simp: has_expected_data_cap_invocation_def invoked_data_caps_def original_reg_data_caps_def mem_data_caps_def original_mem_data_caps_def cong: is_unsealed_mem_branch_target_cong)
+  done
+
+lemma pre_post_CapSquashPostLoadCap:
+  "pre_post_ignore_fail
+      (\<lambda>s. \<forall>c'. c' = CapWithTagClear c \<or> c' = c \<or> CapIsTagSet c \<and> \<not>CapIsSealed c \<and> c' = clear_perm mutable_perms c \<longrightarrow> Q c' s)
+      (CapSquashPostLoadCap c addr) Q E"
+  unfolding CapSquashPostLoadCap_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto\<close>)
+
+lemma CapSquashPostLoadCap_sentry_mem_branch_target[unfolded conj_assoc]:
+  "pre_post_ignore_fail (\<lambda>s. c \<in> original_mem_code_caps s \<and> invocation_post_load s \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write sentry_type c'' s)
+     (CapSquashPostLoadCap c addr) (\<lambda>c' s. invocation_post_load s \<and> invocation_pre_final_mem c' s \<and> invocation_sentry_pre_idc_write sentry_type c'' s) E"
+  by (rule pre_post_CapSquashPostLoadCap[THEN pre_post_strengthen_pre])
+     (auto simp add: is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def)
+
+lemma points_to_pcc_no_invoked_data_caps:
+  assumes "instr_indirect_sentry_type instr = Some Points_to_PCC"
+    and "instr_invokes_indirect_cap_from_reg instr = None"
+  shows "invoked_data_caps s = {}"
+  using assms
+  by (auto simp: invoked_data_caps_def mem_data_caps_def original_mem_data_caps_def original_reg_data_caps_def)
+
+lemma CapSquashPostLoadCap_points_to_pcc_no_invocation[unfolded conj_assoc]:
+  "pre_post_ignore_fail
+     (\<lambda>s. c \<in> original_mem_code_caps s \<and> invocation_post_load s \<and> no_branch_writes s \<and> idc_writes s = [] \<and>
+          instr_indirect_sentry_type instr = Some Points_to_PCC \<and> instr_invokes_indirect_cap_from_reg instr = None)
+     (CapSquashPostLoadCap c addr)
+     (\<lambda>c' s. invocation_post_idc s \<and> invocation_pre_final_mem c' s) E"
+  by (rule pre_post_CapSquashPostLoadCap[THEN pre_post_strengthen_pre])
+     (auto simp: is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def has_expected_data_cap_invocation_def
+                 points_to_pcc_no_invoked_data_caps)
+
+lemma pre_post_MemC_read:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>paddr c. translate_address (unat vaddr) = Some paddr \<longrightarrow> Q c (s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr>))
+     (MemC_read vaddr acctype) Q is_expected_exception"
+  sorry
+
+lemma MemC_read_points_to_pcc_code[unfolded conj_assoc]:
+  "pre_post_ignore_fail
+     (\<lambda>s. cap_authorises_load auth (unat addr) 16 \<and> has_expected_gpr_reads s \<and> mem_caps s = {} \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write Points_to_PCC auth s)
+     (MemC_read addr AccType_NORMAL) (\<lambda>c s. c \<in> original_mem_code_caps s \<and> invocation_post_load s \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write Points_to_PCC auth s) is_expected_exception"
+  apply (rule pre_post_strengthen_pre)
+   apply (rule pre_post_MemC_read)
+  apply (auto simp: original_mem_code_caps_def has_expected_loads_def)
+  done
+
+lemma MemC_read_points_to_pcc_no_invocation[unfolded conj_assoc]:
+  "pre_post_ignore_fail
+     (\<lambda>s. (\<exists>auth \<in> load_auth_caps s. cap_authorises_load auth (unat addr) 16) \<and> has_expected_gpr_reads s \<and> mem_caps s = {} \<and> no_branch_writes s \<and> idc_writes s = [] \<and> instr_indirect_sentry_type instr = Some Points_to_PCC \<and> P)
+     (MemC_read addr AccType_NORMAL) (\<lambda>c s. c \<in> original_mem_code_caps s \<and> invocation_post_load s \<and> no_branch_writes s \<and> idc_writes s = [] \<and> instr_indirect_sentry_type instr = Some Points_to_PCC \<and> P) is_expected_exception"
+  apply (rule pre_post_strengthen_pre)
+   apply (rule pre_post_MemC_read)
+  apply (auto simp: original_mem_code_caps_def has_expected_loads_def)
+  done
+
+definition "is_VA_of_cap va c \<equiv> VirtualAddress_vatype va = VA_Capability \<and> VirtualAddress_base va \<in> {c, CapUnseal c}"
+
+lemma VACheckAddress_cap_authorises_load:
+  "nat sz = sz' \<Longrightarrow>
+   pre_post_ignore_fail
+     (\<lambda>s. is_VA_of_cap base c \<and> P s)
+     (VACheckAddress base addr sz perms acctype) (\<lambda>_ s. cap_authorises_load c (unat addr) sz' \<and> P s) is_expected_exception"
+  sorry
+
+lemma VACheckAddress_cap_authorises_load':
+  "nat sz = sz' \<Longrightarrow>
+   pre_post_ignore_fail
+     (\<lambda>s. (\<exists>c \<in> load_auth_caps s. is_VA_of_cap base c) \<and> P s)
+     (VACheckAddress base addr sz perms acctype) (\<lambda>_ s. (\<exists>c \<in> load_auth_caps s. cap_authorises_load c (unat addr) sz') \<and> P s) is_expected_exception"
+  sorry
+
+lemma VAFromCapability_sentry_is_VA_of_cap:
+  "pre_post_ignore_fail
+     P (VAFromCapability (if sentry then CapUnseal c else c)) (\<lambda>va s. is_VA_of_cap va c \<and> P s) E"
+  unfolding VAFromCapability_def Let_def
+  apply (pre_postI_with \<open>-\<close> \<open>fail\<close>)
+   apply (pre_post_ignore_fail_no_state_update_no_exception)
+  apply (auto simp: is_VA_of_cap_def)
+  done
+
+lemma VAFromCapability_is_VA_of_cap:
+  "pre_post_ignore_fail
+     (\<lambda>s. P s \<and> c \<in> load_auth_caps s) (VAFromCapability c) (\<lambda>va s. (\<exists>c \<in> load_auth_caps s. is_VA_of_cap va c) \<and> P s) E"
+  unfolding VAFromCapability_def Let_def
+  apply (pre_postI_with \<open>-\<close> \<open>fail\<close>)
+   apply (pre_post_ignore_fail_no_state_update_no_exception)
+  apply (auto simp: is_VA_of_cap_def)
+  done
+
+lemma step_state_ProcState_eq:
+  "step_state s (E_read_reg r (Regval_ProcState v)) = s"
+  by simp
+
+lemma pre_post_CSP_read:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>r c e. r \<in> R_name 31 \<and> e = E_read_reg r (Regval_bitvector_129_dec c) \<longrightarrow> Q c (step_state s e))
+     (CSP_read u) Q E"
+  unfolding CSP_read_def Let_def
+  apply (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close> intro: pre_post_read_reg)
+  apply (auto simp del: step_state.simps simp add: register_defs R_name_def step_state_ProcState_eq split: option.splits)
+  subgoal for s x t pstate pstate' t' a
+    using EL_exhaust_disj[of "ProcState_EL pstate'"]
+    apply auto
+    done
+  done
+
+lemma pre_post_CheckSPAlignment:
+  "pre_post_ignore_fail (\<lambda>s. Q () s \<and> pcc_writes s = [] \<and> idc_writes s = []) (CheckSPAlignment u) Q is_expected_exception"
+  unfolding CheckSPAlignment_def AArch64_SPAlignmentFault_def Let_def
+  apply (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close> intro: pre_post_read_reg pre_post_AArch64_TakeException)
+  (* TODO: Fix which SP register we read from and allow multiple reads *)
+  thm SP_read_def
+  sorry
+
+lemma no_code_or_data_cap_reg_if_load:
+  "instr_load_auth instr = Some auth \<Longrightarrow> instr_invokes_data_cap_from_reg instr = None"
+  "instr_load_auth instr = Some auth \<Longrightarrow> instr_invokes_code_cap_from_reg instr = None"
+  by (cases instr; auto)+
+
+lemma pre_post_CSP_or_C_read_load_auth_cap:
+  "pre_post_ignore_fail
+     (\<lambda>s. (\<forall>c. Q c (s\<lparr>load_auth_caps := insert c (load_auth_caps s)\<rparr>)) \<and> pcc_writes s = [] \<and> idc_writes s = [] \<and> \<not>gprs_written s \<and> instr_load_auth instr = Some (RegAuth n))
+     (if n = 31 then bind (CheckSPAlignment ()) (\<lambda>_. CSP_read ()) else C_read n)
+     Q is_expected_exception"
+  apply (rule pre_post_strengthen_pre)
+  apply (pre_post_step)
+    apply (pre_post_step)
+     apply (rule pre_post_CSP_read)
+    apply (rule pre_post_CheckSPAlignment)
+   apply (rule pre_post_C_read)
+  apply (auto simp: is_code_reg_def is_data_reg_def is_load_auth_reg_def no_code_or_data_cap_reg_if_load)
+  done
+
+lemma pre_post_execute_BR_CI_C:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<exists>regs imm7 Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BR_CI_C (imm7, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom (reg_state s))
+     (execute_BR_CI_C branch_type n offset) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
+  unfolding execute_BR_CI_C_def Let_def bind_assoc conj_assoc
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: init_null_caps_def has_expected_gpr_reads_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_mem pre_post_if_post_collapse pre_post_C_set_29_indirect_pcc_sentry_invocation_post_idc CapSquashPostLoadCap_sentry_mem_branch_target MemC_read_points_to_pcc_code VACheckAddress_cap_authorises_load VAFromCapability_sentry_is_VA_of_cap CapSquashPostLoadCap_points_to_pcc_no_invocation MemC_read_points_to_pcc_no_invocation VACheckAddress_cap_authorises_load' VAFromCapability_is_VA_of_cap pre_post_CSP_or_C_read_load_auth_cap pre_post_CheckCapabilitiesEnabled)
+
+lemmas invocation_decode_defs[unfolded Let_def] =
+  decode_BRS_C_C_C_def decode_BRS_C_C_def decode_BLRR_C_C_def decode_BLRS_C_C_def
+  decode_BLRS_C_C_C_def decode_BLR_C_C_def decode_BRR_C_C_def decode_BR_C_C_def
+  decode_RETR_C_C_def decode_RETS_C_C_def decode_RETS_C_C_C_def decode_RET_C_C_def
+  decode_BLR_CI_C_def decode_BR_CI_C_def decode_LDPBLR_C_C_C_def decode_LDPBR_C_C_C_def
+
 end
 
 context Morello_ISA
