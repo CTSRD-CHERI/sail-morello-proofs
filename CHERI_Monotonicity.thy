@@ -7,6 +7,7 @@ theory CHERI_Monotonicity
     CHERI_Cap_Properties
     CHERI_Mem_Properties
     CHERI_Fetch_Properties
+    CHERI_PCC_Properties
     CHERI_Invariant
     "Sail-T-CHERI.Trace_Assumptions"
     "Sail-T-CHERI.Properties"
@@ -179,20 +180,31 @@ definition "instr_state_assms _ s \<equiv> fetch_state_assms s \<and> pcc_tagged
 
 text \<open>TODO: Show that the trace assumptions (apart from the translation and UNKNOWN cap ones) are
   implied by the state assumptions and reduce the following to the remaining trace assumptions.\<close>
-abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms translation_el s1_enabled tbi_enabled in_host translate_address is_translation_event translation_assms UNKNOWN_caps t instr \<and> wellformed_trace t"
-abbreviation "fetch_trace_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms translation_el s1_enabled tbi_enabled in_host translate_address is_translation_event translation_assms UNKNOWN_caps t \<and> wellformed_trace t"
+abbreviation "instr_trace_assms instr t \<equiv> Morello_Instr_Trace_Write_Cap_Automaton.instr_trace_assms tbi_enabled translate_address is_translation_event translation_assms UNKNOWN_caps t instr \<and> wellformed_trace t"
+abbreviation "fetch_trace_assms t \<equiv> Morello_Fetch_Trace_Write_Cap_Automaton.fetch_trace_assms tbi_enabled translate_address is_translation_event translation_assms UNKNOWN_caps t \<and> wellformed_trace t"
 
 abbreviation "s_translate_address addr acctype s \<equiv> translate_address addr"
 
+lemma fetch_pcc_axiom_instr_trace[intro, simp]:
+  "fetch_pcc_axiom CC ISA (instr_trace instr t)"
+  by (auto simp: fetch_pcc_axiom_def is_fetch_trace_def)
+
+lemma idc_write_axiom_fetch_trace[intro, simp]:
+  "idc_write_axiom CC ISA (fetch_trace t)"
+  by (auto simp: idc_write_axiom_def)thm idc_write_axiom_def
+
 sublocale CHERI_ISA_State CC ISA cap_invariant UNKNOWN_caps fetch_trace_assms fetch_state_assms instr_trace_assms instr_state_assms get_regval set_regval s_translate_address
 proof
-  fix t :: "register_value trace" and instr :: instr and n :: nat
+  fix s and t :: "register_value trace" and instr :: instr and n :: nat
   interpret Write_Cap: Morello_Instr_Trace_Write_Cap_Automaton where instr = instr and t = t
     ..
   assume t: "hasTrace t (instr_sem_ISA instr)"
     and inv: "instr_available_caps_invariant instr t n"
     and ia: "instr_trace_assms instr t"
     and n: "n \<le> length t"
+    and s: "s_allows_trace t s"
+  from s obtain s' where s': "s_run_trace t s = Some s'"
+    by auto
   from t have iea: "Write_Cap.instr_exp_assms (instr_sem instr)"
     by (intro Write_Cap.instr_exp_assms_instr_semI) simp
   from ia have no_asr: "\<not>trace_has_system_reg_access t"
@@ -208,13 +220,18 @@ proof
     unfolding instr_sem_def
     by (intro Mem.traces_enabledI) auto
   show "instr_cheri_axioms instr t n"
-    using * ** t inv ia n
+    using * ** t inv ia n s
     unfolding cheri_axioms_def (*ISA_simps*)
     (*by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
        (auto simp: instr_raises_ex_def Write_Cap.trace_raises_isa_exception_def
              elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)*)
     apply (intro conjI; (elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms; auto simp: Write_Cap.trace_raises_isa_exception_instr_sem_iff intro: Write_Cap.holds_along_trace_take)?)
-    sorry
+     apply (rule idc_write_axiomI[OF _ _ s'])
+       apply simp
+      apply (rule Write_Cap.translation_assms_traceI)
+     apply blast
+    apply blast
+    done
 next
   fix t :: "register_value trace" and n :: nat
   interpret Write_Cap: Morello_Fetch_Trace_Write_Cap_Automaton where t = t
@@ -234,14 +251,14 @@ next
   have **: "Mem.traces_enabled (instr_fetch) Mem.initial"
     unfolding instr_fetch_def bind_assoc
     by (intro Mem.traces_enabledI Mem.accessible_regs_no_writes_run_subset) auto
+  have fetch_pcc_axioms: "fetch_pcc_axiom CC ISA (fetch_trace t)"
+    sorry
   show "fetch_cheri_axioms t n"
     using * ** t inv ia n
     unfolding cheri_axioms_def (*ISA_simps*)
-    (*by (intro conjI; elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms)
-       (auto simp: fetch_raises_ex_def Write_Cap.trace_raises_isa_exception_def
-             elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)*)
-    apply (intro conjI; (elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms; auto simp: Write_Cap.trace_raises_isa_exception_instr_fetch_iff intro: Write_Cap.holds_along_trace_take)?)
-    sorry
+    by (intro conjI fetch_pcc_axioms idc_write_axiom_fetch_trace;
+        (elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms;
+         auto simp: Write_Cap.trace_raises_isa_exception_instr_fetch_iff intro: Write_Cap.holds_along_trace_take)?)
 qed auto
 
 abbreviation "unknown_caps_of_trace t \<equiv> {c. E_choose ''UNKNOWN_Capability'' (Regval_bitvector_129_dec c) \<in> set t}"
