@@ -36,21 +36,36 @@ definition no_mem_writes_in_trace where
      (\<forall>wk addr sz v r. E_write_mem wk addr sz v r \<notin> set t) \<and>
      (\<forall>wk addr sz v tag r. E_write_memt wk addr sz v tag r \<notin> set t)"
 
+fun mem_cap_of_event :: "register_value event \<Rightarrow> (nat \<times> Capability) option" where
+  "mem_cap_of_event (E_read_memt rk paddr sz val) =
+     (if sz = 16 then
+        (case vec_of_bits_maybe (bits_of_mem_bytes (fst val)) of
+           Some (data :: 128 word) \<Rightarrow>
+             let tag = (if snd val = B1 then 1 else 0 :: 1 word) in
+             Some (paddr, word_cat tag data)
+         | None \<Rightarrow> None)
+      else None)"
+| "mem_cap_of_event (E_read_mem rk paddr sz val) =
+     (if sz = 16 then
+        (case vec_of_bits_maybe (bits_of_mem_bytes val) of
+           Some (data :: 128 word) \<Rightarrow> Some (paddr, ucast data)
+         | None \<Rightarrow> None)
+      else None)"
+| "mem_cap_of_event _ = None"
+
 (* Includes untagged capabilities *)
 definition initial_mem_cap_loads_of_trace where
   "initial_mem_cap_loads_of_trace t \<equiv>
-     {(paddr, c) | paddr c rk bytes tag i.
+     {(paddr, c) | paddr c i.
         i < length t \<and>
-        t ! i = E_read_memt rk paddr 16 (bytes, tag) \<and>
-        cap_of_mem_bytes bytes tag = Some c \<and>
+        mem_cap_of_event (t ! i) = Some (paddr, c) \<and>
         no_mem_writes_in_trace (take i t)}"
 
 definition initial_mem_cap_vaddr_loads_of_trace where
   "initial_mem_cap_vaddr_loads_of_trace t \<equiv>
-     {(vaddr, c) | vaddr c wk paddr bytes tag i.
+     {(vaddr, c) | vaddr c paddr i.
         i < length t \<and>
-        t ! i = E_read_memt wk paddr 16 (bytes, tag) \<and>
-        cap_of_mem_bytes bytes tag = Some c \<and>
+        mem_cap_of_event (t ! i) = Some (paddr, c) \<and>
         translate_address vaddr = Some paddr \<and>
         no_mem_writes_in_trace (take i t)}"
 
@@ -335,6 +350,30 @@ lemma pre_post_read_memt:
      (read_memt BC_mword BC_mword rk addr sz) Q E F"
   by (intro pre_post_read_memt_BC[THEN pre_post_strengthen_pre]) auto
 
+lemma pre_post_read_mem_BC:
+  "pre_post
+     (\<lambda>s. case nat_of_bv BCa addr of
+            Some addr' \<Rightarrow>
+              (\<forall>e bytes tag.
+                 e = E_read_mem rk addr' (nat sz) bytes \<and> ev_assms s e \<longrightarrow>
+                 (case of_bits_method BCb (bits_of_mem_bytes bytes) of
+                    Some v \<Rightarrow> Q v (step_state s e)
+                  | None \<Rightarrow> F ''bits_of_mem_bytes'' (step_state s e)))
+          | None \<Rightarrow> F ''nat_of_bv'' s)
+     (read_mem BCa BCb rk addr_sz addr sz) Q E F"
+  by (intro pre_postI;
+      fastforce simp: read_mem_def read_mem_bytes_def maybe_fail_def elim: Traces_cases split: option.splits)
+
+lemma pre_post_read_mem:
+  "pre_post
+     (\<lambda>s. (\<forall>e bytes tag.
+             e = E_read_mem rk (unat addr) (nat sz) bytes \<and> ev_assms s e \<longrightarrow>
+             (case of_bits_method BC_mword (bits_of_mem_bytes bytes) of
+                Some v \<Rightarrow> Q v (step_state s e)
+              | None \<Rightarrow> F ''bits_of_mem_bytes'' (step_state s e))))
+     (read_mem BC_mword BC_mword rk addr_sz addr sz) Q E F"
+  by (rule pre_post_read_mem_BC[THEN pre_post_strengthen_pre]) auto
+
 lemma pre_post_throw:
   "pre_post (E e) (throw e) Q E F"
   by (intro pre_postI; auto simp: throw_def)
@@ -407,6 +446,11 @@ lemma pre_post_if_True:
   "pre_post P m1 Q E F \<Longrightarrow> pre_post P (if True then m1 else m2) Q E F"
   by auto
 
+lemma pre_post_case_prod:
+  assumes "pre_post P (f (fst x) (snd x)) Q E F"
+  shows "pre_post P (case x of (a, b) \<Rightarrow> f a b) Q E F"
+  by (use assms in auto)
+
 lemma pre_post_and_boolM:
   assumes "pre_post R m2 Q E F"
     and "pre_post P m1 (\<lambda>a s. if a then R s else Q False s) E F"
@@ -442,7 +486,7 @@ lemmas pre_post_builtins[pre_post_intro] =
   pre_post_return pre_post_ignore_fail_assert_exp pre_post_exit
 
 lemmas pre_post_builtin_combinators[pre_post_combinators] =
-  pre_post_bind_ignore_trace pre_post_if pre_post_and_boolM pre_post_or_boolM
+  pre_post_bind_ignore_trace pre_post_if pre_post_and_boolM pre_post_or_boolM pre_post_case_prod
 
 method pre_post_step uses intro elim =
   (erule elim pre_post_elim eqTrueE
@@ -476,7 +520,10 @@ definition no_accesses_to_any_gpr where
   "no_accesses_to_any_gpr m \<equiv> no_reads_from_any_gpr m \<and> no_writes_to_any_gpr m"
 
 definition no_mem_cap_reads where
-  "no_mem_cap_reads m \<equiv> (\<forall>t m' rk addr sz val. (m, t, m') \<in> Traces \<longrightarrow> E_read_memt rk addr sz val \<notin> set t)"
+  "no_mem_cap_reads m \<equiv>
+     (\<forall>t m'. (m, t, m') \<in> Traces \<longrightarrow>
+        (\<forall>rk addr sz val. E_read_memt rk addr sz val \<notin> set t) \<and>
+        (\<forall>rk addr val. E_read_mem rk addr 16 val \<notin> set t))"
 
 definition no_gpr_accesses_or_mem_cap_reads where
   "no_gpr_accesses_or_mem_cap_reads m \<equiv> no_accesses_to_any_gpr m \<and> no_mem_cap_reads m"
@@ -493,7 +540,18 @@ lemma R_name_in_all_R_names:
 lemma all_R_names_R_name:
   assumes "r \<in> all_R_names"
   shows "\<exists>n. r \<in> R_name n"
-  sorry
+proof -
+  have ifI: "\<exists>n. n > n0 \<and> r \<in> (if n = m then Rs else Rs' n)"
+    if "m > n0" and "Rs \<subseteq> all_R_names" and "r \<notin> Rs \<longrightarrow> (\<exists>n. n > m \<and> r \<in> Rs' n)" for Rs Rs' and n0 m :: int
+    using that assms
+    by (cases "r \<in> Rs") auto
+  have "\<exists>n. n > (-1) \<and> r \<in> R_name n"
+    using assms
+    unfolding R_name_def
+    by (intro ifI impI) (auto simp: all_R_names_def)
+  then show ?thesis
+    by auto
+qed
 
 lemma all_R_names_iff_R_name:
   "r \<in> all_R_names \<longleftrightarrow> (\<exists>n. r \<in> R_name n)"
@@ -549,14 +607,14 @@ lemma monad_trace_subset_no_accesses_to_any_gpr:
 
 lemma monad_trace_subset_no_mem_cap_reads:
   assumes "monad_trace_subset S m"
-    and "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) S"
+    and "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val) \<union> range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) S"
   shows "no_mem_cap_reads m"
   using assms
   by (fastforce simp: no_mem_cap_reads_def monad_trace_subset_def disjnt_def)
 
 lemma monad_trace_subset_no_gpr_accesses_or_mem_cap_reads:
   assumes "monad_trace_subset S m"
-    and "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) S \<and> (\<forall>r \<in> all_R_names. disjnt (range (E_read_reg r) \<union> range (E_write_reg r)) S)"
+    and "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val) \<union> range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) S \<and> (\<forall>r \<in> all_R_names. disjnt (range (E_read_reg r) \<union> range (E_write_reg r)) S)"
   shows "no_gpr_accesses_or_mem_cap_reads m"
   using assms
   by (auto simp: no_gpr_accesses_or_mem_cap_reads_def intro: monad_trace_subset_no_mem_cap_reads monad_trace_subset_no_accesses_to_any_gpr)
@@ -573,6 +631,9 @@ lemma disjnt_range_event:
   "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) (range (E_read_reg r'))"
   "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) (range (E_write_reg r'))"
   "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val)) (range (E_choose msg))"
+  "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) (range (E_read_reg r'))"
+  "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) (range (E_write_reg r'))"
+  "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) (range (E_choose msg))"
   by (auto simp: disjnt_def)
 
 method no_reads_from_any_gpr =
@@ -669,8 +730,10 @@ fun step_state :: "invocation_state \<Rightarrow> register_value event \<Rightar
       pstate_writes := (if r = ''PSTATE'' then v # pstate_writes s else pstate_writes s),
       branch_taken_writes := (if r = ''__BranchTaken'' then v # branch_taken_writes s else branch_taken_writes s),
       gprs_written := (if r \<in> all_R_names then True else gprs_written s)\<rparr>"
-| "step_state s (E_read_memt rk paddr sz (bytes, tag)) =
-    (case cap_of_mem_bytes bytes tag of Some c \<Rightarrow> (if sz = 16 then s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr> else s) | None \<Rightarrow> s)"
+| "step_state s (E_read_memt rk paddr sz val) =
+    (case mem_cap_of_event (E_read_memt rk paddr sz val) of Some (paddr, c) \<Rightarrow> s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr> | None \<Rightarrow> s)"
+| "step_state s (E_read_mem rk paddr sz val) =
+    (case mem_cap_of_event (E_read_mem rk paddr sz val) of Some (paddr, c) \<Rightarrow> s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr> | None \<Rightarrow> s)"
 | "step_state s e = s"
 
 definition init_null_caps where
@@ -812,15 +875,13 @@ lemma gpr_reads_after_write_run_state:
 
 lemma mem_caps_step_state:
   "mem_caps (step_state s e) =
-     {(paddr, c) | paddr c. \<exists>rk bytes tag.
-        e = E_read_memt rk paddr 16 (bytes, tag) \<and> cap_of_mem_bytes bytes tag = Some c}
+     {(paddr, c) | paddr c. mem_cap_of_event e = Some (paddr, c)}
      \<union> mem_caps s"
   by (induction s e rule: step_state.induct) (auto split: option.splits)
 
 lemma mem_caps_run_state:
   "mem_caps (run_state s t) =
-     {(paddr, c) | paddr c. \<exists>rk bytes tag.
-        E_read_memt rk paddr 16 (bytes, tag) \<in> set t \<and> cap_of_mem_bytes bytes tag = Some c}
+     {(paddr, c) | paddr c. \<exists>e \<in> set t. mem_cap_of_event e = Some (paddr, c)}
      \<union> mem_caps s"
   by (induction t arbitrary: s) (auto simp: mem_caps_step_state)
 
@@ -1008,6 +1069,19 @@ lemma original_reg_code_caps_invoked_in_trace_in_code_reg_caps:
     original_direct_reg_sentries_invoked_in_trace_def
   by (auto simp: trace_invokes_code_cap_from_reg_def code_reg_caps_run_state_trace_reads_caps_from_gpr)
 
+lemma nth_ucast_len:
+  fixes w :: "'a::len word"
+  defines "w' \<equiv> ucast w :: 'b::len word"
+  shows "w' !! n = (w !! n \<and> n < LENGTH('a) \<and> n < LENGTH('b))"
+  by (auto simp: w'_def nth_ucast dest: test_bit_len)
+
+lemma mem_cap_of_event_Some_tagged_iff:
+  assumes "CapIsTagSet c"
+  shows "mem_cap_of_event e = Some (paddr, c) \<longleftrightarrow>
+         (\<exists>rk bytes. e = E_read_memt rk paddr 16 (bytes, B1) \<and> cap_of_mem_bytes bytes B1 = Some c)"
+  using assms
+  by (cases e) (auto simp: cap_of_mem_bytes_def nth_ucast_len split: option.splits)
+
 lemma original_code_caps_indirectly_invoked_in_trace_in_original_mem_code_caps:
   assumes "instr_of_trace t = Some instr"
   shows "original_code_caps_indirectly_invoked_in_trace t \<subseteq> original_mem_code_caps (run_state s t)"
@@ -1015,9 +1089,9 @@ lemma original_code_caps_indirectly_invoked_in_trace_in_original_mem_code_caps:
   unfolding original_code_caps_indirectly_invoked_in_trace_def original_mem_code_caps_def
     trace_invokes_indirect_sentries_def trace_invokes_indirect_cap_from_reg_def
     trace_indirect_sentry_type_def
-  apply (auto simp: mem_caps_run_state indirect_cap_reg_is_load_auth[THEN load_auth_caps_run_state_trace_reads_caps_from_gpr] CapUnseal_get_bounds_helpers_eq elim!: get_indirect_sentry_type_Some_cases)
+  apply (auto simp: mem_caps_run_state indirect_cap_reg_is_load_auth[THEN load_auth_caps_run_state_trace_reads_caps_from_gpr] mem_cap_of_event_Some_tagged_iff CapUnseal_get_bounds_helpers_eq elim!: get_indirect_sentry_type_Some_cases)
   apply fastforce
-  (* apply fastforce *)
+  apply fastforce
   subgoal for c rk paddr bytes c' n
     apply (rule exI[where x = paddr])
     apply (auto)
@@ -1030,7 +1104,7 @@ lemma original_direct_mem_sentries_invoked_in_trace_in_original_mem_code_caps:
   using assms
   unfolding original_direct_mem_sentries_invoked_in_trace_def original_mem_code_caps_def
     trace_indirect_sentry_type_def
-  by (fastforce simp: mem_caps_run_state load_auth_caps_run_eq_load_auth_caps_of_trace)
+  by (fastforce simp: mem_caps_run_state load_auth_caps_run_eq_load_auth_caps_of_trace mem_cap_of_event_Some_tagged_iff)
 
 lemma original_code_caps_invoked_in_trace_in_original_code_caps:
   assumes "instr_of_trace t = Some instr"
@@ -1056,19 +1130,28 @@ lemma no_mem_writes_in_trace_take:
   "no_mem_writes_in_trace t \<Longrightarrow> no_mem_writes_in_trace (take i t)"
   by (auto simp add: no_mem_writes_in_trace_def dest: in_set_takeD)
 
+lemma cap_of_mem_bytes_Some_tagged_iff:
+  assumes "CapIsTagSet c"
+  shows "cap_of_mem_bytes bytes tag = Some c \<longleftrightarrow>
+         (\<exists>data :: 128 word. vec_of_bits_maybe (bits_of_mem_bytes bytes) = Some data \<and> tag = B1 \<and>
+                             c = word_cat (1 :: 1 word) data)"
+  using assms
+  by (cases tag) (auto simp: cap_of_mem_bytes_def nth_ucast_len split: bind_splits)
+
 lemma no_mem_writes_in_trace_mem_cap_loads_of_trace_eq:
   assumes "no_mem_writes_in_trace t"
   shows "mem_cap_loads_of_trace t = {(paddr, c). (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c}"
   using assms
   by (auto simp: mem_cap_loads_of_trace_eq initial_mem_cap_loads_of_trace_def in_set_conv_nth
-                 no_mem_writes_in_trace_take)
+                 no_mem_writes_in_trace_take mem_cap_of_event_Some_tagged_iff cap_of_mem_bytes_Some_tagged_iff;
+      fastforce)
 
 lemma mem_caps_initial_mem_cap_loads_of_trace:
   assumes "no_mem_writes_in_trace t"
   shows "mem_caps (run_state s t) = initial_mem_cap_loads_of_trace t \<union> mem_caps s"
   using assms
   unfolding mem_caps_run_state initial_mem_cap_loads_of_trace_def
-  by (auto simp: no_mem_writes_in_trace_take in_set_conv_nth)
+  by (auto simp: no_mem_writes_in_trace_take in_set_conv_nth; fastforce)
 
 lemma valid_address_no_overflow:
   fixes addr offset :: "64 word"
@@ -1262,6 +1345,10 @@ proof (unfold no_state_update_def, intro allI impI, elim conjE)
     using t assms
     unfolding no_gpr_accesses_or_mem_cap_reads_def no_mem_cap_reads_def
     by (cases val) auto
+  moreover have "E_read_mem rk addr 16 val \<notin> set t" for rk addr val
+    using t assms
+    unfolding no_gpr_accesses_or_mem_cap_reads_def no_mem_cap_reads_def
+    by auto
   ultimately show "run_state s t = s"
   proof (induction t)
     case (Cons e t)
@@ -1270,6 +1357,11 @@ proof (unfold no_state_update_def, intro allI impI, elim conjE)
       case (E_read_memt rk addr sz val)
       then show ?thesis
         using Cons.prems(3)[of rk addr sz val]
+        by auto
+    next
+      case (E_read_mem rk addr sz val)
+      then show ?thesis
+        using Cons Cons.prems(4)[of rk addr val]
         by auto
     next
       case (E_read_reg r v)
@@ -2286,11 +2378,79 @@ lemma CapSquashPostLoadCap_points_to_pcc_no_invocation[unfolded conj_assoc]:
      (auto simp: is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def performs_expected_idc_write_def
                  points_to_pcc_no_invoked_data_caps)
 
+lemma pre_post_AArch64_Abort:
+  "pre_post_ignore_fail
+     (\<lambda>s. pcc_writes s = [] \<and> idc_writes s = [])
+     (AArch64_Abort vaddress fault) (\<lambda>_. Q) is_expected_exception"
+  unfolding AArch64_Abort_def AArch64_BreakpointException_def AArch64_WatchpointException_def
+    AArch64_InstructionAbort_def AArch64_DataAbort_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto\<close>
+          intro: pre_post_if_post_collapse pre_post_AArch64_TakeException pre_post_return)
+
+lemma pre_post_CheckCapabilityAlignment:
+  "pre_post_ignore_fail (\<lambda>s. Q s \<and> pcc_writes s = [] \<and> idc_writes s = [])
+     (CheckCapabilityAlignment address acctype iswrite) (\<lambda>_. Q) is_expected_exception"
+  unfolding CheckCapabilityAlignment_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto\<close> intro: pre_post_AArch64_Abort)
+
+lemma pre_post_CheckLoadTagsPermission:
+  "pre_post_ignore_fail (\<lambda>s. Q s \<and> pcc_writes s = [] \<and> idc_writes s = [])
+     (CheckLoadTagsPermission desc acctype) (\<lambda>a. Q) is_expected_exception"
+  unfolding CheckLoadTagsPermission_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto\<close> intro: pre_post_AArch64_Abort)
+
+lemma of_bl_0th_eq: "of_bl [test_bit b 0] = (b :: 1 word)"
+  by (intro word_eqI) auto
+
+lemma pre_post_ReadTaggedMem:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>bytes tag. Q (tag :: 1 word, bytes :: 128 word) (s\<lparr>mem_caps := insert (unat (FullAddress_address (AddressDescriptor_paddress desc)), word_cat tag bytes) (mem_caps s)\<rparr>))
+     (ReadTaggedMem desc CAPABILITY_DBYTES accdesc) Q is_expected_exception"
+  unfolding ReadTaggedMem_def Let_def
+  by clarsimp (pre_postI_with \<open>-\<close> \<open>auto simp: Bits_def split: option.splits\<close> intro: pre_post_read_memt)
+
+lemma pre_post_ReadMem:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>bytes. Q (bytes :: 128 word) (s\<lparr>mem_caps := insert (unat (FullAddress_address (AddressDescriptor_paddress desc)), ucast bytes) (mem_caps s)\<rparr>))
+     (ReadMem desc CAPABILITY_DBYTES accdesc) Q is_expected_exception"
+  unfolding ReadMem_def Mem_read_def
+  by (rule pre_post_read_mem[THEN pre_post_strengthen_pre]) (auto split: option.splits)
+
+lemma pre_post_AArch64_TranslateAddress:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>addrdesc. IsFault addrdesc \<or> translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) \<longrightarrow> Q addrdesc s)
+     (AArch64_TranslateAddress vaddress acctype iswrite wasaligned sz) Q E"
+  apply (rule pre_post_ignore_fail_no_state_update_no_exception[THEN pre_post_strengthen_pre])
+  subgoal sorry
+   apply (rule monad_no_exception)
+  apply (auto dest!: trace_assms_translation_assms_trace dest: AArch64_TranslateAddress_translate_address)
+  done
+
+lemma pre_post_AArch64_TaggedMemSingle:
+  "pre_post_ignore_fail
+     (\<lambda>s. (\<forall>bytes tag paddr. translate_address (unat vaddr) = Some paddr \<longrightarrow> Q (tag :: 1 word, bytes :: 128 word) (s\<lparr>mem_caps := insert (paddr, word_cat tag bytes) (mem_caps s)\<rparr>)) \<and> pcc_writes s = [] \<and> idc_writes s = [])
+     (AArch64_TaggedMemSingle vaddr CAPABILITY_DBYTES acctype wasaligned) Q is_expected_exception"
+  unfolding AArch64_TaggedMemSingle_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close> intro: pre_post_ReadMem pre_post_ReadTaggedMem pre_post_CheckLoadTagsPermission pre_post_AArch64_Abort pre_post_AArch64_TranslateAddress)
+     (auto; fastforce elim: allE[where x = "0 :: 1 word"])
+
+lemma pre_post_CapabilityFromData:
+  "pre_post_ignore_fail
+     (\<lambda>s. Q (word_cat (tag :: 1 word) (data :: 128 word) :: 129 word) s)
+     (CapabilityFromData CAPABILITY_DBITS tag data) Q E"
+  unfolding CapabilityFromData_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close>)
+     (auto simp: Capability_of_tag_word_def of_bl_0th_eq)
+
 lemma pre_post_MemC_read:
   "pre_post_ignore_fail
-     (\<lambda>s. \<forall>paddr c. translate_address (unat vaddr) = Some paddr \<longrightarrow> Q c (s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr>))
+     (\<lambda>s. (\<forall>paddr c. translate_address (unat vaddr) = Some paddr \<longrightarrow>
+            Q c (s\<lparr>mem_caps := insert (paddr, c) (mem_caps s)\<rparr>)) \<and> pcc_writes s = [] \<and> idc_writes s = [])
      (MemC_read vaddr acctype) Q is_expected_exception"
-  sorry
+  unfolding MemC_read_def Let_def bind_assoc
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close>
+         intro: pre_post_CapabilityFromData pre_post_AArch64_TaggedMemSingle pre_post_CheckCapabilityAlignment)
+     (auto simp: of_bl_0th_eq)
 
 lemma MemC_read_points_to_pcc_code[unfolded conj_assoc]:
   "pre_post_ignore_fail
