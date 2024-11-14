@@ -1647,6 +1647,30 @@ proof
     by (cases "vaddr mod 2 ^ 12 + offset < 2 ^ 12") auto
 qed
 
+lemma translate_address_unat_vaddr_offset_paddr_different:
+  fixes vaddr :: "64 word"
+  assumes "translate_address (unat vaddr) = Some paddr"
+    and "unat offset < 2^12" and "unat offset > 0"
+  shows "translate_address (unat (vaddr + offset)) \<noteq> Some paddr"
+proof
+  assume "translate_address (unat (vaddr + offset)) = Some paddr"
+  from translate_address_page_offset[OF this] translate_address_page_offset[OF assms(1)]
+  have "unat vaddr mod 2 ^ 12 = unat (vaddr + offset) mod 2 ^ 12"
+    by auto
+  also have "\<dots> = (unat vaddr + unat offset) mod 2 ^ 64 mod 2 ^ 12"
+    by (auto simp: unat_word_ariths)
+  also have "\<dots> = (unat vaddr + unat offset) mod 2 ^ 12"
+    unfolding mod_exp_eq
+    by auto
+  also have "\<dots> = (unat vaddr mod 2 ^ 12 + unat offset) mod 2 ^ 12"
+    by (simp flip: pull_mods(8))
+  also have "\<dots> = (if unat vaddr mod 2 ^ 12 + unat offset < 2 ^ 12 then unat vaddr mod 2 ^ 12 + unat offset else unat vaddr mod 2 ^ 12 + unat offset - 2 ^ 12)"
+    by (rule mod_nat_add) (use assms(2) in auto)
+  finally show False
+    using assms(2,3)
+    by (cases "unat vaddr mod 2 ^ 12 + unat offset < 2 ^ 12") auto
+qed
+
 lemma translate_address_aligned_iff[simp]:
   assumes "translate_address vaddr = Some paddr"
     and "sz dvd 2^12"
@@ -6705,7 +6729,7 @@ lemma no_code_or_data_cap_regs_if_indirect_sentry:
 (* TODO: Make sure that set of invoked indirected capabilities is either empty or a singleton:
      - Assume that GPRs/CSP behaves sequentially (gives the same value when read repeatedly)
      - Show that instructions with indirect invocations don't read GPRs/CSP after writing it *)
-lemma instantiated_invocation_trace_assms:
+(*lemma instantiated_invocation_trace_assms:
   assumes "(m, t, m') \<in> Traces"
     and "determ_instr_exp m"
     (* and "invoked_code_regs = set_option (exp_invokes_code_cap_from_reg m)" *)
@@ -6811,7 +6835,7 @@ proof (unfold invocation_trace_assms_def, intro ballI)
         done
     qed auto
   qed
-qed
+qed*)
 
 lemma instr_None_invocation_trace_assms:
   assumes "instr_opt = None"

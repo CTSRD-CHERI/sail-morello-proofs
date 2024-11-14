@@ -641,7 +641,7 @@ lemma (in Cap_Axiom_Assm_Automaton) accessed_caps_invariant:
 context Morello_Axiom_Automaton
 begin
 
-lemma determ_instrs_of_exp_DecodeA64:
+lemma (in Morello_ISA) determ_instrs_of_exp_DecodeA64:
   "determ_instr_exp (DecodeA64 pc opcode)"
   by (unfold DecodeA64_def Let_def)
      (intro determ_instr_exp_if_split_no_asm determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract no_reg_writes_to_determ_instrs_of_exp;
@@ -651,7 +651,7 @@ lemma determ_instrs_of_exp_DecodeA64:
   "determ_instrs_of_exp (DecodeExecute enc opcode)"
   by (cases enc; auto simp: ExecuteA64_def ExecuteA32_def ExecuteT16_def ExecuteT32_def determ_instrs_of_exp_DecodeA64 no_reg_writes_to_determ_instrs_of_exp)*)
 
-lemma determ_instrs_instr_sem:
+lemma (in Morello_ISA) determ_instrs_instr_sem:
   "determ_instr_exp (instr_sem instr)"
   unfolding instr_sem_def Step_PC_def
   by (intro determ_instrs_of_exp_DecodeA64[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)
@@ -1230,7 +1230,7 @@ lemma Run_VAddress_add_vec_int_eq:
   by (auto simp: Run_VAddress_eq_CapGetValue)
 
 (* TODO: Move *)
-lemma CapIsRangeInBounds_in_get_mem_region:
+lemma (in Morello_ISA) CapIsRangeInBounds_in_get_mem_region:
   assumes "Run (CapIsRangeInBounds c addr sz) t True"
     and "unat sz \<le> 2^64"
   shows "set (address_range (unat addr) (unat sz)) \<subseteq> get_mem_region CC c"

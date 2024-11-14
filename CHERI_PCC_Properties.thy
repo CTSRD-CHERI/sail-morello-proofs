@@ -72,11 +72,18 @@ definition initial_mem_cap_vaddr_loads_of_trace where
 abbreviation instr_trace_may_invoke where
   "instr_trace_may_invoke opcode t \<equiv> trace_invokes_code_cap_from_reg t \<noteq> None \<or> trace_indirect_sentry_type t \<noteq> None \<or> trace_invokes_data_cap_from_reg t \<noteq> None"
 
+definition trace_reads_caps_from_gpr_or_null :: "int \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "trace_reads_caps_from_gpr_or_null n t \<equiv> trace_reads_caps_from_gpr n t \<union> (if n = 31 then {0} else {})"
+
+definition trace_reads_initial_caps_from_gpr_or_null :: "int \<Rightarrow> register_value trace \<Rightarrow> Capability set" where
+  "trace_reads_initial_caps_from_gpr_or_null n t \<equiv> trace_reads_initial_caps_from_gpr n t \<union> (if n = 31 then {0} else {})"
+
 definition branch_instr_run_has_expected_gpr_reads where
   "branch_instr_run_has_expected_gpr_reads t \<equiv>
-     (\<forall>n. trace_invokes_code_cap_from_reg t = Some n \<or> trace_invokes_data_cap_from_reg t = Some n \<or>
-          trace_load_auths t = Some (RegAuth n) \<longrightarrow>
-           (\<exists>c. trace_reads_caps_from_gpr n t = {c} \<and> trace_reads_initial_caps_from_gpr n t = {c}))"
+     (\<forall>n. (trace_invokes_code_cap_from_reg t = Some n \<or> trace_invokes_data_cap_from_reg t = Some n \<longrightarrow>
+             (\<exists>c. trace_reads_caps_from_gpr_or_null n t = {c} \<and> trace_reads_initial_caps_from_gpr_or_null n t = {c})) \<and>
+          (trace_load_auths t = Some (RegAuth n) \<longrightarrow>
+             (\<exists>c. trace_reads_caps_from_gpr n t = {c} \<and> trace_reads_initial_caps_from_gpr n t = {c})))"
 
 definition branch_instr_run_has_expected_pstate_writes where
   "branch_instr_run_has_expected_pstate_writes opcode t \<equiv>
@@ -119,11 +126,11 @@ definition branch_instr_run_has_expected_invocation_loads where
               \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue auth), cd), (unat (CapGetValue auth) + 16, cc)} \<and>
               mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
               translate_address (unat (CapGetValue auth)) = Some paddr_cd \<and>
-              translate_address (unat (CapGetValue auth) + 16) = Some paddr_cc \<and>
+              translate_address (unat (CapGetValue auth + 16)) = Some paddr_cc \<and>
               initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)} \<and>
-              mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c} \<and>
+              mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c} \<comment> \<open>\<and>
               unat (CapGetValue auth + 16) = unat (CapGetValue auth) + 16 \<and>
-              bounds_address AccType_NORMAL (unat (CapGetValue auth) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue auth)) + 16)
+              bounds_address AccType_NORMAL (unat (CapGetValue auth) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue auth)) + 16\<close>)
       | None \<Rightarrow> True)"
 
 definition branch_instr_trace_has_expected_exceptions where
@@ -167,9 +174,21 @@ lemma monad_trace_subset_ConstrainUnpredictable[monad_trace_subset]:
   "monad_trace_subset {} (ConstrainUnpredictable u)"
   by (cases u) (auto simp: monad_trace_subset_return)
 
+lemmas invocation_execute_defs =
+  execute_BRS_C_C_C_def execute_BRS_C_C_def execute_BLRR_C_C_def execute_BLRS_C_C_def
+  execute_BLRS_C_C_C_def execute_BLR_C_C_def execute_BRR_C_C_def execute_BR_C_C_def
+  execute_RETR_C_C_def execute_RETS_C_C_def execute_RETS_C_C_C_def execute_RET_C_C_def
+  execute_BLR_CI_C_def execute_BR_CI_C_def execute_LDPBLR_C_C_C_def execute_LDPBR_C_C_C_def
+
+lemmas invocation_decode_defs[unfolded Let_def] =
+  decode_BRS_C_C_C_def decode_BRS_C_C_def decode_BLRR_C_C_def decode_BLRS_C_C_def
+  decode_BLRS_C_C_C_def decode_BLR_C_C_def decode_BRR_C_C_def decode_BR_C_C_def
+  decode_RETR_C_C_def decode_RETS_C_C_def decode_RETS_C_C_C_def decode_RET_C_C_def
+  decode_BLR_CI_C_def decode_BR_CI_C_def decode_LDPBLR_C_C_C_def decode_LDPBR_C_C_C_def
+
 setup \<open>Monad_Trace_Subset_Exploration.install_recs
   ["Morello_bindings", "Morello"]
-  @{thms execute_LDPBLR_C_C_C_def}
+  @{thms invocation_execute_defs Step_PC_def}
 \<close>
 
 find_theorems monad_trace_subset execute_LDPBLR_C_C_C
@@ -205,9 +224,7 @@ lemma monad_no_exception_HaveMPAMExt[monad_no_exception]:
 
 lemma monad_no_exception_Have16bitVMID[monad_no_exception]:
   "monad_no_exception {} (Have16bitVMID u)"
-  (* FIXME *)
-  (* by (auto simp: Have16bitVMID_def IMPDEF_boolean_def IMPDEF_boolean_map_def intro: monad_no_exception) *)
-  sorry
+  by (auto simp: Have16bitVMID_def IMPDEF_boolean_def IMPDEF_boolean_map_def intro: monad_no_exception)
 
 setup \<open>Monad_No_Exception_Exploration.install_recs
   ["Morello_bindings", "Morello"]
@@ -286,6 +303,9 @@ lemma pre_post_strengthen_pre:
   shows "pre_post P m Q F E"
   using assms
   by (rule pre_post_consequence)
+
+lemma pre_post_False: "pre_post (\<lambda>_. False) m Q E F"
+  by (auto simp: pre_post_def)
 
 lemma pre_post_return:
   "pre_post (Q a) (return a) Q E F"
@@ -634,6 +654,20 @@ lemma disjnt_range_event:
   "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) (range (E_read_reg r'))"
   "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) (range (E_write_reg r'))"
   "disjnt (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val)) (range (E_choose msg))"
+  "disjnt (range (\<lambda>(wk, addr, val, sz, y). E_write_mem wk addr sz val y)) (range (E_read_reg r))"
+  "disjnt (range (\<lambda>(wk, addr, val, sz, y). E_write_mem wk addr sz val y)) (range (E_write_reg r))"
+  "disjnt (range (\<lambda>(wk, addr, val, sz, y). E_write_mem wk addr sz val y)) (range (E_choose msg))"
+  "disjnt (range (\<lambda>(wk, addr, val, sz, y). E_write_mem wk addr sz val y))
+          (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val))"
+  "disjnt (range (\<lambda>(wk, addr, val, sz, y). E_write_mem wk addr sz val y))
+          (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val))"
+  "disjnt (range (\<lambda>(wk, addr, val, tag, sz, y). E_write_memt wk addr sz val tag y)) (range (E_read_reg r))"
+  "disjnt (range (\<lambda>(wk, addr, val, tag, sz, y). E_write_memt wk addr sz val tag y)) (range (E_write_reg r))"
+  "disjnt (range (\<lambda>(wk, addr, val, tag, sz, y). E_write_memt wk addr sz val tag y)) (range (E_choose msg))"
+  "disjnt (range (\<lambda>(wk, addr, val, tag, sz, y). E_write_memt wk addr sz val tag y))
+          (range (\<lambda>(rk, addr, val, sz). E_read_mem rk addr sz val))"
+  "disjnt (range (\<lambda>(wk, addr, val, tag, sz, y). E_write_memt wk addr sz val tag y))
+          (range (\<lambda>(rk, addr, val, sz). E_read_memt rk addr sz val))"
   by (auto simp: disjnt_def)
 
 method no_reads_from_any_gpr =
@@ -796,6 +830,10 @@ definition has_expected_pstate_writes where
          pstate_writes s = [Regval_ProcState pstate] \<and> cc \<in> original_code_caps s \<and>
          (CapIsTagSet cc \<longrightarrow> test_bit (ProcState_C64 pstate) 0 = lsb cc))"
 
+definition has_load_cap_perm_if_needed where
+  "has_load_cap_perm_if_needed pcc_tagged s \<equiv>
+     pcc_tagged \<and> instr_invokes_indirect_cap_from_reg instr \<noteq> None \<longrightarrow>
+     (\<exists>c \<in> load_auth_caps s. cap_permits CAP_PERM_LOAD_CAP c)"
 
 definition has_expected_data_invocation where
   "has_expected_data_invocation s \<equiv>
@@ -803,17 +841,18 @@ definition has_expected_data_invocation where
      (\<exists>cc cd. pcc_writes s = [Regval_bitvector_129_dec cc] \<and>
               idc_writes s = [Regval_bitvector_129_dec cd] \<and>
               branch_taken_writes s = [Regval_bool True] \<and>
-              (CapIsTagSet cc \<longrightarrow> cc \<in> invoked_code_caps s \<and> cd \<in> invoked_data_caps s))"
+              (CapIsTagSet cc \<longrightarrow> cc \<in> invoked_code_caps s \<and> cd \<in> invoked_data_caps s \<and>
+                                  has_load_cap_perm_if_needed True s))"
 
-definition cap_authorises_load where
+definition cap_authorises_load :: "Capability \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> bool" where
   "cap_authorises_load c vaddr sz \<equiv>
-     CapIsTagSet c \<and> cap_permits CAP_PERM_LOAD_CAP c \<and>
+     CapIsTagSet c \<and> \<comment> \<open>cap_permits CAP_PERM_LOAD_CAP c \<and>\<close>
      ((get_indirect_sentry_type c = instr_indirect_sentry_type instr \<and>
        instr_invokes_indirect_cap_from_reg instr \<noteq> None)
-      \<or> \<not>CapIsSealed c) \<and>
+      \<or> \<not>CapIsSealed c) \<comment> \<open>\<and>
      valid_address AccType_NORMAL vaddr \<and>
      bounds_address AccType_NORMAL vaddr + sz \<le> 2^64
-     \<comment> \<open>\<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC c\<close>"
+     \<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC c\<close>"
 
 definition has_expected_loads where
   "has_expected_loads s \<equiv>
@@ -827,7 +866,7 @@ definition has_expected_loads where
          \<exists>auth cc paddr_cc cd paddr_cd.
             auth \<in> load_auth_caps s \<and> cap_authorises_load auth (unat (CapGetValue auth)) 32 \<and>
             translate_address (unat (CapGetValue auth)) = Some paddr_cd \<and>
-            translate_address (unat (CapGetValue auth) + 16) = Some paddr_cc \<and>
+            translate_address (unat (CapGetValue auth + 16)) = Some paddr_cc \<and>
             mem_caps s = {(paddr_cd, cd), (paddr_cc, cc)}
       | None \<Rightarrow> (load_auth_caps s = {} \<longrightarrow> mem_caps s = {}))"
 
@@ -842,7 +881,6 @@ definition
   "ev_reads_gprs_from_initial_reg_state s e \<equiv>
      (\<not>gprs_written s \<longrightarrow> ev_reads_from_reg_state (restrict_map (reg_state s) all_R_names) e)"
 
-(* TODO: cap_invariant *)
 abbreviation ev_assms :: "invocation_state \<Rightarrow> register_value event \<Rightarrow> bool" where
   "ev_assms s e \<equiv> ev_reads_gprs_from_initial_reg_state s e \<and> translation_assms e"
 
@@ -1059,6 +1097,7 @@ lemma branch_instr_run_has_expected_gpr_readsI:
                  code_reg_caps_run_state_trace_reads_caps_from_gpr
                  data_reg_caps_run_state_trace_reads_caps_from_gpr
                  load_auth_caps_run_state_trace_reads_caps_from_gpr initial_invocation_state_def has_null_caps_def
+                 trace_reads_caps_from_gpr_or_null_def trace_reads_initial_caps_from_gpr_or_null_def
            elim: instr_indirect_sentry_type_if_load_auth code_cap_reg_if_data_cap_reg split: if_splits)
 
 lemma original_reg_code_caps_invoked_in_trace_in_code_reg_caps:
@@ -1162,6 +1201,73 @@ lemma valid_address_no_overflow:
   using bounds_address_orig_address_no_overflow[OF assms]
   by (intro unat_add_lem[THEN iffD1]) auto
 
+definition "no_mem_writes_in_exp m \<equiv> (\<forall>t m'. (m, t, m') \<in> Traces \<longrightarrow> no_mem_writes_in_trace t)"
+
+abbreviation
+  "write_mem_events \<equiv>
+     range (\<lambda>(wk, addr, val, sz, k). E_write_mem wk addr sz val k) \<union>
+     range (\<lambda>(wk, addr, val, tag, sz, k). E_write_memt wk addr sz val tag k)"
+
+lemma monad_trace_subset_no_mem_writes_in_exp:
+  assumes "monad_trace_subset S m"
+    and "disjnt write_mem_events S"
+  shows "no_mem_writes_in_exp m"
+  using assms
+  by (fastforce simp: monad_trace_subset_def no_mem_writes_in_exp_def no_mem_writes_in_trace_def subset_eq disjnt_iff)
+
+lemma no_mem_writes_in_exp_bind:
+  "no_mem_writes_in_exp m \<Longrightarrow> (\<And>a. no_mem_writes_in_exp (f a)) \<Longrightarrow> no_mem_writes_in_exp (bind m f)"
+  by (fastforce simp: no_mem_writes_in_exp_def no_mem_writes_in_trace_def elim!: bind_Traces_cases)
+
+lemma no_mem_writes_in_write_reg: "no_mem_writes_in_exp (write_reg r v)"
+  by (auto simp: no_mem_writes_in_exp_def no_mem_writes_in_trace_def write_reg_def elim: Write_reg_TracesE)
+
+lemma no_mem_writes_in_Step_PC: "no_mem_writes_in_exp (Step_PC u)"
+  by (rule monad_trace_subset_no_mem_writes_in_exp, rule monad_trace_subset)
+     (unfold disjnt_Un1 disjnt_Un2, intro conjI disjnt_empty2 disjnt_range_event)
+
+lemma no_mem_writes_in_exp_DecodeA64_instr:
+  assumes "instr_of_exp (DecodeA64 pc opcode) = Some instr"
+    and "instr_may_invoke"
+  shows "no_mem_writes_in_exp (DecodeA64 pc opcode)"
+proof -
+  have ifE: "no_mem_writes_in_exp (if b then m1 else m2)"
+    if "instr_of_exp (if b then m1 else m2) = Some instr"
+    and "instr_of_exp m1 = Some instr \<Longrightarrow> no_mem_writes_in_exp m1"
+    and "instr_of_exp m2 = Some instr \<Longrightarrow> no_mem_writes_in_exp m2"
+    for b and m1 m2 :: "unit M"
+    by (use that in auto)
+  have no_instr: "no_mem_writes_in_exp m"
+    if instr: "instr_of_exp m = Some instr"
+    and writes: "no_reg_writes_to {''__ThisInstrAbstract''} m"
+    for m :: "unit M"
+    using instr writes[THEN no_reg_writes_to_instr_of_exp]
+    by auto
+  from assms show ?thesis
+    by -
+       (unfold DecodeA64_def invocation_decode_defs Let_def, elim ifE,
+        (erule no_instr, solves \<open>no_reg_writes_toI\<close>
+         | solves \<open>rule no_mem_writes_in_write_reg[THEN no_mem_writes_in_exp_bind],
+                   rule monad_trace_subset_no_mem_writes_in_exp,
+                   rule monad_trace_subset,
+                   unfold disjnt_Un1 disjnt_Un2,
+                   intro conjI disjnt_empty2 disjnt_range_event\<close>
+         | use \<open>instr_may_invoke\<close> in \<open>solves \<open>auto\<close>\<close>)+)
+qed
+
+lemma no_mem_writes_in_exp_instr_sem:
+  assumes "instr_of_exp (instr_sem opcode) = Some instr"
+    and "instr_may_invoke"
+  shows "no_mem_writes_in_exp (instr_sem opcode)"
+  using assms
+  unfolding instr_sem_def
+  by (intro no_mem_writes_in_exp_bind no_mem_writes_in_exp_DecodeA64_instr no_mem_writes_in_Step_PC)
+     (auto simp: instr_of_exp_def instrs_of_exp_bind_no_writes split: if_splits)
+
+lemma no_mem_writes_in_trace_of_exp:
+  "no_mem_writes_in_exp m \<Longrightarrow> hasTrace t m \<Longrightarrow> no_mem_writes_in_trace t"
+  by (auto simp: no_mem_writes_in_exp_def hasTrace_iff_Traces_final)
+
 lemma branch_instr_run_has_expected_invocation_loadsI:
   assumes "instr_may_invoke \<longrightarrow> has_expected_loads (run_state s t)"
     and "instr_of_trace t = Some instr"
@@ -1202,6 +1308,7 @@ next
                         valid_address_no_overflow[where offset = 16 and acctype = AccType_NORMAL])
 qed
 
+(* TODO: Move *)
 lemma expected_original_code_caps_cases:
   fixes s0 t
   defines "s \<equiv> run_state s0 t"
@@ -1241,14 +1348,14 @@ proof -
       then obtain paddr_cd cd paddr_cc cc
         where "mem_caps s = {(paddr_cd, cd), (paddr_cc, cc)}"
         and "translate_address (unat (CapGetValue auth)) = Some paddr_cd"
-        and "translate_address (unat (CapGetValue auth) + 16) = Some paddr_cc"
-        and "unat (CapGetValue auth + 16) = unat (CapGetValue auth) + 16"
+        and "translate_address (unat (CapGetValue auth + 16)) = Some paddr_cc"
+        (* and "unat (CapGetValue auth + 16) = unat (CapGetValue auth) + 16" *)
         using \<open>has_expected_loads s\<close> auth LoadAuth
         using valid_address_no_overflow[of AccType_NORMAL "CapGetValue auth" 16]
         by (auto simp: has_expected_loads_def cap_authorises_load_def)
       then show ?thesis
         using LoadAuth Points_to_Pair auth \<open>has_null_caps s0\<close> (*\<open>code_reg_caps s0 = {}\<close>*)
-        using translate_address_vaddr_offset_paddr_different[of "unat (CapGetValue auth)" paddr_cd 16]
+        using translate_address_unat_vaddr_offset_paddr_different[of "CapGetValue auth" paddr_cd 16]
         by (intro Mem[of cc]) (auto simp: original_mem_code_caps_def no_code_reg_caps_run_state s_def has_null_caps_def)
     qed
   qed
@@ -1573,7 +1680,7 @@ definition performs_expected_idc_write where
         (\<exists>cd. idc_writes s = [Regval_bitvector_129_dec cd] \<and> (pcc_tagged \<longrightarrow> cd \<in> invoked_data_caps s)))"
 
 abbreviation "invocation_post_load s \<equiv> has_expected_loads s \<and> has_expected_gpr_reads s"
-abbreviation "invocation_post_idc pcc_tagged s \<equiv> performs_expected_idc_write pcc_tagged s \<and> invocation_post_load s"
+abbreviation "invocation_post_idc pcc_tagged s \<equiv> performs_expected_idc_write pcc_tagged s \<and> has_load_cap_perm_if_needed pcc_tagged s \<and> invocation_post_load s"
 abbreviation "invocation_post_final s \<equiv> has_expected_data_invocation s \<and> has_expected_pstate_writes s \<and> invocation_post_load s" (* \<and> invocation_post_idc s"*)
 abbreviation "invocation_pre_final c s \<equiv> is_branch_target c s \<and> pcc_writes s = [] \<and> pstate_writes s = [] \<and> branch_taken_writes s = []"
 
@@ -1685,11 +1792,12 @@ lemma has_expected_data_invocationI:
   assumes "pcc_writes s = []" and "branch_taken_writes s = []"
     (* and "CapIsTagSet c' \<longrightarrow> c' \<in> invoked_code_caps s" *)
     and "performs_expected_idc_write (CapIsTagSet c') s"
+    and "has_load_cap_perm_if_needed (CapIsTagSet c') s"
     and "CapIsTagSet c' \<longrightarrow> (\<exists>c. is_branch_target c s \<and> CapIsTagSet c \<and> \<not>CapIsSealed c \<and> c' \<in> branch_caps (clear_lsb c))"
   shows "has_expected_data_invocation (add_branch_taken_write True (add_pcc_write c' (add_pstate_write pstate s)))"
   using assms
   unfolding has_expected_data_invocation_def performs_expected_idc_write_def
-    add_branch_taken_write_def add_pcc_write_def add_pstate_write_def
+    add_branch_taken_write_def add_pcc_write_def add_pstate_write_def has_load_cap_perm_if_needed_def
   by (auto dest!: is_branch_target_invoked_code_caps cong: invoked_code_caps_cong invoked_data_caps_cong)
 
 lemma has_expected_pstate_writesI:
@@ -1709,9 +1817,9 @@ lemma BranchXToCapability_invocation_post_final:
   "pre_post_ignore_fail
      (\<lambda>s. invocation_post_idc (CapIsTagSet c) s \<and> invocation_pre_final c s)
      (BranchXToCapability c branch_type) (\<lambda>_ s. invocation_post_final s) E"
-  apply (rule pre_post_strengthen_pre, rule pre_post_BranchXToCapability)
-  apply (auto intro!: has_expected_data_invocationI has_expected_pstate_writesI elim: performs_expected_idc_write_pcc_tagged_antimono)
-  done
+  by (rule pre_post_BranchXToCapability[THEN pre_post_strengthen_pre])
+     (auto intro!: has_expected_data_invocationI has_expected_pstate_writesI
+           simp: has_load_cap_perm_if_needed_def elim: performs_expected_idc_write_pcc_tagged_antimono)
 
 lemma pre_post_R_read:
   "pre_post_ignore_fail
@@ -2079,6 +2187,10 @@ proof -
           \<open>auto simp:  get_initial_reg_cap_def add_initial_gpr_read_def Let_def is_code_reg_def is_data_reg_def is_load_auth_reg_def dest!: *\<close>)
 qed
 
+lemma no_sentry_no_indirect_cap_reg[simp]:
+  "instr_indirect_sentry_type instr = None \<Longrightarrow> instr_invokes_indirect_cap_from_reg instr = None"
+  by (cases instr) auto
+
 lemma pre_post_C_set_29_unseal_data_reg_cap_invocation_post_idc[unfolded conj_assoc]:
   "pcc_tagged \<longrightarrow> invokable CC c' c \<Longrightarrow>
    pre_post_ignore_fail
@@ -2087,7 +2199,7 @@ lemma pre_post_C_set_29_unseal_data_reg_cap_invocation_post_idc[unfolded conj_as
      (C_set 29 (CapUnseal c)) (\<lambda>_ s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final_reg c' s) E"
   by (rule pre_post_strengthen_pre, rule pre_post_C_set)
      (auto simp: performs_expected_idc_write_def invoked_data_caps_def original_reg_data_caps_def
-                 add_idc_write_def has_expected_loads_def has_expected_gpr_reads_def)
+                 add_idc_write_def has_expected_loads_def has_expected_gpr_reads_def has_load_cap_perm_if_needed_def)
 
 lemma pre_post_C_set_29_data_reg_cap_invocation_post_idc[unfolded conj_assoc]:
   "pcc_tagged \<longrightarrow> \<not>invokable CC c' c \<Longrightarrow>
@@ -2097,7 +2209,8 @@ lemma pre_post_C_set_29_data_reg_cap_invocation_post_idc[unfolded conj_assoc]:
      (C_set 29 c) (\<lambda>_ s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final_reg c' s) E"
   by (rule pre_post_strengthen_pre, rule pre_post_C_set)
      (auto simp: performs_expected_idc_write_def invoked_data_caps_def original_reg_data_caps_def
-                 add_idc_write_def has_expected_loads_def has_expected_gpr_reads_def original_mem_data_caps_def)
+                 add_idc_write_def has_expected_loads_def has_expected_gpr_reads_def original_mem_data_caps_def
+                 has_load_cap_perm_if_needed_def)
 
 lemma pre_post_C_set_30_is_branch_target:
   "pre_post_ignore_fail
@@ -2106,13 +2219,18 @@ lemma pre_post_C_set_30_is_branch_target:
   by (rule pre_post_strengthen_pre, rule pre_post_C_set_30)
      (auto simp: has_expected_gpr_reads_def cong: is_branch_target_cong)
 
+lemma has_load_cap_perm_if_needed_cong:
+  "load_auth_caps s = load_auth_caps s' \<Longrightarrow> has_load_cap_perm_if_needed pcc_tagged s = has_load_cap_perm_if_needed pcc_tagged s'"
+  by (auto simp: has_load_cap_perm_if_needed_def)
+
 lemma pre_post_C_set_30_invocation_post_final[unfolded conj_assoc]:
   "pre_post_ignore_fail
      (\<lambda>s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final c' s)
      (C_set 30 c) (\<lambda>_ s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final c' s) E"
   by (rule pre_post_strengthen_pre, rule pre_post_C_set_30)
      (auto simp: has_expected_gpr_reads_def performs_expected_idc_write_def
-           cong: is_branch_target_cong invoked_data_caps_cong has_expected_loads_cong)
+           cong: is_branch_target_cong invoked_data_caps_cong has_expected_loads_cong
+                 has_load_cap_perm_if_needed_cong)
 
 lemmas if_distrib_bind_BranchXToCapability =
   if_distrib[where f = "\<lambda>m. bind m (\<lambda>target. BranchXToCapability target _)"]
@@ -2216,26 +2334,58 @@ lemma pre_post_has_no_expected_data_cap_invocation_pre:
   by (elim pre_post_strengthen_pre)
      (auto simp: performs_expected_idc_write_def has_no_expected_data_cap_invocation_no_invoked_data_caps)
 
+lemma pre_post_load_cap_perm_not_needed:
+  assumes "pre_post P m (\<lambda>a s. Q a s \<and> has_no_expected_loads s) E F"
+  shows "pre_post P m (\<lambda>a s. has_load_cap_perm_if_needed pcc_tagged s \<and> Q a s) E F"
+  using assms
+  by (elim pre_post_consequence) (auto simp: has_load_cap_perm_if_needed_def)
+
+lemma pre_post_load_cap_perm_not_needed_pre:
+  assumes "pre_post (\<lambda>s. has_load_cap_perm_if_needed pcc_tagged s \<and> P s) m Q E F"
+  shows "pre_post (\<lambda>s. P s \<and> has_no_expected_loads s) m Q E F"
+  using assms
+  by (elim pre_post_strengthen_pre) (auto simp: has_load_cap_perm_if_needed_def)
+
+lemmas BranchXToCapability_unseal_if_untag_invocation_post_final_reg_no_data_cap =
+  BranchXToCapability_unseal_if_untag_invocation_post_final_reg[unfolded conj_assoc,
+    THEN pre_post_has_no_expected_data_cap_invocation_pre, unfolded conj_assoc,
+    THEN pre_post_load_cap_perm_not_needed_pre]
+
+lemmas BranchXToCapability_if_untag_invocation_post_final_reg_no_data_cap =
+  BranchXToCapability_if_untag_invocation_post_final_reg[unfolded conj_assoc,
+    THEN pre_post_has_no_expected_data_cap_invocation_pre, unfolded conj_assoc,
+    THEN pre_post_load_cap_perm_not_needed_pre]
+
+lemmas BranchXToCapability_unseal_invocation_post_final_reg_no_data_cap =
+  BranchXToCapability_unseal_invocation_post_final_reg[unfolded conj_assoc,
+    THEN pre_post_has_no_expected_data_cap_invocation_pre, unfolded conj_assoc,
+    THEN pre_post_load_cap_perm_not_needed_pre]
+
+lemmas BranchXToCapability_if_unseal_untag_invocation_post_final_reg_no_data_cap =
+  BranchXToCapability_if_unseal_untag_invocation_post_final_reg[unfolded conj_assoc,
+    THEN pre_post_has_no_expected_data_cap_invocation_pre, unfolded conj_assoc,
+    THEN pre_post_load_cap_perm_not_needed_pre]
+
 lemma pre_post_execute_BRS_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BRS_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BRS_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BRS_C_C_def Let_def bind_assoc bind_return conj_assoc if_distrib_bind_BranchXToCapability if_distrib[where f = CapWithTagClear] if_cancel if_else_if_merge CapWithTagClear_idem
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: pre_post_if_post_collapse BranchXToCapability_unseal_if_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] BranchXToCapability_if_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] pre_post_and_boolM_ignore pre_post_has_no_expected_loads[where m = "C_read n"] pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: pre_post_if_post_collapse BranchXToCapability_unseal_if_untag_invocation_post_final_reg_no_data_cap BranchXToCapability_if_untag_invocation_post_final_reg_no_data_cap pre_post_and_boolM_ignore pre_post_has_no_expected_loads[where m = "C_read n"] pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
 
 lemma pre_post_execute_BLRR_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BLRR_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BLRR_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BLRR_C_C_def Let_def
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto simp add: init_null_caps_def has_null_caps_def\<close> intro: BranchXToCapability_invocation_post_final pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads pre_post_if_post_collapse pre_post_C_set_30_is_branch_target pre_post_return_CapUnseal_is_branch_target_from_reg pre_post_return_if_untag_is_branch_target_from_reg pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_UndefinedFault)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto simp add: init_null_caps_def has_null_caps_def\<close> intro: BranchXToCapability_invocation_post_final pre_post_has_no_expected_data_cap_invocation pre_post_load_cap_perm_not_needed pre_post_has_no_expected_loads pre_post_if_post_collapse pre_post_C_set_30_is_branch_target pre_post_return_CapUnseal_is_branch_target_from_reg pre_post_return_if_untag_is_branch_target_from_reg pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_UndefinedFault)
 
 lemma pre_post_execute_BLRS_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BLRS_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BLRS_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BLRS_C_C_def Let_def CapWithTagClear_if_clear_eq if_else_if_merge
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto simp: init_null_caps_def has_null_caps_def\<close> intro: BranchXToCapability_invocation_post_final pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads pre_post_C_set_30_is_branch_target pre_post_return_CapUnseal_if_clear_is_branch_target_from_reg pre_post_return_if_untag_is_branch_target_from_reg pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_if_post_collapse)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto simp: init_null_caps_def has_null_caps_def\<close> intro: BranchXToCapability_invocation_post_final pre_post_has_no_expected_data_cap_invocation pre_post_load_cap_perm_not_needed pre_post_has_no_expected_loads pre_post_C_set_30_is_branch_target pre_post_return_CapUnseal_if_clear_is_branch_target_from_reg pre_post_return_if_untag_is_branch_target_from_reg pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_if_post_collapse)
 
 lemma pre_post_execute_BLRS_C_C_C:
   "pre_post_ignore_fail
@@ -2249,35 +2399,35 @@ lemma pre_post_execute_BLR_C_C:
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BLR_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BLR_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BLR_C_C_def Let_def bind_assoc conj_assoc
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: has_expected_gpr_reads_def add_initial_gpr_read_def init_null_caps_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads pre_post_C_set_30 pre_post_C_read_initial pre_post_CheckCapabilitiesEnabled pre_post_if_post_collapse)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: has_expected_gpr_reads_def add_initial_gpr_read_def init_null_caps_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg pre_post_has_no_expected_data_cap_invocation pre_post_load_cap_perm_not_needed pre_post_has_no_expected_loads pre_post_C_set_30 pre_post_C_read_initial pre_post_CheckCapabilitiesEnabled pre_post_if_post_collapse)
 
 lemma pre_post_execute_BRR_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BRR_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BRR_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BRR_C_C_def Let_def bind_assoc bind_return conj_assoc if_distrib_bind_BranchXToCapability
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_unseal_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] BranchXToCapability_if_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_UndefinedFault)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_unseal_invocation_post_final_reg_no_data_cap BranchXToCapability_if_untag_invocation_post_final_reg_no_data_cap pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_UndefinedFault)
 
 lemma pre_post_execute_BR_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BR_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BR_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BR_C_C_def Let_def bind_assoc conj_assoc
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads pre_post_if_post_collapse)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg_no_data_cap pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads pre_post_if_post_collapse)
 
 lemma pre_post_execute_RETR_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_RETR_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_RETR_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_RETR_C_C_def Let_def bind_assoc bind_return conj_assoc if_distrib_bind_BranchXToCapability
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_unseal_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] BranchXToCapability_if_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_UndefinedFault)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_unseal_invocation_post_final_reg_no_data_cap BranchXToCapability_if_untag_invocation_post_final_reg_no_data_cap pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled pre_post_UndefinedFault)
 
 lemma pre_post_execute_RETS_C_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_RETS_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_RETS_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_RETS_C_C_def Let_def bind_assoc bind_return conj_assoc if_distrib_bind_BranchXToCapability CapWithTagClear_if_clear_eq if_else_if_merge
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_unseal_if_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] BranchXToCapability_if_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_unseal_if_untag_invocation_post_final_reg_no_data_cap BranchXToCapability_if_untag_invocation_post_final_reg_no_data_cap pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
 
 lemma pre_post_execute_RETS_C_C_C:
   "pre_post_ignore_fail
@@ -2291,7 +2441,7 @@ lemma pre_post_execute_RET_C_C:
      (\<lambda>s. \<exists>regs opc Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_RET_C_C (opc, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_RET_C_C branch_type n) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_RET_C_C_def Let_def bind_assoc conj_assoc
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg[unfolded conj_assoc, THEN pre_post_has_no_expected_data_cap_invocation_pre] pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
+  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | rule pre_post_has_no_expected_data_cap_invocation pre_post_has_no_expected_loads | solves \<open>auto simp: init_null_caps_def has_null_caps_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_reg_no_data_cap pre_post_if_post_collapse pre_post_C_read_code_cap pre_post_CheckCapabilitiesEnabled)
 
 definition "is_unsealed_mem_branch_target c s \<equiv>
   (\<exists>c' \<in> original_mem_code_caps s.
@@ -2336,30 +2486,45 @@ lemma BranchXToCapability_if_unseal_untag_invocation_post_final_mem:
      (\<lambda>s. invocation_post_idc (CapIsTagSet c) s \<and> invocation_pre_final_mem c s)
      (BranchXToCapability c'' branch_type) (\<lambda>_ s. invocation_post_final s) E"
   by (rule pre_post_strengthen_pre, rule BranchXToCapability_invocation_post_final)
-     (auto simp: c''_def c'_def unseal_def intro: mem_is_branch_target_intros elim: performs_expected_idc_write_pcc_tagged_antimono)
+     (auto simp: c''_def c'_def unseal_def has_load_cap_perm_if_needed_def
+           intro: mem_is_branch_target_intros elim: performs_expected_idc_write_pcc_tagged_antimono)
 
 abbreviation "invocation_sentry_pre_idc_write type c s \<equiv> load_auth_caps s = {c} \<and> idc_writes s = [] \<and> instr_indirect_sentry_type instr = Some type"
 
+definition is_VA_of_cap :: "VirtualAddress \<Rightarrow> Capability \<Rightarrow> bool" where
+  "is_VA_of_cap va c \<equiv>
+     VirtualAddress_vatype va = VA_Capability \<and>
+     ((VirtualAddress_base va = c \<comment> \<open>\<and> \<not>CapIsSealed c\<close>) \<or>
+      (VirtualAddress_base va = CapUnseal c \<and>
+       get_indirect_sentry_type c = instr_indirect_sentry_type instr \<and>
+       instr_invokes_indirect_cap_from_reg instr \<noteq> None))"
+
 lemma pre_post_C_set_29_indirect_pcc_sentry_invocation_post_idc[unfolded conj_assoc]:
   "pre_post_ignore_fail
-     (\<lambda>s. invocation_post_load s \<and> invocation_pre_final_mem c' s \<and> invocation_sentry_pre_idc_write Points_to_PCC c s)
-     (C_set 29 (if (CapIsTagSet c \<and> CapIsSealed c \<and> CapGetObjectType c = CAP_SEAL_TYPE_LB) then CapUnseal c else c)) (\<lambda>_ s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final_mem c' s) E"
+     (\<lambda>s. has_load_cap_perm_if_needed (CapIsTagSet c') s \<and> invocation_post_load s \<and> invocation_pre_final_mem c' s \<and> invocation_sentry_pre_idc_write Points_to_PCC c s)
+     (C_set 29 (if (CapIsTagSet c \<and> CapIsSealed c \<and> CapGetObjectType c = CAP_SEAL_TYPE_LB) then CapUnseal c else c)) (\<lambda>_ s. invocation_post_idc (CapIsTagSet c') s \<and> invocation_pre_final_mem c' s) E"
   apply (rule pre_post_strengthen_pre, rule pre_post_C_set)
-  apply (auto simp: performs_expected_idc_write_def invoked_data_caps_def original_reg_data_caps_def mem_data_caps_def original_mem_data_caps_def cong: is_unsealed_mem_branch_target_cong)
+  apply (auto simp: performs_expected_idc_write_def invoked_data_caps_def original_reg_data_caps_def mem_data_caps_def original_mem_data_caps_def cong: is_unsealed_mem_branch_target_cong has_load_cap_perm_if_needed_cong)
   done
+
+(* TODO: Move *)
+lemma cap_permits_CapUnseal_iff:
+  "cap_permits perms (CapUnseal c) \<longleftrightarrow> cap_permits perms c"
+  by (auto simp: CapCheckPermissions_def CapGetPermissions_CapUnseal_eq)
 
 lemma pre_post_CapSquashPostLoadCap:
   "pre_post_ignore_fail
-      (\<lambda>s. \<forall>c'. c' = CapWithTagClear c \<or> c' = c \<or> CapIsTagSet c \<and> \<not>CapIsSealed c \<and> c' = clear_perm mutable_perms c \<longrightarrow> Q c' s)
+      (\<lambda>s. \<forall>c'. c' = CapWithTagClear c \<or> (is_VA_of_cap addr auth \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP auth) \<and> (c' = c \<or> CapIsTagSet c \<and> \<not>CapIsSealed c \<and> c' = clear_perm mutable_perms c) \<longrightarrow> Q c' s)
       (CapSquashPostLoadCap c addr) Q E"
   unfolding CapSquashPostLoadCap_def Let_def
-  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto\<close>)
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close>)
+     (auto simp add: is_VA_of_cap_def VAIsBits64_def VAToCapability_def cap_permits_CapUnseal_iff)
 
 lemma CapSquashPostLoadCap_sentry_mem_branch_target[unfolded conj_assoc]:
-  "pre_post_ignore_fail (\<lambda>s. c \<in> original_mem_code_caps s \<and> invocation_post_load s \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write sentry_type c'' s)
-     (CapSquashPostLoadCap c addr) (\<lambda>c' s. invocation_post_load s \<and> invocation_pre_final_mem c' s \<and> invocation_sentry_pre_idc_write sentry_type c'' s) E"
+  "pre_post_ignore_fail (\<lambda>s. c \<in> original_mem_code_caps s \<and> is_VA_of_cap addr c'' \<and> invocation_post_load s \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write sentry_type c'' s)
+     (CapSquashPostLoadCap c addr) (\<lambda>c' s. has_load_cap_perm_if_needed (CapIsTagSet c') s \<and> invocation_post_load s \<and> invocation_pre_final_mem c' s \<and> invocation_sentry_pre_idc_write sentry_type c'' s) E"
   by (rule pre_post_CapSquashPostLoadCap[THEN pre_post_strengthen_pre])
-     (auto simp add: is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def)
+     (auto simp add: is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def has_load_cap_perm_if_needed_def)
 
 lemma points_to_pcc_no_invoked_data_caps:
   assumes "instr_indirect_sentry_type instr = Some Points_to_PCC"
@@ -2376,7 +2541,7 @@ lemma CapSquashPostLoadCap_points_to_pcc_no_invocation[unfolded conj_assoc]:
      (\<lambda>c' s. invocation_post_idc (pcc_tagged c') s \<and> invocation_pre_final_mem c' s) E"
   by (rule pre_post_CapSquashPostLoadCap[THEN pre_post_strengthen_pre])
      (auto simp: is_unsealed_mem_branch_target_def CapIsSealed_def is_sentry_def performs_expected_idc_write_def
-                 points_to_pcc_no_invoked_data_caps)
+                 points_to_pcc_no_invoked_data_caps has_load_cap_perm_if_needed_def)
 
 lemma pre_post_AArch64_Abort:
   "pre_post_ignore_fail
@@ -2421,7 +2586,10 @@ lemma pre_post_AArch64_TranslateAddress:
      (\<lambda>s. \<forall>addrdesc. IsFault addrdesc \<or> translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) \<longrightarrow> Q addrdesc s)
      (AArch64_TranslateAddress vaddress acctype iswrite wasaligned sz) Q E"
   apply (rule pre_post_ignore_fail_no_state_update_no_exception[THEN pre_post_strengthen_pre])
-  subgoal sorry
+  subgoal
+    (* TODO: AArch64_CheckDebug might write to PSTATE;  need to thread through sufficient
+       assumptions on system registers to disable debug state *)
+    sorry
    apply (rule monad_no_exception)
   apply (auto dest!: trace_assms_translation_assms_trace dest: AArch64_TranslateAddress_translate_address)
   done
@@ -2454,8 +2622,8 @@ lemma pre_post_MemC_read:
 
 lemma MemC_read_points_to_pcc_code[unfolded conj_assoc]:
   "pre_post_ignore_fail
-     (\<lambda>s. cap_authorises_load auth (unat addr) 16 \<and> has_expected_gpr_reads s \<and> mem_caps s = {} \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write Points_to_PCC auth s)
-     (MemC_read addr AccType_NORMAL) (\<lambda>c s. c \<in> original_mem_code_caps s \<and> invocation_post_load s \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write Points_to_PCC auth s) is_expected_exception"
+     (\<lambda>s. cap_authorises_load auth (unat addr) 16 \<and> is_VA_of_cap va auth \<and> has_expected_gpr_reads s \<and> mem_caps s = {} \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write Points_to_PCC auth s)
+     (MemC_read addr AccType_NORMAL) (\<lambda>c s. c \<in> original_mem_code_caps s \<and> is_VA_of_cap va auth \<and> invocation_post_load s \<and> no_branch_writes s \<and> invocation_sentry_pre_idc_write Points_to_PCC auth s) is_expected_exception"
   apply (rule pre_post_strengthen_pre)
    apply (rule pre_post_MemC_read)
   apply (auto simp: original_mem_code_caps_def has_expected_loads_def)
@@ -2470,25 +2638,43 @@ lemma MemC_read_points_to_pcc_no_invocation[unfolded conj_assoc]:
   apply (auto simp: original_mem_code_caps_def has_expected_loads_def)
   done
 
-definition "is_VA_of_cap va c \<equiv> VirtualAddress_vatype va = VA_Capability \<and> VirtualAddress_base va \<in> {c, CapUnseal c}"
+lemma pre_post_CheckCapability:
+  "pre_post_ignore_fail
+     (\<lambda>s. (CapIsTagSet c \<and> \<not>CapIsSealed c \<and> cap_permits requested_perms c \<longrightarrow> Q address s) \<and> pcc_writes s = [] \<and> idc_writes s = [])
+     (CheckCapability c address sz requested_perms acctype) Q is_expected_exception"
+  unfolding CheckCapability_def Let_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | auto\<close> intro: pre_post_AArch64_Abort)
+
+lemma pre_post_VACheckAddress:
+  fixes va perms Q
+  defines "c \<equiv> VirtualAddress_base va"
+  defines "c_checks \<equiv> CapIsTagSet c \<and> \<not>CapIsSealed c \<and> cap_permits perms c"
+  defines "P \<equiv> \<lambda>s. VirtualAddress_vatype va = VA_Capability \<and> (c_checks \<longrightarrow> Q () s) \<and> pcc_writes s = [] \<and> idc_writes s = []"
+  shows "pre_post_ignore_fail P (VACheckAddress va address sz perms acctype) Q is_expected_exception"
+  unfolding VACheckAddress_def P_def c_checks_def c_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close>
+        intro: pre_post_CheckCapability pre_post_if[OF pre_post_False, where b = "VAIsBits64 va"])
+     (auto simp: VAIsBits64_def VAToCapability_def)
 
 lemma VACheckAddress_cap_authorises_load:
-  "nat sz = sz' \<Longrightarrow>
-   pre_post_ignore_fail
-     (\<lambda>s. is_VA_of_cap base c \<and> P s)
-     (VACheckAddress base addr sz perms acctype) (\<lambda>_ s. cap_authorises_load c (unat addr) sz' \<and> P s) is_expected_exception"
-  sorry
+  "pre_post_ignore_fail
+     (\<lambda>s. is_VA_of_cap base c \<and> P s \<and> pcc_writes s = [] \<and> idc_writes s = [] \<and> nat sz = sz')
+     (VACheckAddress base addr sz perms acctype) (\<lambda>_ s. cap_authorises_load c (unat addr) sz' \<and> is_VA_of_cap base c \<and> P s) is_expected_exception"
+  apply (rule pre_post_VACheckAddress[THEN pre_post_strengthen_pre])
+  apply (auto simp: is_VA_of_cap_def cap_authorises_load_def)
+  done
 
 lemma VACheckAddress_cap_authorises_load':
-  "nat sz = sz' \<Longrightarrow>
-   pre_post_ignore_fail
-     (\<lambda>s. (\<exists>c \<in> load_auth_caps s. is_VA_of_cap base c) \<and> P s)
+  "pre_post_ignore_fail
+     (\<lambda>s. (\<exists>c \<in> load_auth_caps s. is_VA_of_cap base c) \<and> P s \<and> pcc_writes s = [] \<and> idc_writes s = [] \<and> nat sz = sz')
      (VACheckAddress base addr sz perms acctype) (\<lambda>_ s. (\<exists>c \<in> load_auth_caps s. cap_authorises_load c (unat addr) sz') \<and> P s) is_expected_exception"
-  sorry
+  apply (rule pre_post_VACheckAddress[THEN pre_post_strengthen_pre])
+  apply (auto simp: is_VA_of_cap_def cap_authorises_load_def)
+  done
 
 lemma VAFromCapability_sentry_is_VA_of_cap:
   "pre_post_ignore_fail
-     P (VAFromCapability (if sentry then CapUnseal c else c)) (\<lambda>va s. is_VA_of_cap va c \<and> P s) E"
+     (\<lambda>s. Q s \<and> (sentry \<longrightarrow> (\<exists>n. instr_invokes_indirect_cap_from_reg instr = Some n \<and> get_indirect_sentry_type c = instr_indirect_sentry_type instr))) (VAFromCapability (if sentry then CapUnseal c else c)) (\<lambda>va s. is_VA_of_cap va c \<and> Q s) E"
   unfolding VAFromCapability_def Let_def
   apply (pre_postI_with \<open>-\<close> \<open>fail\<close>)
    apply (pre_post_ignore_fail_no_state_update_no_exception)
@@ -2581,12 +2767,6 @@ lemmas prepost_invocation_executes =
   pre_post_execute_BLRS_C_C_C pre_post_execute_BLR_C_C pre_post_execute_BRR_C_C pre_post_execute_BR_C_C
   pre_post_execute_RETR_C_C pre_post_execute_RETS_C_C pre_post_execute_RETS_C_C_C pre_post_execute_RET_C_C
   pre_post_execute_BLR_CI_C pre_post_execute_BR_CI_C pre_post_execute_LDPBLR_C_C_C pre_post_execute_LDPBR_C_C_C
-
-lemmas invocation_decode_defs[unfolded Let_def] =
-  decode_BRS_C_C_C_def decode_BRS_C_C_def decode_BLRR_C_C_def decode_BLRS_C_C_def
-  decode_BLRS_C_C_C_def decode_BLR_C_C_def decode_BRR_C_C_def decode_BR_C_C_def
-  decode_RETR_C_C_def decode_RETS_C_C_def decode_RETS_C_C_C_def decode_RET_C_C_def
-  decode_BLR_CI_C_def decode_BR_CI_C_def decode_LDPBLR_C_C_C_def decode_LDPBR_C_C_C_def
 
 lemma get_reg_val_has_R_names: "all_R_names \<subseteq> dom (\<lambda>r. get_regval r s)"
   by (auto simp: all_R_names_def register_defs)
@@ -2684,7 +2864,7 @@ proof (use assms in \<open>induction t arbitrary: s seq_s\<close>)
 qed auto
 
 (* TODO: Move existing versions of these lemmas into more general context *)
-lemma (in Morello_ISA) determ_instrs_of_exp_DecodeA64:
+(*lemma (in Morello_ISA) determ_instrs_of_exp_DecodeA64:
   "determ_instr_exp (DecodeA64 pc opcode)"
   by (unfold DecodeA64_def Let_def)
      (intro determ_instr_exp_if_split_no_asm determ_instrs_of_exp_bind_write_reg_ThisInstrAbstract no_reg_writes_to_determ_instrs_of_exp;
@@ -2693,7 +2873,7 @@ lemma (in Morello_ISA) determ_instrs_of_exp_DecodeA64:
 lemma (in Morello_ISA) determ_instrs_instr_sem:
   "determ_instr_exp (instr_sem opcode)"
   unfolding instr_sem_def Step_PC_def
-  by (intro determ_instrs_of_exp_DecodeA64[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)
+  by (intro determ_instrs_of_exp_DecodeA64[THEN determ_instrs_of_exp_bind_no_reg_writes]; no_reg_writes_toI)*)
 
 lemma (in Morello_ISA) instr_of_exp_instr_of_trace:
   "determ_instr_exp m \<Longrightarrow> instr_of_exp m = Some instr' \<Longrightarrow> hasTrace t m \<Longrightarrow> instr_of_trace t = Some instr'"
@@ -2724,17 +2904,8 @@ proof (use assms(1) in \<open>cases rule: hasTrace_cases\<close>)
     using instr_t \<open>instr_may_invoke\<close> post
     by (intro branch_instr_run_has_expected_gpr_readsI) auto
   moreover have "branch_instr_run_has_expected_invocation_loads t"
-  proof (rule branch_instr_run_has_expected_invocation_loadsI[OF _ instr_t])
-    show "instr_may_invoke \<longrightarrow> has_expected_loads (run_state (initial_invocation_from_seq_state s) t)"
-      using post
-      by auto
-    show "instr_may_invoke \<longrightarrow> no_mem_writes_in_trace t"
-      (* TODO: Invocation instructions may only load, not store
-         (at least in this version of the model with stubbed out address translation;
-          with full address translation, there might be page table updates, which we'd have
-          to handle specially) *)
-      sorry
-  qed auto
+    using no_mem_writes_in_exp_instr_sem[OF instr, THEN no_mem_writes_in_trace_of_exp, OF _ assms(1)] post instr_t
+    by (intro branch_instr_run_has_expected_invocation_loadsI) auto
   moreover have "branch_instr_run_has_expected_pstate_writes opcode t"
     using post instr_t
     by (intro branch_instr_run_has_expected_pstate_writesI[where s = "initial_invocation_from_seq_state s"]) auto
@@ -2803,11 +2974,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "\<not>hasException t (instr_sem opcode)"
     and "\<not>hasFailure t (instr_sem opcode)" \<comment> \<open>ignoring assertion failures\<close>
     and "translation_assms_trace t"
-    (* and "cap_inv_trace t" *)
     and "s_run_trace t s = Some s'"
-    \<comment> \<open>TODO: Add assumption that (at least) reads from GPRs behave sequentially, i.e. reading
-        the same register more than once in a row gives the same value.  Needed in particular for
-        the sealed pair invocation case when the two given source registers are the same.\<close>
   obtains (SealedPair) cc cd nc nd
     where "instr_invokes_code_cap_from_reg instr = Some nc"
     and "instr_invokes_data_cap_from_reg instr = Some nd"
@@ -2890,24 +3057,27 @@ proof (use instr_of_exp_instr_of_trace[OF determ_instrs_instr_sem instr assms(1)
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using SealedPair'
     by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
-  obtain cc where cc: "trace_reads_caps_from_gpr nc t = {cc}" "trace_reads_initial_caps_from_gpr nc t = {cc}"
+  obtain cc where cc: "trace_reads_caps_from_gpr_or_null nc t = {cc}" "trace_reads_initial_caps_from_gpr_or_null nc t = {cc}"
     using * SealedPair' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
     by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_code_cap_from_reg_def)
-  obtain cd where cd: "trace_reads_caps_from_gpr nd t = {cd}" "trace_reads_initial_caps_from_gpr nd t = {cd}"
+  obtain cd where cd: "trace_reads_caps_from_gpr_or_null nd t = {cd}" "trace_reads_initial_caps_from_gpr_or_null nd t = {cd}"
     using * SealedPair' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
     by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_data_cap_from_reg_def)
   show thesis
   proof (cases "invokable CC cc cd")
     case True
+    then have "CapIsTagSet cc" and "CapIsTagSet cd"
+      by (auto simp: invokable_def)
     then show ?thesis
-      using SealedPair' cc cd
+      using SealedPair' cc cd True
       by (intro SealedPair[of nc nd cc cd])
-         (auto simp add: image_UN clear_lsb_image_branch_caps_eq)+
+         (auto simp: image_UN clear_lsb_image_branch_caps_eq trace_reads_caps_from_gpr_or_null_def
+                     trace_reads_initial_caps_from_gpr_or_null_def split: if_splits)
   next
     case False
     then show ?thesis
       using SealedPair' cc cd
-      by (intro NoInvocation) auto
+      by (intro NoInvocation) (auto simp: trace_reads_caps_from_gpr_or_null_def)
   qed
 next
   case (DirectRegSentry' n)
@@ -2916,21 +3086,24 @@ next
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using DirectRegSentry'
     by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
-  obtain c where c: "trace_reads_caps_from_gpr n t = {c}" "trace_reads_initial_caps_from_gpr n t = {c}"
+  obtain c where c: "trace_reads_caps_from_gpr_or_null n t = {c}" "trace_reads_initial_caps_from_gpr_or_null n t = {c}"
     using * DirectRegSentry' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
-    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_code_cap_from_reg_def)
+    by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def
+                   trace_invokes_code_cap_from_reg_def)
   show ?thesis
   proof (cases "CapIsTagSet c \<and> is_sentry c")
     case True
     then show ?thesis
       using DirectRegSentry' c
       by (intro DirectRegSentry[of n c])
-         (auto simp: is_sentry_def image_UN clear_lsb_image_branch_caps_eq)
+         (auto simp: is_sentry_def image_UN clear_lsb_image_branch_caps_eq
+                     trace_reads_caps_from_gpr_or_null_def trace_reads_initial_caps_from_gpr_or_null_def
+               split: if_splits)
   next
     case False
     then show ?thesis
       using DirectRegSentry' c
-      by (intro NoInvocation) auto
+      by (intro NoInvocation) (auto simp: trace_reads_caps_from_gpr_or_null_def)
   qed
 next
   case (DirectMemSentry' sentry_type)
@@ -2994,12 +3167,12 @@ next
       then obtain cc cd paddr_cc paddr_cd
         where initial_loads: "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
         and paddr_cd: "translate_address (unat (CapGetValue c)) = Some paddr_cd"
-        and paddr_cc: "translate_address (unat (CapGetValue c) + 16) = Some paddr_cc"
+        and paddr_cc: "translate_address (unat (CapGetValue c + 16)) = Some paddr_cc"
         (* and bounds: "set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue c) + 16)) 16) \<subseteq> get_mem_region CC c" *)
         using ** c
         by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def subset_eq)
       have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
-        using translate_address_vaddr_offset_paddr_different[OF paddr_cd, where offset = 16] paddr_cc
+        using translate_address_unat_vaddr_offset_paddr_different[OF paddr_cd, where offset = 16] paddr_cc
         by auto
       have "original_code_caps_invoked_in_trace t = {cc. (paddr_cc, cc) \<in> mem_cap_loads_of_trace t \<and> is_sentry cc}"
         using initial_loads paddr_cd paddr_cc ** c Points_to_Pair
@@ -3016,7 +3189,7 @@ next
         by (auto simp: image_UN clear_lsb_image_branch_caps_eq split: if_splits)
       ultimately show ?thesis
         using DirectMemSentry'(1,8,9) n c initial_loads paddr_cc (*bounds*)
-        by (intro DirectMemSentry[of n c sentry_type "unat (CapGetValue c) + 16" paddr_cc cc])
+        by (intro DirectMemSentry[of n c sentry_type "unat (CapGetValue c + 16)" paddr_cc cc])
            (auto simp: is_sentry_def)
     qed
   qed
@@ -3104,11 +3277,11 @@ next
   obtain cc cd paddr_cc paddr_cd
     where initial_loads: "initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)}"
     and paddr_cd: "translate_address (unat (CapGetValue c)) = Some paddr_cd"
-    and paddr_cc: "translate_address (unat (CapGetValue c) + 16) = Some paddr_cc"
+    and paddr_cc: "translate_address (unat (CapGetValue c + 16)) = Some paddr_cc"
     and authorised: "trace_has_reg_load_auth_for_addr t c" (* (unat (CapGetValue c)) 32"*)
-    and no_overflow[simp]:
+    (*and no_overflow[simp]:
       "unat (CapGetValue c + 16) = unat (CapGetValue c) + 16"
-      "bounds_address AccType_NORMAL (unat (CapGetValue c) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue c)) + 16"
+      "bounds_address AccType_NORMAL (unat (CapGetValue c) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue c)) + 16"*)
     using ** c
     by (auto simp: branch_instr_run_has_expected_invocation_loads_def trace_has_reg_load_auth_for_addr_def subset_eq)
   then have cap_loads:
@@ -3118,7 +3291,7 @@ next
     using **
     by (intro set_eqI; simp add: branch_instr_run_has_expected_invocation_loads_def; fastforce)
   have paddr_distinct: "paddr_cd \<noteq> paddr_cc"
-    using translate_address_vaddr_offset_paddr_different[OF paddr_cd, where offset = 16] paddr_cc
+    using translate_address_unat_vaddr_offset_paddr_different[OF paddr_cd, where offset = 16] paddr_cc
     by auto
   have "original_code_caps_invoked_in_trace t = {cc. \<exists>paddr.
           (paddr, cc) \<in> mem_cap_loads_of_trace t \<and> translate_address (unat (CapGetValue c + 16)) = Some paddr \<and>
@@ -3199,12 +3372,6 @@ lemma branch_instr_run_performs_expected_data_invocationI:
     and "\<not>hasFailure t (instr_sem opcode)"
     and "translation_assms_trace t"
     and "s_run_trace t s = Some s'"
-    (* and "cap_inv_trace t" *)
-    (*and "has_expected_data_invocation (run_state (initial_invocation_state regs) t)"
-    (is "has_expected_data_invocation ?s")
-    and "has_expected_gpr_reads (run_state (initial_invocation_state regs) t)"
-    and "has_expected_loads (run_state (initial_invocation_state regs) t)"
-    and "instr_may_invoke \<longrightarrow> no_mem_writes_in_trace t"*)
   shows "branch_instr_run_performs_expected_data_invocation opcode t"
 proof -
   have Run: "Run (instr_sem opcode) t ()"
@@ -3260,7 +3427,8 @@ proof -
       by (auto simp: has_expected_gpr_reads_def)
     note trace_reads_initial_caps_from_gpr_eq[OF this, symmetric, simp]
     have "no_mem_writes_in_trace t"
-      sorry
+      using no_mem_writes_in_exp_instr_sem[THEN no_mem_writes_in_trace_of_exp, OF assms(2) _ assms(1)]
+      by auto
     then have [simp]: "mem_caps ?s' = {(paddr, c')}"
       using IndirectPointsToPCC(11) mem_caps_initial_mem_cap_loads_of_trace
       by auto
@@ -3270,9 +3438,9 @@ proof -
     from load_auth_caps_run_state_trace_reads_caps_from_gpr[OF this]
     have [simp]: "load_auth_caps ?s' = {c}"
       by auto
-    then have [simp]: "cap_permits CAP_PERM_LOAD_CAP c"
+    (*then have [simp]: "cap_permits CAP_PERM_LOAD_CAP c"
       using post
-      by (auto simp: has_expected_loads_def cap_authorises_load_def)
+      by (auto simp: has_expected_loads_def cap_authorises_load_def)*)
     have [simp]: "invoked_data_caps ?s' = {CapUnseal c}"
       using \<open>CapIsTagSet c\<close>
       by (auto simp: invoked_data_caps_def original_reg_data_caps_def original_mem_data_caps_def CapIsSealed_def)
@@ -3283,9 +3451,9 @@ proof -
       by (auto simp: invoked_code_caps_def no_code_reg_caps_run_state original_mem_code_caps_def)
     obtain cc cd where "trace_writes_pcc_caps ISA (instr_trace opcode t) = {cc}"
       and "trace_writes_idc_caps ISA (instr_trace opcode t) = {cd}"
-      and "CapIsTagSet cc \<longrightarrow> cc \<in> mem_branch_caps (clear_lsb c') \<and> cd = CapUnseal c"
+      and "CapIsTagSet cc \<longrightarrow> cc \<in> mem_branch_caps (clear_lsb c') \<and> cd = CapUnseal c \<and> cap_permits CAP_PERM_LOAD_CAP c"
       using post
-      by (auto simp: has_expected_data_invocation_def
+      by (auto simp: has_expected_data_invocation_def has_load_cap_perm_if_needed_def
                      trace_writes_pcc_caps_eq_pcc_cap_writes[of "initial_invocation_from_seq_state s"]
                      trace_writes_idc_caps_eq_idc_cap_writes[of "initial_invocation_from_seq_state s"])
     then show ?thesis
@@ -3299,7 +3467,8 @@ proof -
       by (auto simp: has_expected_gpr_reads_def)
     note trace_reads_initial_caps_from_gpr_eq[OF this, symmetric, simp]
     have "no_mem_writes_in_trace t"
-      sorry
+      using no_mem_writes_in_exp_instr_sem[THEN no_mem_writes_in_trace_of_exp, OF assms(2) _ assms(1)]
+      by auto
     then have [simp]: "mem_caps ?s' = {(paddr_cd, cd), (paddr_cc, cc)}"
       using IndirectPointsToPair(12) mem_caps_initial_mem_cap_loads_of_trace
       by auto
@@ -3311,17 +3480,17 @@ proof -
       by auto
     have [simp]: "code_reg_caps ?s' = {}"
       by (auto simp: no_code_reg_caps_run_state init_null_caps_def)
-    then have perm[simp]: "cap_permits CAP_PERM_LOAD_CAP c"
-      and addr: "unat (CapGetValue c + 16) = unat (CapGetValue c) + 16"
+    (*then have perm[simp]: "cap_permits CAP_PERM_LOAD_CAP c"
+      (* and addr: "unat (CapGetValue c + 16) = unat (CapGetValue c) + 16" *)
       using post
-      by (auto simp: has_expected_loads_def cap_authorises_load_def valid_address_no_overflow)
+      by (auto simp: has_expected_loads_def cap_authorises_load_def valid_address_no_overflow)*)
     have [simp]: "invoked_data_caps ?s' = mem_data_caps cd"
-      using translate_address_vaddr_offset_paddr_different[OF IndirectPointsToPair(10), where offset = 16]
-      unfolding addr IndirectPointsToPair(11)[unfolded addr]
+      using translate_address_unat_vaddr_offset_paddr_different[OF IndirectPointsToPair(10), where offset = 16]
+      unfolding (*addr*) IndirectPointsToPair(11)(*[unfolded addr]*)
       by (auto simp: invoked_data_caps_def original_mem_data_caps_def original_reg_data_caps_def)
     have [simp]: "invoked_code_caps ?s' = mem_branch_caps (clear_lsb cc)"
-      using translate_address_vaddr_offset_paddr_different[OF IndirectPointsToPair(10), where offset = 16]
-      unfolding addr IndirectPointsToPair(11)[unfolded addr]
+      using translate_address_unat_vaddr_offset_paddr_different[OF IndirectPointsToPair(10), where offset = 16]
+      unfolding (*addr*) IndirectPointsToPair(11)(*[unfolded addr]*)
       by (auto simp: invoked_code_caps_def original_mem_code_caps_def no_code_reg_caps_run_state)
     obtain cc' cd' where "trace_writes_pcc_caps ISA (instr_trace opcode t) = {cc'}"
       and "trace_writes_idc_caps ISA (instr_trace opcode t) = {cd'}"
@@ -3343,8 +3512,6 @@ begin
 lemma idc_write_axiomI:
   assumes "hasTrace t (instr_sem opcode)"
     and "translation_assms_trace t"
-    (* and "cap_inv_trace t" *)
-    (* and "\<forall>instr. instr_of_exp (instr_sem opcode) = Some instr \<longrightarrow> branch_instr_trace_has_expected_invocations opcode t \<and> branch_instr_run_performs_expected_data_invocation opcode t" *)
     and "s_run_trace t s = Some s'"
   shows "idc_write_axiom CC ISA (instr_trace opcode t)"
 proof (cases "instr_of_exp (instr_sem opcode)")
@@ -3419,8 +3586,6 @@ lemma invocation_writes_pstate_c64_instr_trace:
     and "\<not>hasException t (instr_sem opcode)" \<comment> \<open>TODO?\<close>
     and "\<not>hasFailure t (instr_sem opcode)"
     and "translation_assms_trace t"
-    (* and "cap_inv_trace t" *)
-    (* and "\<forall>instr. instr_of_trace t = Some instr \<longrightarrow> branch_instr_trace_has_expected_invocations opcode t" *)
     and "s_run_trace t s = Some s'"
   shows "invocation_writes_pstate_c64 (instr_trace opcode t)"
 proof (cases "instr_of_exp (instr_sem opcode)")

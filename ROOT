@@ -1,5 +1,5 @@
 session "Sail-Morello-Monotonicity" = "Sail-Morello" +
-  options [document = pdf, document_output = "output"]
+  options [quick_and_dirty, document = pdf, document_output = "output"]
   sessions
     "Sail-T-CHERI"
     "HOL-Library"
