@@ -29,6 +29,7 @@ The following files contain hand-written parts of the proof:
 * [`State_Invariant.thy`](State_Invariant.thy): auxiliary definitions for proving the preservation of invariants
 * [`New_CVC4.thy`](New_CVC4.thy): workaround for a version issue with the SMT solver used in the proof of some lemmas
 * [`CHERI_Monotonicity.thy`](CHERI_Monotonicity.thy): statement and proof of the monotonicity theorem
+* [`CHERI_PCC_Properties.thy`](CHERI_PCC_Properties.thy): properties capturing additional details of capability invocations
 
 Then there are files containing automatically generated lemmas about the bulk
 of the architecture (auxiliary functions and instructions).  They are generated
