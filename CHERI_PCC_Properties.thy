@@ -2117,6 +2117,7 @@ lemma init_null_caps_accessor_simps[simp]:
   "pstate_writes (init_null_caps s) = pstate_writes s"
   "branch_taken_writes (init_null_caps s) = branch_taken_writes s"
   "gprs_written (init_null_caps s) = gprs_written s"
+  "gpr_reads_after_write (init_null_caps s) = gpr_reads_after_write s"
   "mem_caps (init_null_caps s) = mem_caps s"
   "reg_state (init_null_caps s) = reg_state s"
   by (auto simp: init_null_caps_def split: option.splits)
@@ -2138,6 +2139,7 @@ lemma add_idc_write_accessor_simps[simp]:
   "idc_writes (add_idc_write c s) = Regval_bitvector_129_dec c # idc_writes s"
   "pstate_writes (add_idc_write c s) = pstate_writes s"
   "branch_taken_writes (add_idc_write c s) = branch_taken_writes s"
+  "mem_caps (add_idc_write c s) = mem_caps s"
   by (auto simp: add_idc_write_def)
 
 lemma R_name_in_dom_has_value:
@@ -2734,33 +2736,181 @@ lemma pre_post_CSP_or_C_read_load_auth_cap:
   apply (auto simp: is_code_reg_def is_data_reg_def is_load_auth_reg_def no_code_or_data_cap_reg_if_load)
   done
 
+lemma pre_post_C_set_30_invocation_post_final_mem[unfolded conj_assoc]:
+  "pre_post_ignore_fail
+     (\<lambda>s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final_mem c' s)
+     (C_set 30 c) (\<lambda>_ s. invocation_post_idc pcc_tagged s \<and> invocation_pre_final_mem c' s) E"
+  by (rule pre_post_strengthen_pre, rule pre_post_C_set_30)
+     (auto simp: has_expected_gpr_reads_def performs_expected_idc_write_def
+           cong: is_branch_target_cong invoked_data_caps_cong has_expected_loads_cong
+                 has_load_cap_perm_if_needed_cong is_unsealed_mem_branch_target_cong)
+
 lemma pre_post_execute_BR_CI_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs imm7 Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BR_CI_C (imm7, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BR_CI_C branch_type n offset) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_BR_CI_C_def Let_def bind_assoc conj_assoc
-  by (pre_postI_with \<open>unfold conj_assoc\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception | solves \<open>auto simp: init_null_caps_def has_expected_gpr_reads_def\<close>\<close> intro: BranchXToCapability_if_unseal_untag_invocation_post_final_mem pre_post_if_post_collapse pre_post_C_set_29_indirect_pcc_sentry_invocation_post_idc CapSquashPostLoadCap_sentry_mem_branch_target MemC_read_points_to_pcc_code VACheckAddress_cap_authorises_load VAFromCapability_sentry_is_VA_of_cap CapSquashPostLoadCap_points_to_pcc_no_invocation MemC_read_points_to_pcc_no_invocation VACheckAddress_cap_authorises_load' VAFromCapability_is_VA_of_cap pre_post_CSP_or_C_read_load_auth_cap pre_post_CheckCapabilitiesEnabled)
+  by (pre_postI_with \<open>unfold conj_assoc\<close>
+        \<open>pre_post_ignore_fail_no_state_update_no_exception
+         | solves \<open>auto simp: init_null_caps_def has_expected_gpr_reads_def\<close>\<close>
+        intro: BranchXToCapability_if_unseal_untag_invocation_post_final_mem pre_post_if_post_collapse
+               pre_post_C_set_29_indirect_pcc_sentry_invocation_post_idc
+               CapSquashPostLoadCap_sentry_mem_branch_target MemC_read_points_to_pcc_code
+               VACheckAddress_cap_authorises_load VAFromCapability_sentry_is_VA_of_cap
+               CapSquashPostLoadCap_points_to_pcc_no_invocation MemC_read_points_to_pcc_no_invocation
+               VACheckAddress_cap_authorises_load' VAFromCapability_is_VA_of_cap
+               pre_post_CSP_or_C_read_load_auth_cap pre_post_CheckCapabilitiesEnabled)
 
 lemma pre_post_execute_BLR_CI_C:
   "pre_post_ignore_fail
      (\<lambda>s. \<exists>regs imm7 Cn. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_BLR_CI_C (imm7, Cn) \<and> uint Cn = n \<and> all_R_names \<subseteq> dom regs)
      (execute_BLR_CI_C branch_type n offset) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
-  unfolding execute_BLR_CI_C_def Let_def bind_assoc conj_assoc
-  sorry
+  unfolding execute_BLR_CI_C_def Let_def bind_assoc conj_assoc ConstrainUnpredictable.simps bind_return Constraint.simps
+  (* TODO: Support \<open>Error_Undefined\<close>, or use hard-coded definition of \<open>ConstrainUnpredictable\<close> *)
+  by (pre_postI_with \<open>unfold conj_assoc\<close>
+        \<open>pre_post_ignore_fail_no_state_update_no_exception
+         | solves \<open>auto simp: init_null_caps_def has_expected_gpr_reads_def\<close>\<close>
+        intro: BranchXToCapability_if_unseal_untag_invocation_post_final_mem pre_post_if_post_collapse
+               pre_post_C_set_30_invocation_post_final_mem
+               pre_post_C_set_29_indirect_pcc_sentry_invocation_post_idc
+               CapSquashPostLoadCap_sentry_mem_branch_target MemC_read_points_to_pcc_code
+               VACheckAddress_cap_authorises_load VAFromCapability_sentry_is_VA_of_cap
+               CapSquashPostLoadCap_points_to_pcc_no_invocation MemC_read_points_to_pcc_no_invocation
+               VACheckAddress_cap_authorises_load' VAFromCapability_is_VA_of_cap
+               pre_post_CSP_or_C_read_load_auth_cap pre_post_CheckCapabilitiesEnabled)
 
-lemma pre_post_execute_LDPBLR_C_C_C:
+definition is_squashed_cap :: "bool \<Rightarrow> Capability \<Rightarrow> Capability \<Rightarrow> bool" where
+  "is_squashed_cap cap_perm c c' \<equiv>
+     (let c = if cap_perm then c else CapWithTagClear c in
+      c' = c \<or> (\<not>CapIsSealed c \<and> c' = clear_perm mutable_perms c))"
+
+lemma is_squashed_capI:
+  "cap_perm \<Longrightarrow> is_squashed_cap cap_perm c c"
+  "cap_perm \<Longrightarrow> \<not>CapIsSealed c \<Longrightarrow> is_squashed_cap cap_perm c (clear_perm mutable_perms c)"
+  "\<not>cap_perm \<Longrightarrow> is_squashed_cap cap_perm c (CapWithTagClear c)"
+  "\<not>cap_perm \<Longrightarrow> \<not>CapIsSealed c \<Longrightarrow> is_squashed_cap cap_perm c (clear_perm mutable_perms (CapWithTagClear c))"
+  by (auto simp: is_squashed_cap_def)
+
+abbreviation VA_has_load_cap_perm :: "VirtualAddress \<Rightarrow> bool" where
+  "VA_has_load_cap_perm va \<equiv>
+   VirtualAddress_vatype va = VA_Capability \<longrightarrow> cap_permits CAP_PERM_LOAD_CAP (VirtualAddress_base va)"
+
+lemma pre_post_CapSquashPostLoadCap_is_squashed_cap:
+  "pre_post_ignore_fail (\<lambda>s. \<forall>c'. VirtualAddress_vatype addr = VA_Capability \<and> (is_squashed_cap (VA_has_load_cap_perm addr) c c' \<longrightarrow> Q c' s)) (CapSquashPostLoadCap c addr) Q E"
+  by (rule pre_post_strengthen_pre, pre_post_ignore_fail_no_state_update_no_exception)
+     (auto simp: CapSquashPostLoadCap_def VAIsBits64_def VAIsCapability_def VAToCapability_def elim!: Run_bindE;
+      auto intro: is_squashed_capI simp: Let_def)
+
+lemma pre_post_VAddress:
   "pre_post_ignore_fail
-     (\<lambda>s. \<exists>regs opc Cn Ct. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_LDPBLR_C_C_C (opc, Cn, Ct) \<and> uint Cn = n \<and> uint Ct = t \<and> all_R_names \<subseteq> dom regs)
-     (execute_LDPBLR_C_C_C branch_type n t) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
-  unfolding execute_LDPBLR_C_C_C_def Let_def bind_assoc conj_assoc
-  sorry
+     (\<lambda>s. \<forall>addr. (VirtualAddress_vatype va = VA_Capability \<longrightarrow> addr = CapGetValue (VirtualAddress_base va)) \<longrightarrow> Q addr s)
+     (VAddress va) Q E"
+  by (rule pre_post_strengthen_pre, pre_post_ignore_fail_no_state_update_no_exception)
+     (cases "VirtualAddress_vatype va = VA_Capability";
+      auto simp: VAddress_def VAIsBits64_def VAToCapability_def elim!: Run_bindE split: if_splits)
+
+lemma pre_post_VAFromCapability:
+  "pre_post_ignore_fail (\<lambda>s. \<forall>va. VirtualAddress_vatype va = VA_Capability \<and> VirtualAddress_base va = c \<longrightarrow> Q va s) (VAFromCapability c) Q E"
+  by (rule pre_post_strengthen_pre, pre_post_ignore_fail_no_state_update_no_exception)
+     (auto simp: VAFromCapability_def)
+
+lemma has_load_cap_perm_if_needed_False[intro, simp]:
+  "has_load_cap_perm_if_needed False s"
+  by (auto simp: has_load_cap_perm_if_needed_def)
+
+lemma performs_expected_idc_write_simps[simp]:
+  "performs_expected_idc_write pcc_tagged (s\<lparr>gprs_written := True\<rparr>) \<longleftrightarrow> performs_expected_idc_write pcc_tagged s"
+  by (auto simp: performs_expected_idc_write_def cong: invoked_data_caps_cong)
+
+lemma is_squashed_cap_mem_data_caps:
+  "is_squashed_cap cap_perm c c' \<Longrightarrow> cap_perm \<Longrightarrow> c' \<in> mem_data_caps c"
+  by (auto simp: is_squashed_cap_def mem_data_caps_def)
+
+lemma performs_expected_idc_write_pair_sentry:
+  assumes "instr_indirect_sentry_type instr = Some Points_to_Pair"
+    and "\<exists>auth \<in> load_auth_caps s. \<exists>(paddr, cd) \<in> mem_caps s. is_squashed_cap cap_perm cd cd' \<and> translate_address (unat (CapGetValue auth)) = Some paddr"
+    and cc: "\<exists>cc. is_squashed_cap cap_perm cc cc'"
+    and "idc_writes s = []"
+  shows "performs_expected_idc_write (cc' !! 128) (add_idc_write cd' s)"
+proof -
+  have cap_perm if "cc' !! 128"
+    using cc that
+    by (auto simp: is_squashed_cap_def word_eq_iff Let_def split: if_splits)
+  then show ?thesis
+    using assms is_squashed_cap_mem_data_caps[of cap_perm _ cd']
+    by (fastforce simp: performs_expected_idc_write_def invoked_data_caps_def original_mem_data_caps_def original_reg_data_caps_def)
+qed
+
+lemma performs_expected_idc_write_pair_sentry_no_invocation:
+  assumes "instr_indirect_sentry_type instr = Some Points_to_Pair"
+    and "instr_invokes_indirect_cap_from_reg instr = None"
+  shows "performs_expected_idc_write pcc_tagged s"
+proof -
+  from assms have "invoked_data_caps s = {}"
+    by (auto simp: invoked_data_caps_def original_reg_data_caps_def original_mem_data_caps_def)
+  then show ?thesis
+    by (auto simp: performs_expected_idc_write_def)
+qed
+
+lemma has_load_cap_perm_if_needed_mem:
+  assumes "\<exists>auth \<in> load_auth_caps s. \<exists>cc. is_squashed_cap (cap_permits CAP_PERM_LOAD_CAP auth) cc cc'"
+  shows "has_load_cap_perm_if_needed (cc' !! 128) s"
+  using assms
+  by (auto simp: has_load_cap_perm_if_needed_def is_squashed_cap_def word_eq_iff Let_def split: if_splits)
+
+lemma (in Morello_ISA) instr_indirect_sentry_type_Points_to_Pair_simps:
+  assumes "instr_indirect_sentry_type instr = Some Points_to_Pair"
+  shows "instr_invokes_code_cap_from_reg instr = None"
+    and "instr_invokes_data_cap_from_reg instr = None"
+  using assms
+  by (auto elim: instr_indirect_sentry_type.elims)
+
+lemma has_expected_gpr_reads_indirect_pair:
+  assumes "instr_indirect_sentry_type instr = Some Points_to_Pair"
+    and "\<exists>c. load_auth_caps s = {c}"
+    and "\<not>gpr_reads_after_write s"
+  shows "has_expected_gpr_reads s"
+  using assms
+  by (auto simp: has_expected_gpr_reads_def instr_indirect_sentry_type_Points_to_Pair_simps)
+
+lemma is_unsealed_mem_branch_target_indirect_pair:
+  assumes "\<exists>auth \<in> load_auth_caps s. \<exists>(paddr, cc) \<in> mem_caps s. \<exists>cap_perm.
+             is_squashed_cap cap_perm cc cc' \<and> translate_address (unat (CapGetValue auth + 16)) = Some paddr"
+  shows "is_unsealed_mem_branch_target cc' s"
+  using assms
+  by (fastforce simp: is_unsealed_mem_branch_target_def original_mem_code_caps_def is_squashed_cap_def is_sentry_def CapIsSealed_def Let_def)
 
 lemma pre_post_execute_LDPBR_C_C_C:
   "pre_post_ignore_fail
-     (\<lambda>s. \<exists>regs opc Cn Ct. s = init_null_caps (initial_invocation_state regs) \<and> instr = Instr_LDPBR_C_C_C (opc, Cn, Ct) \<and> uint Cn = n \<and> uint Ct = t \<and> all_R_names \<subseteq> dom regs)
+     (\<lambda>s. \<exists>regs opc Cn Ct. s = init_null_caps (initial_invocation_state regs) \<and> instr_indirect_sentry_type instr = Some Points_to_Pair \<and> instr_invokes_indirect_cap_from_reg instr = (if t = 29 then Some n else None) \<and> instr_load_auth instr = Some (RegAuth n) \<and> all_R_names \<subseteq> dom regs)
      (execute_LDPBR_C_C_C branch_type n t) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
   unfolding execute_LDPBR_C_C_C_def Let_def bind_assoc conj_assoc
-  sorry
+  by (pre_postI_with \<open>-\<close>
+        \<open>pre_post_ignore_fail_no_state_update_no_exception
+         | auto simp: CapUnseal_get_bounds_helpers_eq cap_permits_CapUnseal_iff has_expected_loads_def cap_authorises_load_def\<close>
+        intro: BranchXToCapability_if_unseal_untag_invocation_post_final_mem pre_post_if_post_collapse
+               pre_post_C_set pre_post_CapSquashPostLoadCap_is_squashed_cap pre_post_MemC_read
+               pre_post_VACheckAddress pre_post_VAddress pre_post_VAFromCapability
+               pre_post_CSP_or_C_read_load_auth_cap pre_post_CheckCapabilitiesEnabled
+               performs_expected_idc_write_pair_sentry performs_expected_idc_write_pair_sentry_no_invocation
+               has_load_cap_perm_if_needed_mem has_expected_gpr_reads_indirect_pair
+               is_unsealed_mem_branch_target_indirect_pair)
+
+lemma pre_post_execute_LDPBLR_C_C_C:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<exists>regs opc Cn Ct. s = init_null_caps (initial_invocation_state regs) \<and> instr_indirect_sentry_type instr = Some Points_to_Pair \<and> instr_invokes_indirect_cap_from_reg instr = (if t = 29 then Some n else None) \<and> instr_load_auth instr = Some (RegAuth n) \<and> uint Cn = n \<and> uint Ct = t \<and> all_R_names \<subseteq> dom regs)
+     (execute_LDPBLR_C_C_C branch_type n t) (\<lambda>_ s. invocation_post_final s) is_expected_exception"
+  unfolding execute_LDPBLR_C_C_C_def Let_def bind_assoc conj_assoc ConstrainUnpredictable.simps bind_return Constraint.simps
+  by (pre_postI_with \<open>-\<close>
+        \<open>pre_post_ignore_fail_no_state_update_no_exception | clarsimp
+         | auto simp: CapUnseal_get_bounds_helpers_eq cap_permits_CapUnseal_iff has_expected_loads_def cap_authorises_load_def\<close>
+        intro: BranchXToCapability_if_unseal_untag_invocation_post_final_mem pre_post_if_post_collapse
+               pre_post_C_set pre_post_CapSquashPostLoadCap_is_squashed_cap pre_post_MemC_read
+               pre_post_VACheckAddress pre_post_VAddress pre_post_VAFromCapability
+               pre_post_CSP_or_C_read_load_auth_cap pre_post_CheckCapabilitiesEnabled
+               performs_expected_idc_write_pair_sentry performs_expected_idc_write_pair_sentry_no_invocation
+               has_load_cap_perm_if_needed_mem has_expected_gpr_reads_indirect_pair
+               is_unsealed_mem_branch_target_indirect_pair conjI impI allI)
 
 lemmas prepost_invocation_executes =
   pre_post_execute_BRS_C_C_C pre_post_execute_BRS_C_C pre_post_execute_BLRR_C_C pre_post_execute_BLRS_C_C
