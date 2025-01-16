@@ -413,6 +413,22 @@ lemma pre_post_no_state_update:
   by (intro pre_postI)
      (use assms in \<open>auto simp add: no_state_update_def simp flip: runTrace_iff_Traces split: monad.splits\<close>)
 
+named_theorems no_state_update
+
+lemma no_state_update_bind[no_state_update]:
+  assumes "no_state_update m" and "\<And>t a s. Run m t a \<Longrightarrow> trace_assms s t \<Longrightarrow> no_state_update (f a)"
+  shows "no_state_update (bind m f)"
+  using assms
+  by (fastforce simp: no_state_update_def elim!: bind_Traces_cases)
+
+lemma no_state_update_return[no_state_update, simp]:
+  "no_state_update (return a)"
+  by (auto simp: no_state_update_def)
+
+lemma no_state_update_and_boolM[no_state_update]:
+  "no_state_update m1 \<Longrightarrow> no_state_update m2 \<Longrightarrow> no_state_update (and_boolM m1 m2)"
+  by (auto simp: and_boolM_def intro: no_state_update_bind)
+
 lemma monad_no_exceptionD':
   assumes "monad_no_exception S m"
   shows "\<forall>t e. e \<notin> S \<longrightarrow> (m, t, Exception e) \<notin> Traces"
@@ -539,14 +555,32 @@ definition no_accesses_to_gpr where
 definition no_accesses_to_any_gpr where
   "no_accesses_to_any_gpr m \<equiv> no_reads_from_any_gpr m \<and> no_writes_to_any_gpr m"
 
+definition no_accesses_to_gpr_in_trace where
+  "no_accesses_to_gpr_in_trace n t \<equiv> (\<forall>r \<in> R_name n. \<forall>v. E_read_reg r v \<notin> set t \<and> E_write_reg r v \<notin> set t)"
+
 definition no_mem_cap_reads where
   "no_mem_cap_reads m \<equiv>
      (\<forall>t m'. (m, t, m') \<in> Traces \<longrightarrow>
         (\<forall>rk addr sz val. E_read_memt rk addr sz val \<notin> set t) \<and>
         (\<forall>rk addr val. E_read_mem rk addr 16 val \<notin> set t))"
 
+definition no_mem_cap_reads_in_trace where
+  "no_mem_cap_reads_in_trace t \<equiv>
+     ((\<forall>rk addr sz val. E_read_memt rk addr sz val \<notin> set t) \<and>
+      (\<forall>rk addr val. E_read_mem rk addr 16 val \<notin> set t))"
+
 definition no_gpr_accesses_or_mem_cap_reads where
   "no_gpr_accesses_or_mem_cap_reads m \<equiv> no_accesses_to_any_gpr m \<and> no_mem_cap_reads m"
+
+lemma no_gpr_accesses_or_mem_cap_reads_trace_iff:
+  "no_gpr_accesses_or_mem_cap_reads m
+   \<longleftrightarrow> (\<forall>t m'. (m, t, m') \<in> Traces
+           \<longrightarrow> no_mem_cap_reads_in_trace t \<and> (\<forall>n. no_accesses_to_gpr_in_trace n t))"
+  unfolding no_gpr_accesses_or_mem_cap_reads_def no_accesses_to_any_gpr_def
+    no_reads_from_any_gpr_def no_reads_from_gpr_def no_writes_to_any_gpr_def
+    no_writes_to_gpr_def no_accesses_to_gpr_in_trace_def no_mem_cap_reads_def
+    no_mem_cap_reads_in_trace_def
+  by auto
 
 definition "all_R_names \<equiv> {''_R00'', ''_R01'', ''_R02'', ''_R03'', ''_R04'', ''_R05'', ''_R06'',
   ''_R07'', ''_R08'', ''_R09'', ''_R10'', ''_R11'', ''_R12'', ''_R13'', ''_R14'', ''_R15'', ''_R16'',
@@ -881,8 +915,13 @@ definition
   "ev_reads_gprs_from_initial_reg_state s e \<equiv>
      (\<not>gprs_written s \<longrightarrow> ev_reads_from_reg_state (restrict_map (reg_state s) all_R_names) e)"
 
+definition (in Morello_ISA)
+  "debug_disabled e \<equiv>
+     (\<forall>v. e = E_read_reg ''DBGEN'' (Regval_signal v) \<longrightarrow> (v = LOW)) \<and>
+     (\<forall>v. e = E_read_reg ''MDSCR_EL1'' (Regval_bitvector_32_dec v) \<longrightarrow> (\<not>v !! 15))"
+
 abbreviation ev_assms :: "invocation_state \<Rightarrow> register_value event \<Rightarrow> bool" where
-  "ev_assms s e \<equiv> ev_reads_gprs_from_initial_reg_state s e \<and> translation_assms e"
+  "ev_assms s e \<equiv> ev_reads_gprs_from_initial_reg_state s e \<and> debug_disabled e \<and> translation_assms e"
 
 sublocale Hoare_Logic where ev_assms = ev_assms and step_state = step_state .
 
@@ -1432,29 +1471,27 @@ proof (unfold branch_instr_trace_has_expected_exceptions_def, intro allI impI co
     by (auto simp: is_expected_exception_def)
 qed
 
-lemma no_state_updateI:
-  assumes "no_gpr_accesses_or_mem_cap_reads m"
-    and "no_reg_writes_to {''PCC'', ''PSTATE'', ''__BranchTaken''} m"
+lemma traces_no_state_updateI:
+  assumes "\<And>t m' s. (m, t, m') \<in> Traces \<Longrightarrow> trace_assms s t
+             \<Longrightarrow> no_mem_cap_reads_in_trace t \<and> (\<forall>n. no_accesses_to_gpr_in_trace n t)
+               \<and> (\<forall>r \<in> invocation_regs. \<forall>v. E_write_reg r v \<notin> set t)"
   shows "no_state_update m"
 proof (unfold no_state_update_def, intro allI impI, elim conjE)
   fix s t m'
-  assume t: "(m, t, m') \<in> Traces" and "trace_assms s t"
+  assume t: "(m, t, m') \<in> Traces" "trace_assms s t"
   then have "\<forall>r v. r \<in> all_R_names \<longrightarrow> E_read_reg r v \<notin> set t"
-    using assms
-    by (auto simp: no_gpr_accesses_or_mem_cap_reads_def no_accesses_to_any_gpr_def no_reads_from_any_gpr_def
-                   no_reads_from_gpr_def dest: all_R_names_R_name)
+    using assms[of t m' s]
+    by (auto simp: all_R_names_iff_R_name no_accesses_to_gpr_in_trace_def)
   moreover have "\<forall>r v. r \<in> invocation_regs \<longrightarrow> E_write_reg r v \<notin> set t"
-    using t assms
-    unfolding invocation_regs_def no_reg_writes_to_def no_gpr_accesses_or_mem_cap_reads_def
-      no_accesses_to_any_gpr_def no_writes_to_any_gpr_def no_writes_to_gpr_def
-    by (auto dest: all_R_names_R_name)
+    using assms[of t m' s] t
+    by blast
   moreover have "E_read_memt rk addr sz val \<notin> set t" for rk addr sz val
-    using t assms
-    unfolding no_gpr_accesses_or_mem_cap_reads_def no_mem_cap_reads_def
+    using assms[of t m' s] t
+    unfolding no_mem_cap_reads_in_trace_def
     by (cases val) auto
   moreover have "E_read_mem rk addr 16 val \<notin> set t" for rk addr val
-    using t assms
-    unfolding no_gpr_accesses_or_mem_cap_reads_def no_mem_cap_reads_def
+    using assms[of t m' s] t
+    unfolding no_mem_cap_reads_in_trace_def
     by auto
   ultimately show "run_state s t = s"
   proof (induction t)
@@ -1472,12 +1509,13 @@ proof (unfold no_state_update_def, intro allI impI, elim conjE)
         by auto
     next
       case (E_read_reg r v)
-      then have "r \<notin> all_R_names"
+      then have r: "r \<notin> all_R_names"
         using Cons.prems
         by auto
-      moreover have "\<not>is_code_reg r" and "\<not>is_data_reg r" and "\<not>is_indirect_reg r" and "\<not>is_load_auth_reg r"
-        using calculation
-        by (auto simp: is_code_reg_def is_data_reg_def is_indirect_reg_def is_load_auth_reg_def dest: R_name_in_all_R_names)
+      moreover have "\<not>is_code_reg r \<and> \<not>is_data_reg r \<and> \<not>is_indirect_reg r \<and> \<not>is_load_auth_reg r"
+        using r
+        by (auto simp: is_code_reg_def is_data_reg_def is_indirect_reg_def is_load_auth_reg_def
+                 dest: R_name_in_all_R_names)
       ultimately show ?thesis
         using E_read_reg Cons
         by (cases v) auto
@@ -1496,6 +1534,15 @@ proof (unfold no_state_update_def, intro allI impI, elim conjE)
     qed auto
   qed auto
 qed
+
+lemma no_state_updateI:
+  assumes "no_gpr_accesses_or_mem_cap_reads m"
+    and "no_reg_writes_to {''PCC'', ''PSTATE'', ''__BranchTaken''} m"
+  shows "no_state_update m"
+  using assms
+  by (intro traces_no_state_updateI)
+     (fastforce simp: no_gpr_accesses_or_mem_cap_reads_trace_iff no_accesses_to_gpr_in_trace_def
+                      no_reg_writes_to_def all_R_names_iff_R_name invocation_regs_def)
 
 method pre_post_ignore_fail_no_state_update_no_exception =
   (rule pre_post_ignore_fail_no_state_update_no_exception_ignore_result pre_post_ignore_fail_no_state_update_no_exception,
@@ -2583,16 +2630,70 @@ lemma pre_post_ReadMem:
   unfolding ReadMem_def Mem_read_def
   by (rule pre_post_read_mem[THEN pre_post_strengthen_pre]) (auto split: option.splits)
 
+lemma debug_disabled_read_reg_iff:
+  "\<And>v. debug_disabled (E_read_reg ''DBGEN'' (Regval_signal v)) \<longleftrightarrow> (v = LOW)"
+  "\<And>v. debug_disabled (E_read_reg ''MDSCR_EL1'' (Regval_bitvector_32_dec v)) \<longleftrightarrow> (\<not>v !! 15)"
+  by (auto simp: debug_disabled_def)
+
+lemma HaltOnBreakpointOrWatchpoint_False:
+  assumes "Run (HaltOnBreakpointOrWatchpoint u) t a" and "trace_assms s t"
+  shows "\<not>a"
+  using assms
+  unfolding HaltOnBreakpointOrWatchpoint_def HaltingAllowed_def
+    ExternalSecureInvasiveDebugEnabled_def ExternalInvasiveDebugEnabled_def
+  by (auto simp:  debug_disabled_read_reg_iff register_defs word_eq_iff nth_slice
+           elim!: Run_bindE Run_ifE Run_and_boolM_E Run_read_regE)
+
+lemma read_reg_MDSCR_EL1_MDE_False:
+  assumes "Run (read_reg MDSCR_EL1_ref) t a" and "trace_assms s t"
+  shows "Word.slice 15 a = (0 :: 1 word)"
+  using assms
+  by (auto simp: debug_disabled_read_reg_iff register_defs word_eq_iff nth_slice elim!: Run_read_regE)
+
+lemma no_state_update_AArch64_CheckDebug_deps[no_state_update]:
+  "no_state_update (AArch64_NoFault u)"
+  "no_state_update (AArch64_GenerateDebugExceptions u)"
+  "no_state_update (HaltOnBreakpointOrWatchpoint u)"
+  by (rule no_state_updateI, no_reads_from_any_gpr, no_reg_writes_toI)+
+
+lemma no_state_update_read_reg:
+  assumes "name r \<notin> all_R_names"
+  shows "no_state_update (read_reg r :: 'a M)"
+proof (unfold no_state_update_def, clarsimp)
+  fix s t and m' :: "'a M"
+  assume "(read_reg r, t, m') \<in> Traces" "trace_assms s t"
+  then consider (Nil) "t = []" | (Cons) v where "t = [E_read_reg (name r) v]"
+    by (auto simp: read_reg_def elim!: Read_reg_TracesE split: option.splits)
+  then show "run_state s t = s"
+  proof cases
+    case (Cons v)
+    have "\<not>is_code_reg (name r) \<and> \<not>is_data_reg (name r) \<and> \<not>is_indirect_reg (name r) \<and> \<not>is_load_auth_reg (name r)"
+      using assms
+      by (auto simp: is_code_reg_def is_data_reg_def is_indirect_reg_def is_load_auth_reg_def
+                     all_R_names_iff_R_name)
+    then show ?thesis
+      using Cons assms
+      by (cases v) auto
+  qed auto
+qed
+
+lemma no_state_update_AArch64_CheckDebug[no_state_update]:
+  "no_state_update (AArch64_CheckDebug vaddress acctype iswrite sz)"
+  unfolding AArch64_CheckDebug_def Let_def
+  by (auto simp: Run_and_boolM_True_iff read_reg_MDSCR_EL1_MDE_False register_defs all_R_names_def
+           intro!: no_state_update no_state_update_read_reg dest!: HaltOnBreakpointOrWatchpoint_False)
+
+lemma no_state_update_AArch64_FullTranslateWithTag[no_state_update]:
+  "no_state_update (AArch64_FullTranslateWithTag vaddress acctype iswrite wasaligned sz iswritevalidcap)"
+  by (rule no_state_updateI, no_reads_from_any_gpr, no_reg_writes_toI)
+
 lemma pre_post_AArch64_TranslateAddress:
   "pre_post_ignore_fail
      (\<lambda>s. \<forall>addrdesc. IsFault addrdesc \<or> translate_address (unat vaddress) = Some (unat (FullAddress_address (AddressDescriptor_paddress addrdesc))) \<longrightarrow> Q addrdesc s)
      (AArch64_TranslateAddress vaddress acctype iswrite wasaligned sz) Q E"
   apply (rule pre_post_ignore_fail_no_state_update_no_exception[THEN pre_post_strengthen_pre])
-  subgoal
-    (* TODO: AArch64_CheckDebug might write to PSTATE;  need to thread through sufficient
-       assumptions on system registers to disable debug state *)
-    sorry
-   apply (rule monad_no_exception)
+  apply (auto simp: AArch64_TranslateAddress_def AArch64_TranslateAddressWithTag_def intro!: no_state_update)[]
+  apply (rule monad_no_exception)
   apply (auto dest!: trace_assms_translation_assms_trace dest: AArch64_TranslateAddress_translate_address)
   done
 
@@ -2983,6 +3084,7 @@ lemma s_run_trace_trace_assms:
   assumes "s_run_trace t seq_s = Some seq_s'"
     and "\<not>gprs_written s \<longrightarrow> reg_state s = restrict_map (\<lambda>r. get_regval r (regstate seq_s)) all_R_names"
     and "\<forall>e \<in> set t. translation_assms e"
+    and "\<forall>e \<in> set t. debug_disabled e"
   shows "trace_assms s t"
 proof (use assms in \<open>induction t arbitrary: s seq_s\<close>)
   case (Cons e t)
@@ -3037,6 +3139,7 @@ lemma branch_instr_trace_has_expected_invocationsI:
     and s: "s_run_trace t s = Some s'"
     and "\<not>hasFailure t (instr_sem opcode)"
     and "translation_assms_trace t"
+    and "\<forall>e \<in> set t. debug_disabled e"
     (* and "cap_inv_trace t" *)
     and instr: "instr_of_exp (instr_sem opcode) = Some instr"
     and "instr_may_invoke"
@@ -3045,7 +3148,7 @@ proof (use assms(1) in \<open>cases rule: hasTrace_cases\<close>)
   case (Run a)
   note instr_t = instr_of_exp_instr_of_trace[OF determ_instrs_instr_sem instr assms(1)]
   have "trace_assms (initial_invocation_from_seq_state s) t"
-    using assms(4)
+    using assms(4,5)
     by (intro s_run_trace_trace_assms[OF s]) auto
   then have post: "invocation_post_final (run_state (initial_invocation_from_seq_state s) t)"
     using instr \<open>instr_may_invoke\<close>
@@ -3074,7 +3177,7 @@ next
 next
   case (Ex e)
   have trace_assms: "trace_assms (initial_invocation_from_seq_state s) t"
-    using assms(4)
+    using assms(4,5)
     by (intro s_run_trace_trace_assms[OF s]) auto
   then have "is_expected_exception e (run_state (initial_invocation_from_seq_state s) t)"
     using Ex pre_post_instr_sem[OF instr \<open>instr_may_invoke\<close>, where seq_s = s]
@@ -3124,6 +3227,7 @@ lemma hasTrace_instr_sem_invocation_cases:
     and "\<not>hasException t (instr_sem opcode)"
     and "\<not>hasFailure t (instr_sem opcode)" \<comment> \<open>ignoring assertion failures\<close>
     and "translation_assms_trace t"
+    and "\<forall>e \<in> set t. debug_disabled e"
     and "s_run_trace t s = Some s'"
   obtains (SealedPair) cc cd nc nd
     where "instr_invokes_code_cap_from_reg instr = Some nc"
@@ -3206,7 +3310,7 @@ proof (use instr_of_exp_instr_of_trace[OF determ_instrs_instr_sem instr assms(1)
   interpret Morello_Instr_Invocation_Property where instr = instr ..
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using SealedPair'
-    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
+    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,7,4,5,6) instr]) auto
   obtain cc where cc: "trace_reads_caps_from_gpr_or_null nc t = {cc}" "trace_reads_initial_caps_from_gpr_or_null nc t = {cc}"
     using * SealedPair' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
     by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def trace_invokes_code_cap_from_reg_def)
@@ -3235,7 +3339,7 @@ next
   interpret Morello_Instr_Invocation_Property where instr = instr ..
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using DirectRegSentry'
-    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
+    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,7,4,5,6) instr]) auto
   obtain c where c: "trace_reads_caps_from_gpr_or_null n t = {c}" "trace_reads_initial_caps_from_gpr_or_null n t = {c}"
     using * DirectRegSentry' hasTrace_Run[OF assms(1,3,4)] \<open>instr_of_trace t = Some instr\<close>
     by (auto simp: branch_instr_trace_has_expected_invocations_def branch_instr_run_has_expected_gpr_reads_def
@@ -3261,7 +3365,7 @@ next
   interpret Morello_Instr_Invocation_Property where instr = instr ..
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using DirectMemSentry'
-    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
+    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,7,4,5,6) instr]) auto
   then have **: "branch_instr_run_has_expected_invocation_loads t"
     using hasTrace_Run[OF assms(1,3,4)]
     by (auto simp: branch_instr_trace_has_expected_invocations_def)
@@ -3349,7 +3453,7 @@ next
   interpret Morello_Instr_Invocation_Property where instr = instr ..
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using IndirectPointsToPCC'
-    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
+    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,7,4,5,6) instr]) auto
   then have **: "branch_instr_run_has_expected_invocation_loads t"
     using hasTrace_Run[OF assms(1,3,4)]
     by (auto simp: branch_instr_trace_has_expected_invocations_def)
@@ -3404,7 +3508,7 @@ next
   interpret Morello_Instr_Invocation_Property where instr = instr ..
   have *: "branch_instr_trace_has_expected_invocations opcode t"
     using IndirectPointsToPair'
-    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,6,4,5) instr]) auto
+    by (intro branch_instr_trace_has_expected_invocationsI[OF assms(1,7,4,5,6) instr]) auto
   then have **: "branch_instr_run_has_expected_invocation_loads t"
     using hasTrace_Run[OF assms(1,3,4)]
     by (auto simp: branch_instr_trace_has_expected_invocations_def)
@@ -3521,6 +3625,7 @@ lemma branch_instr_run_performs_expected_data_invocationI:
     and "\<not>hasException t (instr_sem opcode)"
     and "\<not>hasFailure t (instr_sem opcode)"
     and "translation_assms_trace t"
+    and "\<forall>e \<in> set t. debug_disabled e"
     and "s_run_trace t s = Some s'"
   shows "branch_instr_run_performs_expected_data_invocation opcode t"
 proof -
@@ -3531,13 +3636,13 @@ proof -
   note instr_t = instr_of_exp_instr_of_trace[OF determ_instrs_instr_sem assms(2,1)]
   let ?s' = "run_state (initial_invocation_from_seq_state s) t"
   have "trace_assms (initial_invocation_from_seq_state s) t"
-    using assms(5)
-    by (intro s_run_trace_trace_assms[OF assms(6)]) auto
+    using assms(5,6)
+    by (intro s_run_trace_trace_assms[OF assms(7)]) auto
   then have post_if: "invocation_post_final ?s'" if "instr_may_invoke"
     using assms(2) that
     by (intro impI pre_post_RunE[OF pre_post_instr_sem Run]) auto
   show ?thesis
-  proof (use assms(1-6) in \<open>cases rule: hasTrace_instr_sem_invocation_cases\<close>)
+  proof (use assms(1-7) in \<open>cases rule: hasTrace_instr_sem_invocation_cases\<close>)
     case (SealedPair cc cd nc nd)
     note this[simp]
     from post_if have post: "invocation_post_final ?s'"
@@ -3662,6 +3767,7 @@ begin
 lemma idc_write_axiomI:
   assumes "hasTrace t (instr_sem opcode)"
     and "translation_assms_trace t"
+    and "\<forall>e \<in> set t. debug_disabled e"
     and "s_run_trace t s = Some s'"
   shows "idc_write_axiom CC ISA (instr_trace opcode t)"
 proof (cases "instr_of_exp (instr_sem opcode)")
@@ -3693,14 +3799,14 @@ next
       and no_fail: "\<not>hasFailure t (instr_sem opcode)"
       by (auto simp add: hasException_def hasFailure_def simp flip: runTrace_iff_Traces)
     have "instr_may_invoke \<longrightarrow> branch_instr_trace_has_expected_invocations opcode t"
-      using branch_instr_trace_has_expected_invocationsI[OF assms(1,3) no_fail assms(2) Some]
+      using branch_instr_trace_has_expected_invocationsI[OF assms(1,4) no_fail assms(2,3) Some]
       by auto
     moreover have "branch_instr_run_performs_expected_data_invocation opcode t"
       using assms Some no_ex no_fail
       by (intro branch_instr_run_performs_expected_data_invocationI)
     ultimately show ?thesis
       using Run Some
-      by (cases rule: hasTrace_instr_sem_invocation_cases[OF assms(1) Some no_ex no_fail assms(2,3)])
+      by (cases rule: hasTrace_instr_sem_invocation_cases[OF assms(1) Some no_ex no_fail assms(2,3,4)])
          (auto simp add: idc_write_axiom_def branch_instr_trace_has_expected_invocations_def
                          branch_instr_run_performs_expected_data_invocation_def)
   next
@@ -3736,6 +3842,7 @@ lemma invocation_writes_pstate_c64_instr_trace:
     and "\<not>hasException t (instr_sem opcode)" \<comment> \<open>TODO?\<close>
     and "\<not>hasFailure t (instr_sem opcode)"
     and "translation_assms_trace t"
+    and "\<forall>e \<in> set t. debug_disabled e"
     and "s_run_trace t s = Some s'"
   shows "invocation_writes_pstate_c64 (instr_trace opcode t)"
 proof (cases "instr_of_exp (instr_sem opcode)")
@@ -3754,14 +3861,14 @@ next
   proof cases
     assume "instr_may_invoke"
     then have "branch_instr_trace_has_expected_invocations opcode t"
-      using branch_instr_trace_has_expected_invocationsI[OF assms(1,5,3,4) Some]
+      using branch_instr_trace_has_expected_invocationsI[OF assms(1,6,3,4,5) Some]
       by blast
     then have "branch_instr_run_has_expected_pstate_writes opcode t"
       using hasTrace_Run[OF assms(1-3)]
       by (auto simp: branch_instr_trace_has_expected_invocations_def)
     then show ?thesis
       using Some
-      by (cases rule: hasTrace_instr_sem_invocation_cases[OF assms(1) Some assms(2-5)])
+      by (cases rule: hasTrace_instr_sem_invocation_cases[OF assms(1) Some assms(2-6)])
          (auto simp add: invocation_writes_pstate_c64_def branch_instr_run_has_expected_pstate_writes_def
                          image_Un clear_lsb_image_branch_caps_eq clear_lsb_image_mem_branch_caps_eq
                          branch_caps_128th_iff mem_branch_caps_128th_iff test_bit_set_gen invokable_def)

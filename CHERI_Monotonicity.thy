@@ -126,7 +126,16 @@ lemma fetch_pcc_axiom_instr_trace[intro, simp]:
 
 lemma idc_write_axiom_fetch_trace[intro, simp]:
   "idc_write_axiom CC ISA (fetch_trace t)"
-  by (auto simp: idc_write_axiom_def)thm idc_write_axiom_def
+  by (auto simp: idc_write_axiom_def)
+
+lemma (in Morello_Axiom_Automaton) sysreg_ev_assms_debug_disabled:
+  "sysreg_ev_assms s e \<Longrightarrow> debug_disabled e"
+  by (auto simp: debug_disabled_def)
+
+lemma (in Morello_Axiom_Automaton) sysreg_trace_assms_debug_disabled:
+  "sysreg_trace_assms s t \<Longrightarrow> \<forall>e \<in> set t. debug_disabled e"
+  by (induction sysreg_ev_assms s t rule: holds_along_trace.induct)
+     (auto elim: sysreg_ev_assms_debug_disabled)
 
 sublocale CHERI_ISA_State CC ISA cap_invariant UNKNOWN_caps fetch_trace_assms fetch_state_assms instr_trace_assms instr_state_assms get_regval set_regval s_translate_address
 proof
@@ -142,8 +151,8 @@ proof
     by auto
   from t have iea: "Write_Cap.instr_exp_assms (instr_sem instr)"
     by (intro Write_Cap.instr_exp_assms_instr_semI) simp
-  from ia have no_asr: "\<not>trace_has_system_reg_access t"
-    by simp
+  from ia have no_asr: "\<not>trace_has_system_reg_access t" and ta: "Write_Cap.trace_assms Write_Cap.initial t"
+    by simp+
   have *: "Write_Cap.traces_enabled (instr_sem instr) Write_Cap.initial"
     using iea[unfolded Write_Cap.instr_exp_assms_instr_sem_iff] no_asr
     unfolding instr_sem_def
@@ -154,6 +163,9 @@ proof
     using iea[unfolded Write_Cap.instr_exp_assms_instr_sem_iff] no_asr
     unfolding instr_sem_def
     by (intro Mem.traces_enabledI) auto
+  have no_debug: "\<forall>e \<in> set t. debug_disabled e"
+    using ta[THEN Write_Cap.trace_assms_sysreg_trace_assms, THEN Write_Cap.sysreg_trace_assms_debug_disabled]
+    .
   show "instr_cheri_axioms instr t n"
     using * ** t inv ia n s
     unfolding cheri_axioms_def (*ISA_simps*)
@@ -161,7 +173,7 @@ proof
        (auto simp: instr_raises_ex_def Write_Cap.trace_raises_isa_exception_def
              elim: is_isa_exception.elims intro: Write_Cap.holds_along_trace_take)*)
     apply (intro conjI; (elim Write_Cap.traces_enabled_reg_axioms Mem.traces_enabled_mem_axioms; auto simp: Write_Cap.trace_raises_isa_exception_instr_sem_iff intro: Write_Cap.holds_along_trace_take)?)
-    apply (rule idc_write_axiomI[OF _ _ s'])
+    apply (rule idc_write_axiomI[OF _ _ no_debug s'])
      apply simp
     apply (rule Write_Cap.translation_assms_traceI)
     apply blast
