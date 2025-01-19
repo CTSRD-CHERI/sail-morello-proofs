@@ -228,7 +228,7 @@ lemma monad_no_exception_Have16bitVMID[monad_no_exception]:
 
 setup \<open>Monad_No_Exception_Exploration.install_recs
   ["Morello_bindings", "Morello"]
-  @{thms execute_LDPBLR_C_C_C_def}
+  @{thms execute_LDPBLR_C_C_C_def SSAdvance_def}
 \<close>
 
 text \<open>Yet another Hoare logic\<close>
@@ -921,8 +921,18 @@ definition (in Morello_ISA)
      (\<forall>v. e = E_read_reg ''EDSCR'' (Regval_bitvector_32_dec v) \<longrightarrow> (ucast v :: 6 word) = 2) \<and>
      (\<forall>v. e = E_read_reg ''MDSCR_EL1'' (Regval_bitvector_32_dec v) \<longrightarrow> (\<not>v !! 15) \<and> (\<not>v !! 0))"
 
+definition branch_taken_of_state where
+  "branch_taken_of_state s \<equiv> (case branch_taken_writes s of v # _ \<Rightarrow> Some v | [] \<Rightarrow> reg_state s ''__BranchTaken'')"
+
+definition branch_taken_sequential where
+  "branch_taken_sequential s e \<equiv> (\<forall>v. e = E_read_reg ''__BranchTaken'' v \<longrightarrow> branch_taken_of_state s = Some v)"
+
 abbreviation ev_assms :: "invocation_state \<Rightarrow> register_value event \<Rightarrow> bool" where
-  "ev_assms s e \<equiv> ev_reads_invocation_regs_from_initial_reg_state s e \<and> debug_disabled e \<and> translation_assms e"
+  "ev_assms s e \<equiv>
+     ev_reads_invocation_regs_from_initial_reg_state s e \<and>
+     branch_taken_sequential s e \<and>
+     debug_disabled e \<and>
+     translation_assms e"
 
 sublocale Hoare_Logic where ev_assms = ev_assms and step_state = step_state .
 
@@ -1827,6 +1837,13 @@ lemma has_expected_load_add_simps[simp]:
   by (auto simp: add_branch_taken_write_def add_pcc_write_def add_idc_write_def add_pstate_write_def
            cong: has_expected_loads_cong)
 
+lemma has_expected_gpr_reads_cong:
+  assumes "load_auth_caps s = load_auth_caps s'" and "data_reg_caps s = data_reg_caps s'"
+    and "code_reg_caps s = code_reg_caps s'"  and "gpr_reads_after_write s \<longleftrightarrow> gpr_reads_after_write s'"
+  shows "has_expected_gpr_reads s \<longleftrightarrow> has_expected_gpr_reads s'"
+  using assms
+  by (auto simp: has_expected_gpr_reads_def)
+
 lemma has_expected_gpr_reads_add_simps[simp]:
   "has_expected_gpr_reads (add_branch_taken_write b s) = has_expected_gpr_reads s"
   "has_expected_gpr_reads (add_pcc_write c s) = has_expected_gpr_reads s"
@@ -1855,11 +1872,17 @@ lemma has_expected_pstate_writesI:
   using assms
   by (auto simp: has_expected_pstate_writes_def add_pstate_write_def is_branch_target_def original_code_caps_def cong: original_code_caps_cong)
 
+lemma has_expected_pstate_writes_cong:
+  assumes "pstate_writes s = pstate_writes s'" and "original_code_caps s = original_code_caps s'"
+  shows "has_expected_pstate_writes s \<longleftrightarrow> has_expected_pstate_writes s'"
+  using assms
+  by (auto simp: has_expected_pstate_writes_def)
+
 lemma has_expected_pstate_writes_add_simps[simp]:
   "has_expected_pstate_writes (add_branch_taken_write b s) = has_expected_pstate_writes s"
   "has_expected_pstate_writes (add_pcc_write c s) = has_expected_pstate_writes s"
-  by (auto simp: has_expected_pstate_writes_def add_branch_taken_write_def add_pcc_write_def
-           cong: original_code_caps_cong)
+  by (auto simp:  add_branch_taken_write_def add_pcc_write_def
+           cong: original_code_caps_cong has_expected_pstate_writes_cong)
 
 lemma BranchXToCapability_invocation_post_final:
   "pre_post_ignore_fail
@@ -3259,6 +3282,40 @@ proof -
           | (erule no_instr, solves \<open>no_reg_writes_toI\<close>))+)
 qed
 
+lemma pre_post_read_reg_BranchTaken:
+  "pre_post_ignore_fail
+     (\<lambda>s. \<forall>v. branch_taken_of_state s = Some (Regval_bool v) \<longrightarrow> Q v s)
+     (read_reg BranchTaken_ref :: bool M) Q E"
+  by (rule pre_post_read_reg[THEN pre_post_strengthen_pre])
+     (auto simp: register_defs branch_taken_sequential_def split: option.splits)
+
+lemma pre_post_SSAdvance:
+  "pre_post_ignore_fail (Q ()) (SSAdvance u) Q E"
+  unfolding SSAdvance_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close> intro: pre_post_write_reg pre_post_read_reg)
+     (auto simp: register_defs debug_disabled_read_reg_iff word_eq_iff nth_ucast split: option.splits)
+
+lemma has_expected_data_invocation_branch_not_taken:
+  assumes "has_expected_data_invocation s"
+    and "invoked_data_caps s = invoked_data_caps s'"
+    and "branch_taken_of_state s = Some (Regval_bool False)"
+  shows "has_expected_data_invocation s'"
+  using assms
+  by (auto simp: has_expected_data_invocation_def branch_taken_of_state_def)
+
+lemma pre_post_Step_PC_final:
+  "pre_post_ignore_fail invocation_post_final (Step_PC u) (\<lambda>_. invocation_post_final) E"
+  unfolding Step_PC_def
+  by (pre_postI_with \<open>-\<close> \<open>pre_post_ignore_fail_no_state_update_no_exception\<close>
+        intro: pre_post_SSAdvance pre_post_read_reg_BranchTaken pre_post_read_reg pre_post_write_reg)
+     (auto elim: has_expected_data_invocation_branch_not_taken simp: register_defs split: option.splits
+           cong: has_expected_loads_cong has_expected_pstate_writes_cong original_code_caps_cong
+                 has_expected_gpr_reads_cong invoked_data_caps_cong)
+
+lemma instrs_of_exp_instr_sem_DecodeA64:
+  "instrs_of_exp (bind (DecodeA64 pc opcode) Step_PC) = instrs_of_exp (DecodeA64 pc opcode)"
+  by (intro instrs_of_exp_bind_no_writes allI) no_reg_writes_toI
+
 lemma pre_post_instr_sem:
   assumes "instr_of_exp (instr_sem opcode) = Some instr"
     and "instr_may_invoke"
@@ -3266,9 +3323,9 @@ lemma pre_post_instr_sem:
            (\<lambda>s. s = initial_invocation_from_seq_state seq_s)
            (instr_sem opcode)
            (\<lambda>_ s. invocation_post_final s) is_expected_exception"
-  (* TODO: Thread through value of ''__BranchTaken'' into Step_PC to make sure that
-     the latter doesn't write to PCC again *)
-  sorry
+  unfolding instr_sem_def
+  by (pre_postI_with \<open>-\<close> \<open>fail\<close> intro: pre_post_Step_PC_final pre_post_DecodeA64)
+     (use assms in \<open>auto simp: instr_sem_def instr_of_exp_def is_singleton_def instrs_of_exp_instr_sem_DecodeA64 split: if_splits\<close>)
 
 lemma ev_reads_invocation_regs_from_initial_reg_stateI:
   assumes "\<not>invocation_regs_written s \<longrightarrow> (\<forall>r \<in> invocation_regs. \<forall>v. e = E_read_reg r v \<longrightarrow> reg_state s r = Some v)"
@@ -3284,15 +3341,24 @@ lemma s_run_trace_trace_assms:
     and "\<not>invocation_regs_written s \<longrightarrow> reg_state s = restrict_map (\<lambda>r. get_regval r (regstate seq_s)) invocation_regs"
     and "\<forall>e \<in> set t. translation_assms e"
     and "\<forall>e \<in> set t. debug_disabled e"
+    and "branch_taken_of_state s = get_regval ''__BranchTaken'' (regstate seq_s)"
   shows "trace_assms s t"
 proof (use assms in \<open>induction t arbitrary: s seq_s\<close>)
   case (Cons e t)
-  then show ?case
+  moreover have "branch_taken_sequential s e"
+    using Cons.prems
+    by (auto simp: branch_taken_sequential_def bind_eq_Some_conv split: if_splits list.splits)
+  moreover have branch_taken_of_state: "branch_taken_of_state (step_state s e) = branch_taken_of_state s"
+    if "\<forall>v. e \<noteq> E_write_reg ''__BranchTaken'' v"
+    using that
+    by (cases "(s, e)" rule: step_state.cases)
+       (auto simp: branch_taken_of_state_def split: option.splits list.splits)
+  ultimately show ?case
   proof (cases e)
     case (E_read_reg r v)
     have "invocation_regs_written (step_state s (E_read_reg r v)) \<longleftrightarrow> invocation_regs_written s"
       by (cases v) auto
-    with Cons E_read_reg show ?thesis
+    with Cons E_read_reg \<open>branch_taken_sequential s e\<close> branch_taken_of_state show ?thesis
       by (auto simp add: bind_eq_Some_conv simp del: step_state.simps intro: ev_reads_invocation_regs_from_initial_reg_stateI split: if_splits)
   next
     case (E_write_reg r v)
@@ -3305,11 +3371,14 @@ proof (use assms in \<open>induction t arbitrary: s seq_s\<close>)
       if "\<not>invocation_regs_written (step_state s e)"
       using regs' that
       by (intro ext) (auto simp: restrict_map_def invocation_regs_def intro: read_ignore_write[OF regs', symmetric])
-    then have "trace_assms (step_state s e) t"
+    moreover have [symmetric]: "get_regval ''__BranchTaken'' regs' = branch_taken_of_state (step_state s e)"
+      using E_write_reg regs' \<open>branch_taken_of_state s = get_regval ''__BranchTaken'' (regstate seq_s)\<close>[symmetric]
+      by (auto simp add: branch_taken_of_state_def read_ignore_write elim!: read_absorb_write split: list.splits)
+    ultimately have "trace_assms (step_state s e) t"
       using Cons.prems t invocation_regs_written
       by (intro Cons.IH[of "seq_s\<lparr>regstate := regs'\<rparr>"]) auto
     then show ?thesis
-      using Cons.prems E_write_reg
+      using Cons.prems E_write_reg \<open>branch_taken_sequential s e\<close>
       by (auto simp del: step_state.simps intro: ev_reads_invocation_regs_from_initial_reg_stateI)
   qed (auto simp: bind_eq_Some_conv intro: ev_reads_invocation_regs_from_initial_reg_stateI split: if_splits option.split)
 qed auto
@@ -3348,7 +3417,7 @@ proof (use assms(1) in \<open>cases rule: hasTrace_cases\<close>)
   note instr_t = instr_of_exp_instr_of_trace[OF determ_instrs_instr_sem instr assms(1)]
   have "trace_assms (initial_invocation_from_seq_state s) t"
     using assms(4,5)
-    by (intro s_run_trace_trace_assms[OF s]) auto
+    by (intro s_run_trace_trace_assms[OF s]) (auto simp: branch_taken_of_state_def)
   then have post: "invocation_post_final (run_state (initial_invocation_from_seq_state s) t)"
     using instr \<open>instr_may_invoke\<close>
     by (intro impI pre_post_RunE[OF pre_post_instr_sem Run]) auto
@@ -3377,7 +3446,7 @@ next
   case (Ex e)
   have trace_assms: "trace_assms (initial_invocation_from_seq_state s) t"
     using assms(4,5)
-    by (intro s_run_trace_trace_assms[OF s]) auto
+    by (intro s_run_trace_trace_assms[OF s]) (auto simp: branch_taken_of_state_def)
   then have "is_expected_exception e (run_state (initial_invocation_from_seq_state s) t)"
     using Ex pre_post_instr_sem[OF instr \<open>instr_may_invoke\<close>, where seq_s = s]
     by (elim pre_post_ExceptionE) auto
@@ -3836,7 +3905,7 @@ proof -
   let ?s' = "run_state (initial_invocation_from_seq_state s) t"
   have "trace_assms (initial_invocation_from_seq_state s) t"
     using assms(5,6)
-    by (intro s_run_trace_trace_assms[OF assms(7)]) auto
+    by (intro s_run_trace_trace_assms[OF assms(7)]) (auto simp: branch_taken_of_state_def)
   then have post_if: "invocation_post_final ?s'" if "instr_may_invoke"
     using assms(2) that
     by (intro impI pre_post_RunE[OF pre_post_instr_sem Run]) auto
