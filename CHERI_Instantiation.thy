@@ -6000,7 +6000,8 @@ fun sysreg_ev_assms :: "(Capability, register_value) axiom_state \<Rightarrow> r
 | "sysreg_ev_assms s (E_read_reg r (Regval_bitvector_32_dec v)) =
      ((r = ''CSCR_EL3'' \<longrightarrow> no_system_reg_access \<or> v !! 0) \<and>
       (r = ''EDSCR'' \<longrightarrow> (ucast v :: 6 word) = 2) \<and> \<comment> \<open>Non-debug state\<close>
-      (r = ''MDSCR_EL1'' \<longrightarrow> (\<not>v !! 15))) \<comment> \<open>Monitor debug events disabled (breakpoints/watchpoints)\<close>"
+      (r = ''MDSCR_EL1'' \<longrightarrow> (\<not>v !! 15) \<and> (\<not>v !! 0)))
+         \<comment> \<open>Monitor debug events (breakpoints/watchpoints) and software stepping disabled\<close>"
 | "sysreg_ev_assms s (E_read_reg r (Regval_signal v)) =
      (r = ''DBGEN'' \<longrightarrow> v = LOW)" (* No external debugger *)
 | "sysreg_ev_assms s (E_read_reg r (Regval_ProcState v)) =
