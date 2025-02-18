@@ -2098,7 +2098,7 @@ locale Morello_ISA = Morello_Fixed_Address_Translation
   (*Wellformed_Traces wellformed_ev is_isa_exception +
   Morello_Bounds_Address_Calculation
   for wellformed_ev :: "register_value event \<Rightarrow> bool" +
-  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" \<comment> \<open>assuming fixed translation throughout trace; TODO: Move Morello_Fixed_Address_Translation locale up\<close>
+  fixes translate_address :: "nat \<Rightarrow> acctype \<Rightarrow> nat option" \<comment> \<open>assuming fixed translation throughout trace\<close>
     and is_translation_event :: "register_value event \<Rightarrow> bool"
     and UNKNOWN_caps :: "Capability set"
   assumes no_cap_load_translation_events: "\<And>rk addr sz data. \<not>is_translation_event (E_read_memt rk addr sz data)"
@@ -2174,7 +2174,6 @@ definition original_code_caps_indirectly_invoked_in_trace :: "register_value tra
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> trace_invokes_indirect_sentries t \<and>
             trace_has_cap_load_auth t \<and>
-            \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
             (trace_indirect_sentry_type t = Some Points_to_Pair \<longrightarrow> vaddr = unat (CapGetValue sentry + 16)) \<and>
             translate_address vaddr = Some paddr \<and>
             E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>
@@ -2206,7 +2205,6 @@ definition trace_indirectly_invokes_data_caps :: "register_value trace \<Rightar
                  sz = nat CAPABILITY_DBYTES \<and>
                  sentry \<in> trace_invokes_indirect_sentries t \<and>
                  trace_has_cap_load_auth t \<and>
-                 \<comment> \<open>set (address_range (bounds_address AccType_NORMAL (unat (CapGetValue sentry))) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                  translate_address (unat (CapGetValue sentry)) = Some paddr \<and>
                  E_read_memt rk paddr sz (bytes, B1) \<in> set t \<and>
                  cap_of_mem_bytes bytes B1 = Some c' \<and> CapIsTagSet c' \<and>
@@ -2376,7 +2374,7 @@ lemma instr_of_trace_invocation_cases:
     and "instr_invokes_code_cap_from_reg instr = None"
     and "instr_invokes_data_cap_from_reg instr = None"
     and "(\<forall>n c. instr_invokes_indirect_cap_from_reg instr = Some n \<and> c \<in> trace_reads_caps_from_gpr n t \<longrightarrow>
-                  \<not>CapIsTagSet c \<or> get_indirect_sentry_type c \<noteq> Some sentry_type \<comment> \<open>\<or> \<not>cap_permits CAP_PERM_LOAD_CAP c\<close>)"
+                  \<not>CapIsTagSet c \<or> get_indirect_sentry_type c \<noteq> Some sentry_type)"
     and "trace_has_cap_load_auth t"
     and "original_code_caps_invoked_in_trace t =
            {c. \<exists>paddr. \<exists>e \<in> set t.
@@ -2393,12 +2391,11 @@ lemma instr_of_trace_invocation_cases:
     and "instr_invokes_indirect_caps opcode t =
            {CapUnseal c | c.
               c \<in> trace_reads_caps_from_gpr 29 t \<and> CapIsTagSet c \<and>
-              CapGetObjectType c = CAP_SEAL_TYPE_LB \<comment> \<open>\<and> cap_permits CAP_PERM_LOAD_CAP c\<close>}"
+              CapGetObjectType c = CAP_SEAL_TYPE_LB}"
     and "original_code_caps_invoked_in_trace t =
            {c. \<exists>sentry paddr vaddr. \<exists>e \<in> set t.
                   reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                   translate_address vaddr = Some paddr \<and>
-                  \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                   sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                   trace_has_cap_load_auth t}"
     and "instr_invokes_code_caps opcode t = clear_lsb ` \<Union>(mem_branch_caps ` original_code_caps_invoked_in_trace t)"
@@ -2409,13 +2406,12 @@ lemma instr_of_trace_invocation_cases:
     and "instr_invokes_indirect_caps opcode t =
            {CapUnseal c | c.
               c \<in> trace_reads_caps_from_gpr n t \<and> CapIsTagSet c \<and>
-              CapGetObjectType c = CAP_SEAL_TYPE_LPB \<comment> \<open>\<and> cap_permits CAP_PERM_LOAD_CAP c\<close>}"
+              CapGetObjectType c = CAP_SEAL_TYPE_LPB}"
     and "original_code_caps_invoked_in_trace t =
            {c. \<exists>sentry paddr vaddr. \<exists>e \<in> set t.
                   reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                   translate_address vaddr = Some paddr \<and>
                   vaddr = unat (CapGetValue sentry + 16) \<and>
-                  \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                   sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                   trace_has_cap_load_auth t}"
     and "instr_invokes_code_caps opcode t = clear_lsb ` \<Union>(mem_branch_caps ` original_code_caps_invoked_in_trace t)"
@@ -2424,7 +2420,6 @@ lemma instr_of_trace_invocation_cases:
                reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                translate_address vaddr = Some paddr \<and>
                vaddr = unat (CapGetValue sentry) \<and>
-               \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                trace_has_cap_load_auth t}"
     and "instr_invokes_indirect_caps opcode t \<noteq> {}"
@@ -2623,7 +2618,6 @@ proof -
                                reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                                translate_address vaddr = Some paddr \<and>
                                vaddr = unat (CapGetValue sentry + 16) \<and>
-                               \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                                sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                                trace_has_cap_load_auth t}"
           using Points_to_Pair assms
@@ -2641,7 +2635,6 @@ proof -
                           reads_mem_cap CC e = Some (paddr, 16, c) \<and>
                           translate_address vaddr = Some paddr \<and>
                           vaddr = unat (CapGetValue sentry) \<and>
-                          \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
                           sentry \<in> instr_invokes_indirect_caps opcode t \<and>
                           trace_has_cap_load_auth t}"
           using Points_to_Pair n assms
@@ -6626,7 +6619,7 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
      (\<forall>n cc cd. r \<in> R_name n \<and> invoked_data_reg = Some n \<and> cd \<in> caps_of_regval v \<and> cc \<in> original_reg_code_caps \<and> invokable CC cc cd
         \<longrightarrow> CapUnseal cd \<in> invoked_data_caps \<and> branch_caps (clear_lsb (CapUnseal cc)) \<subseteq> invoked_code_caps) \<and>
      (\<forall>n c sentry_type. r \<in> R_name n \<and> invoked_indirect_reg = Some n \<and> c \<in> caps_of_regval v \<and> indirect_sentry_type = Some sentry_type
-         \<longrightarrow> (if CapIsTagSet c \<and> CapIsSealed c \<and> get_indirect_sentry_type c = Some sentry_type \<comment> \<open>\<and> cap_permits CAP_PERM_LOAD_CAP c\<close>
+         \<longrightarrow> (if CapIsTagSet c \<and> CapIsSealed c \<and> get_indirect_sentry_type c = Some sentry_type
               then invoked_indirect_caps = {CapUnseal c} \<and> (sentry_type = Points_to_PCC \<longrightarrow> CapUnseal c \<in> invoked_data_caps) \<comment> \<open>Points-to-PCC sentry becomes data cap\<close>
               else invoked_indirect_caps = {})) \<and>
      (\<forall>n c. Option.bind instr_opt instr_load_auth = Some (RegAuth n) \<and> r \<in> R_name n \<and> c \<in> caps_of_regval v \<longrightarrow> c \<in> original_reg_load_auth_caps))"
@@ -6637,7 +6630,6 @@ fun invocation_ev_assms :: "register_value event \<Rightarrow> bool" where
             sz = nat CAPABILITY_DBYTES \<and>
             sentry \<in> invoked_indirect_caps \<and>
             use_mem_caps \<and>
-            \<comment> \<open>set (address_range (bounds_address AccType_NORMAL vaddr) 16) \<subseteq> get_mem_region CC sentry \<and>\<close>
             translate_address vaddr = Some paddr \<and>
             cap_of_mem_bytes bytes tag = Some c \<and> CapIsTagSet c \<and> tag = B1
             \<longrightarrow>
@@ -6684,11 +6676,6 @@ lemma instr_of_trace_Some_simps[simp]:
   unfolding trace_invokes_indirect_cap_from_reg_def trace_indirect_sentry_type_def
   by (use assms in \<open>auto\<close>)
 
-(*lemma get_mem_region_CapUnseal[simp]:
-  "get_mem_region CC (CapUnseal c) = get_mem_region CC c"
-  apply (auto simp: get_mem_region_def)
-  sorry*)
-
 (* TODO: Move *)
 lemma determ_instr_exp_instr_of_exp_None:
   assumes "determ_instr_exp m"
@@ -6727,117 +6714,6 @@ lemma no_code_or_data_cap_regs_if_indirect_sentry:
     and "instr_invokes_data_cap_from_reg instr = None"
   using assms
   by (auto elim: instr_indirect_sentry_type.elims)
-
-(* TODO: Make sure that set of invoked indirected capabilities is either empty or a singleton:
-     - Assume that GPRs/CSP behaves sequentially (gives the same value when read repeatedly)
-     - Show that instructions with indirect invocations don't read GPRs/CSP after writing it *)
-(*lemma instantiated_invocation_trace_assms:
-  assumes "(m, t, m') \<in> Traces"
-    and "determ_instr_exp m"
-    (* and "invoked_code_regs = set_option (exp_invokes_code_cap_from_reg m)" *)
-    (* and "invoked_data_regs = set_option (exp_invokes_data_cap_from_reg m)" *)
-    (* and "invoked_indirect_regs = set_option (exp_invokes_indirect_cap_from_reg m)" *)
-    (* and "indirect_sentry_type = exp_indirect_sentry_type m" *)
-    and "instr_opt = instr_of_exp m"
-    and "invoked_code_caps = instr_invokes_code_caps opcode t"
-    and "invoked_data_caps = instr_invokes_data_caps opcode t"
-    and "invoked_indirect_caps = trace_invokes_indirect_sentries t"
-    and "original_reg_code_caps = original_reg_code_caps_read_in_trace t"
-    and "original_reg_load_auth_caps = instr_trace_load_auth_caps t"
-    and "use_mem_caps \<longrightarrow> trace_has_cap_load_auth t"
-  shows "invocation_trace_assms t"
-proof (unfold invocation_trace_assms_def, intro ballI)
-  fix e
-  note invocation_defs = instr_invokes_code_caps_def instr_invokes_data_caps_def
-    trace_invokes_indirect_sentries_def trace_indirectly_invokes_code_caps_def
-    trace_indirectly_invokes_data_caps_def trace_invokes_direct_mem_sentries_def
-    exp_invokes_code_cap_from_reg_def exp_invokes_data_cap_from_reg_def
-    exp_invokes_indirect_cap_from_reg_def exp_indirect_sentry_type_def
-  assume e: "e \<in> set t"
-  show "invocation_ev_assms e"
-  proof (cases "instr_of_exp m")
-    case None
-    then show ?thesis
-      using assms e
-      by (induction e rule: invocation_ev_assms.induct; unfold invocation_ev_assms.simps) auto
-  next
-    case (Some instr)
-    then have Some': "instr_of_trace t = Some instr"
-      using determ_instr_of_exp_instr_of_trace[OF assms(2) Some assms(1)] e
-      by (cases t) auto
-    show ?thesis
-    proof (use e in \<open>induction e rule: invocation_ev_assms.induct[case_names E_read_reg E_read_memt]\<close>)
-      case (E_read_reg r v)
-      then show ?case
-        using assms Some Some'
-        unfolding invocation_ev_assms.simps
-        apply (cases rule: instr_of_trace_invocation_cases[OF Some', where opcode = opcode])
-        subgoal
-          by (auto simp: original_reg_code_caps_read_in_trace_def trace_invokes_code_cap_from_reg_def trace_reads_caps_from_gpr_def instr_invokes_indirect_caps_def no_code_or_data_cap_regs_if_indirect_cap_regs instr_trace_load_auth_caps_def trace_load_auths_def image_UN clear_lsb_image_branch_caps_eq)
-        subgoal
-          by (auto simp: original_reg_code_caps_read_in_trace_def trace_invokes_code_cap_from_reg_def trace_reads_caps_from_gpr_def instr_invokes_indirect_caps_def no_code_or_data_cap_regs_if_indirect_cap_regs instr_trace_load_auth_caps_def trace_load_auths_def image_UN clear_lsb_image_branch_caps_eq)
-        subgoal
-          by (auto simp: original_reg_code_caps_read_in_trace_def trace_invokes_code_cap_from_reg_def trace_reads_caps_from_gpr_def instr_invokes_indirect_caps_def no_code_or_data_cap_regs_if_indirect_cap_regs instr_trace_load_auth_caps_def trace_load_auths_def)
-        subgoal
-          apply (auto simp: original_reg_code_caps_read_in_trace_def trace_invokes_code_cap_from_reg_def trace_reads_caps_from_gpr_def instr_invokes_indirect_caps_def no_code_or_data_cap_regs_if_indirect_cap_regs CapIsSealed_def instr_trace_load_auth_caps_def trace_load_auths_def image_UN clear_lsb_image_mem_branch_caps_eq)
-          (* TODO: Uniqueness of cap in invoked indirect register *)
-          sorry
-        subgoal
-          apply (auto simp: original_reg_code_caps_read_in_trace_def trace_invokes_code_cap_from_reg_def trace_reads_caps_from_gpr_def instr_invokes_indirect_caps_def no_code_or_data_cap_regs_if_indirect_cap_regs CapIsSealed_def instr_trace_load_auth_caps_def trace_load_auths_def image_UN clear_lsb_image_mem_branch_caps_eq)
-          (* TODO: Uniqueness of cap in invoked indirect register *)
-          sorry
-        subgoal
-          apply (auto simp: instr_invokes_code_caps_def instr_invokes_data_caps_def instr_invokes_indirect_caps_def original_reg_code_caps_read_in_trace_def trace_reads_caps_from_gpr_def instr_trace_load_auth_caps_def trace_load_auths_def)
-          subgoal
-            by (auto simp: trace_invokes_reg_code_caps_def original_reg_code_caps_invoked_in_trace_def original_direct_reg_sentries_invoked_in_trace_def trace_reads_caps_from_gpr_def simp flip: clear_lsb_image_branch_caps_eq)
-          subgoal
-            apply (auto simp: trace_invokes_reg_code_caps_def original_reg_code_caps_invoked_in_trace_def original_direct_reg_sentries_invoked_in_trace_def trace_reads_caps_from_gpr_def original_cap_pairs_invoked_in_trace_def simp flip: clear_lsb_image_branch_caps_eq split: option.splits)
-            apply fastforce
-            done
-          subgoal
-            by (auto simp: trace_invokes_indirect_sentries_def trace_reads_caps_from_gpr_def)
-          subgoal
-            by (auto simp: trace_invokes_reg_code_caps_def original_reg_code_caps_invoked_in_trace_def original_direct_reg_sentries_invoked_in_trace_def trace_reads_caps_from_gpr_def simp flip: clear_lsb_image_branch_caps_eq)
-          subgoal
-            apply (auto simp: trace_invokes_reg_code_caps_def original_reg_code_caps_invoked_in_trace_def original_direct_reg_sentries_invoked_in_trace_def trace_reads_caps_from_gpr_def original_cap_pairs_invoked_in_trace_def simp flip: clear_lsb_image_branch_caps_eq split: option.splits)
-            apply fastforce
-            done
-          subgoal by (auto simp: trace_invokes_indirect_sentries_def trace_reads_caps_from_gpr_def)
-          done
-        done
-    next
-      case (E_read_memt rk paddr sz bytes tag)
-      then show ?case
-        using assms Some Some'
-        unfolding invocation_ev_assms.simps
-        apply (cases rule: instr_of_trace_invocation_cases[OF Some', where opcode = opcode])
-        subgoal by (auto simp: no_code_or_data_cap_regs_if_indirect_sentry split: option.split)
-        subgoal by (auto simp: no_code_or_data_cap_regs_if_indirect_sentry split: option.split)
-        subgoal
-          apply (auto simp: instr_invokes_indirect_caps_def mem_branch_caps_def CapUnseal_clear_lsb_commute is_sentry_def CapIsSealed_def reads_mem_cap_Some_iff' instr_trace_load_auth_caps_def trace_load_auths_def image_UN clear_lsb_image_branch_caps_eq)
-           apply fastforce
-          apply (cases "instr_load_auth instr")
-          apply fastforce
-          apply fastforce
-          done
-        subgoal
-          apply (auto simp: instr_invokes_indirect_caps_def instr_invokes_code_caps_def is_sentry_def CapIsSealed_def reads_mem_cap_Some_iff' instr_trace_load_auth_caps_def trace_load_auths_def image_UN clear_lsb_image_mem_branch_caps_eq)
-           apply fastforce
-          done
-        subgoal
-          apply (auto simp: instr_invokes_indirect_caps_def reads_mem_cap_Some_iff' image_UN clear_lsb_image_mem_branch_caps_eq)
-          apply fastforce
-          apply fastforce
-          done
-        subgoal
-          apply (auto simp: instr_invokes_indirect_caps_def instr_invokes_code_caps_def trace_invokes_direct_mem_sentries_def original_direct_mem_sentries_invoked_in_trace_def reads_mem_cap_Some_iff' image_UN clear_lsb_image_mem_branch_caps_eq split: option.split)
-          apply fastforce
-          apply fastforce
-          done
-        done
-    qed auto
-  qed
-qed*)
 
 lemma instr_None_invocation_trace_assms:
   assumes "instr_opt = None"

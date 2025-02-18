@@ -101,36 +101,29 @@ definition branch_instr_run_performs_expected_data_invocation where
                  cd \<in> instr_invokes_data_caps opcode t))"
 
 definition trace_has_reg_load_auth_for_addr where
-  "trace_has_reg_load_auth_for_addr t auth \<comment> \<open>vaddr sz\<close> \<equiv>
+  "trace_has_reg_load_auth_for_addr t auth \<equiv>
      (\<exists>n. trace_load_auths t = Some (RegAuth n) \<and>
           auth \<in> trace_reads_caps_from_gpr n t \<and>
-          CapIsTagSet auth
-          \<comment> \<open>\<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC auth\<close>)"
+          CapIsTagSet auth)"
 
 definition branch_instr_run_has_expected_invocation_loads where
   "branch_instr_run_has_expected_invocation_loads t \<equiv>
      (case trace_indirect_sentry_type t of
         Some Points_to_PCC \<Rightarrow>
           (\<exists>auth paddr vaddr c.
-              trace_has_reg_load_auth_for_addr t auth \<comment> \<open>vaddr 16\<close> \<and>
+              trace_has_reg_load_auth_for_addr t auth \<and>
               (get_indirect_sentry_type auth = Some Points_to_PCC \<and> CapUnseal auth \<in> trace_invokes_indirect_sentries t \<or> \<not>CapIsSealed auth) \<and>
-              \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(vaddr, c)} \<and>
-              mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
               translate_address vaddr = Some paddr \<and>
               initial_mem_cap_loads_of_trace t = {(paddr, c)} \<and>
               mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c})
       | Some Points_to_Pair \<Rightarrow>
           (\<exists>auth paddr_cc paddr_cd cc cd.
-              trace_has_reg_load_auth_for_addr t auth \<comment> \<open>(unat (CapGetValue auth)) 32\<close> \<and>
+              trace_has_reg_load_auth_for_addr t auth \<and>
               (get_indirect_sentry_type auth = Some Points_to_Pair \<and> CapUnseal auth \<in> trace_invokes_indirect_sentries t \<or> \<not>CapIsSealed auth) \<and>
-              \<comment> \<open>initial_mem_cap_vaddr_loads_of_trace t = {(unat (CapGetValue auth), cd), (unat (CapGetValue auth) + 16, cc)} \<and>
-              mem_cap_vaddr_loads_of_trace t \<subseteq> initial_mem_cap_vaddr_loads_of_trace t \<and>\<close>
               translate_address (unat (CapGetValue auth)) = Some paddr_cd \<and>
               translate_address (unat (CapGetValue auth + 16)) = Some paddr_cc \<and>
               initial_mem_cap_loads_of_trace t = {(paddr_cd, cd), (paddr_cc, cc)} \<and>
-              mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c} \<comment> \<open>\<and>
-              unat (CapGetValue auth + 16) = unat (CapGetValue auth) + 16 \<and>
-              bounds_address AccType_NORMAL (unat (CapGetValue auth) + 16) = bounds_address AccType_NORMAL (unat (CapGetValue auth)) + 16\<close>)
+              mem_cap_loads_of_trace t = {(paddr, c) | paddr c. (paddr, c) \<in> initial_mem_cap_loads_of_trace t \<and> CapIsTagSet c})
       | None \<Rightarrow> True)"
 
 definition branch_instr_trace_has_expected_exceptions where
@@ -143,7 +136,6 @@ definition branch_instr_trace_has_expected_exceptions where
 definition branch_instr_trace_has_expected_invocations where
   "branch_instr_trace_has_expected_invocations opcode t \<longleftrightarrow>
      (Run (instr_sem opcode) t () \<longrightarrow>
-        \<comment> \<open>branch_instr_run_performs_expected_invocation opcode t \<and>\<close>
         branch_instr_run_has_expected_gpr_reads t \<and>
         branch_instr_run_has_expected_invocation_loads t \<and>
         branch_instr_run_has_expected_pstate_writes opcode t)
@@ -792,8 +784,7 @@ fun step_state :: "invocation_state \<Rightarrow> register_value event \<Rightar
       load_auth_caps := (if is_load_auth_reg r then insert c (load_auth_caps s) else load_auth_caps s),
       gpr_reads_after_write := (if invocation_regs_written s \<and> r \<in> all_R_names then True else gpr_reads_after_write s)\<rparr>"
 | "step_state s (E_write_reg r v) =
-    s\<lparr>\<comment> \<open>reg_state := (if r \<in> dom (reg_state s) \<inter> invocation_regs then (reg_state s)(r\<mapsto>v) else reg_state s),\<close>
-      pcc_writes := (if r = ''PCC'' then v # pcc_writes s else pcc_writes s),
+    s\<lparr>pcc_writes := (if r = ''PCC'' then v # pcc_writes s else pcc_writes s),
       idc_writes := (if r = ''_R29'' then v # idc_writes s else idc_writes s),
       pstate_writes := (if r = ''PSTATE'' then v # pstate_writes s else pstate_writes s),
       branch_taken_writes := (if r = ''__BranchTaken'' then v # branch_taken_writes s else branch_taken_writes s),
@@ -847,7 +838,6 @@ definition original_reg_data_caps :: "invocation_state \<Rightarrow> Capability 
 
 definition invoked_data_caps :: "invocation_state \<Rightarrow> Capability set" where
   "invoked_data_caps s =
-     \<comment> \<open>original_reg_data_caps s \<union>\<close>
      (CapUnseal ` original_reg_data_caps s) \<union>
      \<Union>(mem_data_caps ` original_mem_data_caps s)"
 
@@ -880,13 +870,10 @@ definition has_expected_data_invocation where
 
 definition cap_authorises_load :: "Capability \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> bool" where
   "cap_authorises_load c vaddr sz \<equiv>
-     CapIsTagSet c \<and> \<comment> \<open>cap_permits CAP_PERM_LOAD_CAP c \<and>\<close>
+     CapIsTagSet c \<and>
      ((get_indirect_sentry_type c = instr_indirect_sentry_type instr \<and>
        instr_invokes_indirect_cap_from_reg instr \<noteq> None)
-      \<or> \<not>CapIsSealed c) \<comment> \<open>\<and>
-     valid_address AccType_NORMAL vaddr \<and>
-     bounds_address AccType_NORMAL vaddr + sz \<le> 2^64
-     \<and> set (address_range (bounds_address AccType_NORMAL vaddr) sz) \<subseteq> get_mem_region CC c\<close>"
+      \<or> \<not>CapIsSealed c)"
 
 definition has_expected_loads where
   "has_expected_loads s \<equiv>
@@ -2567,7 +2554,7 @@ abbreviation "invocation_sentry_pre_idc_write type c s \<equiv> load_auth_caps s
 definition is_VA_of_cap :: "VirtualAddress \<Rightarrow> Capability \<Rightarrow> bool" where
   "is_VA_of_cap va c \<equiv>
      VirtualAddress_vatype va = VA_Capability \<and>
-     ((VirtualAddress_base va = c \<comment> \<open>\<and> \<not>CapIsSealed c\<close>) \<or>
+     ((VirtualAddress_base va = c) \<or>
       (VirtualAddress_base va = CapUnseal c \<and>
        get_indirect_sentry_type c = instr_indirect_sentry_type instr \<and>
        instr_invokes_indirect_cap_from_reg instr \<noteq> None))"
